@@ -3,9 +3,9 @@
 // grpc.health.v1, the HTTP probe endpoints and the Consul check all read the
 // same states.
 //
-// Evaluation is serialized per kind: a periodic tick and a Serving flip
-// never interleave, so a slow check started before the gate opened cannot
-// overwrite the fresher result.
+// Each kind is driven by an xprobe runner, which serializes evaluation: a
+// periodic tick and a Serving flip never interleave, so a slow check started
+// before the gate opened cannot overwrite the fresher result.
 package health
 
 import (
@@ -19,6 +19,8 @@ import (
 
 	"github.com/gopherex/xlog"
 	"github.com/gopherex/xprobe/pkg/probe"
+	"github.com/gopherex/xprobe/pkg/reporter"
+	"github.com/gopherex/xprobe/pkg/runner"
 	"github.com/gopherex/xprobe/pkg/state"
 	grpcprobe "github.com/gopherex/xprobe/pkg/transport/grpc"
 	httpprobe "github.com/gopherex/xprobe/pkg/transport/http"
@@ -48,10 +50,9 @@ type Health struct {
 	states   [kinds]*state.State
 	serving  *probe.Bool
 
-	mu       sync.Mutex
-	probes   [kinds][]probe.Probe
-	combined [kinds]probe.Probe
-	eval     [kinds]sync.Mutex
+	mu      sync.Mutex
+	probes  [kinds][]probe.Probe
+	runners [kinds]*runner.Runner
 }
 
 // New creates the health component.
@@ -79,8 +80,8 @@ func (h *Health) Add(k Kind, p probe.Probe) {
 // immediately.
 func (h *Health) Serving(ctx context.Context, on bool) {
 	h.serving.Set(on)
-	h.evaluate(ctx, Ready)
-	h.evaluate(ctx, Startup)
+	h.check(ctx, Ready)
+	h.check(ctx, Startup)
 }
 
 // GRPC is the grpc.health.v1 server over the cached readiness.
@@ -98,18 +99,31 @@ func (h *Health) HTTP() http.Handler {
 // Name implements lifecycle.Component.
 func (h *Health) Name() string { return "health" }
 
-// Start builds the composites and re-evaluates each kind every interval.
+// Start builds the composites and re-evaluates each kind every interval; a
+// check may take up to one interval.
 func (h *Health) Start(ctx context.Context, g lifecycle.Group) error {
 	h.mu.Lock()
-	h.combined[Live] = probe.All(h.probes[Live]...)
-	h.combined[Ready] = probe.All(append([]probe.Probe{h.serving}, h.probes[Ready]...)...)
-	h.combined[Startup] = probe.All(append([]probe.Probe{h.serving}, h.probes[Startup]...)...)
-	h.mu.Unlock()
+	combined := [kinds]probe.Probe{
+		Live:    probe.All(h.probes[Live]...),
+		Ready:   probe.All(append([]probe.Probe{h.serving}, h.probes[Ready]...)...),
+		Startup: probe.All(append([]probe.Probe{h.serving}, h.probes[Startup]...)...),
+	}
 
 	for k := range Kind(kinds) {
-		h.evaluate(ctx, k)
-		g.Go(fmt.Sprintf("health.%s", k), func(ctx context.Context) error {
-			h.tick(ctx, k)
+		h.runners[k] = runner.New(combined[k], h.states[k],
+			runner.WithName(k.String()),
+			runner.WithInterval(h.interval),
+			runner.WithTimeout(h.interval),
+			runner.WithReporter(reporter.Func(h.report)))
+	}
+
+	runners := h.runners
+	h.mu.Unlock()
+
+	for k, r := range runners {
+		r.Check(ctx)
+		g.Go(fmt.Sprintf("health.%s", Kind(k)), func(ctx context.Context) error {
+			r.Run(ctx)
 
 			return nil
 		})
@@ -125,36 +139,18 @@ func (h *Health) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (h *Health) tick(ctx context.Context, k Kind) {
-	ticker := time.NewTicker(h.interval)
-	defer ticker.Stop()
+// check evaluates kind k now; a no-op before Start.
+func (h *Health) check(ctx context.Context, k Kind) {
+	h.mu.Lock()
+	r := h.runners[k]
+	h.mu.Unlock()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			h.evaluate(ctx, k)
-		}
+	if r != nil {
+		r.Check(ctx)
 	}
 }
 
-// evaluate checks kind k and stores the result; serialized per kind.
-func (h *Health) evaluate(ctx context.Context, k Kind) {
-	h.mu.Lock()
-	composite := h.combined[k]
-	h.mu.Unlock()
-
-	if composite == nil {
-		return
-	}
-
-	h.eval[k].Lock()
-	defer h.eval[k].Unlock()
-
-	status := composite.Check(ctx)
-	if prev, changed := h.states[k].Set(status); changed {
-		h.log.Info("health",
-			xlog.String("probe", k.String()), xlog.String("from", prev.String()), xlog.String("to", status.String()))
-	}
+func (h *Health) report(_ context.Context, ev reporter.Event) {
+	h.log.Info("health",
+		xlog.String("probe", ev.Name), xlog.String("from", ev.Prev.String()), xlog.String("to", ev.Cur.String()))
 }

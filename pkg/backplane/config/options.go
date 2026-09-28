@@ -21,7 +21,8 @@ type settings struct {
 	noConsul   bool
 	extra      []xconf.Source
 	consulOpts []consulsrc.Option
-	retryEvery time.Duration
+	retryMin   time.Duration
+	retryMax   time.Duration
 }
 
 // Service names the service when build.Service is not stamped.
@@ -55,5 +56,8 @@ func ConsulOptions(opts ...consulsrc.Option) Option {
 	return func(s *settings) { s.consulOpts = append(s.consulOpts, opts...) }
 }
 
-// RetryEvery sets how often Open retries an unreachable Consul (default 30s).
-func RetryEvery(d time.Duration) Option { return func(s *settings) { s.retryEvery = d } }
+// RetryBackoff bounds the exponential backoff between retries of an
+// unreachable Consul (default 1s..30s).
+func RetryBackoff(minDelay, maxDelay time.Duration) Option {
+	return func(s *settings) { s.retryMin, s.retryMax = minDelay, maxDelay }
+}

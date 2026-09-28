@@ -1,12 +1,12 @@
 // Package telemetry installs OpenTelemetry through xtrace's SDK bootstrap:
 // resource from the build identity, exporters from the standard OTEL_*
-// environment. Without an OTLP endpoint export stays off (one warning), so a
-// service never retries a collector that does not exist.
+// environment. A signal without an OTLP endpoint is not exported (xtrace
+// decides per signal), so a service never retries a collector that does not
+// exist.
 package telemetry
 
 import (
 	"context"
-	"os"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -45,13 +45,6 @@ func (t *Telemetry) Start(ctx context.Context, _ lifecycle.Group) error {
 		opts = append(opts, xsdk.WithAttributes(attribute.String("deployment.environment.name", t.id.Environment)))
 	}
 
-	export := exporting()
-	if !export {
-		t.log.Warn("telemetry export off: OTEL_EXPORTER_OTLP_ENDPOINT not set")
-
-		opts = append(opts, xsdk.WithoutTraces(), xsdk.WithoutMetrics(), xsdk.WithoutLogs())
-	}
-
 	shutdown, err := xsdk.Setup(ctx, opts...)
 	if err != nil {
 		t.log.Warn("telemetry setup failed, continuing without export", xlog.Err(err))
@@ -60,10 +53,8 @@ func (t *Telemetry) Start(ctx context.Context, _ lifecycle.Group) error {
 
 	t.shutdown = shutdown
 
-	if export {
-		if err := xsdk.StartHostRuntime(); err != nil {
-			t.log.Warn("runtime metrics", xlog.Err(err))
-		}
+	if err := xsdk.StartHostRuntime(); err != nil {
+		t.log.Warn("runtime metrics", xlog.Err(err))
 	}
 
 	return nil
@@ -76,20 +67,4 @@ func (t *Telemetry) Stop(ctx context.Context) error {
 	}
 
 	return t.shutdown(ctx)
-}
-
-// exporting reports whether any OTLP endpoint is configured.
-func exporting() bool {
-	for _, name := range []string{
-		"OTEL_EXPORTER_OTLP_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-	} {
-		if os.Getenv(name) != "" {
-			return true
-		}
-	}
-
-	return false
 }

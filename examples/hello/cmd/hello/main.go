@@ -29,9 +29,9 @@ import (
 type Config struct {
 	config.Backplane `json:"backplane"`
 
-	Greeter greeter.Config `json:"greeter" schemapb:"default={}"`
-	Store   store.Config   `json:"store"   schemapb:"default={}"`
-	Cache   store.Config   `json:"cache"   schemapb:"default={}"`
+	Greeter greeter.Config `json:"greeter"`
+	Store   store.Config   `json:"store"`
+	Cache   store.Config   `json:"cache"`
 }
 
 // Payloads of the hook and the activity.

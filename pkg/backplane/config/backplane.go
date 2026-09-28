@@ -17,10 +17,10 @@ import (
 // Its environment names are fixed (BACKPLANE_*) for every service. Every
 // dependency is optional for a service: an empty address means "without it".
 type Backplane struct {
-	Consul   Consul   `json:"consul"   schemapb:"default={}"`
-	NATS     NATS     `json:"nats"     schemapb:"default={}"`
-	Temporal Temporal `json:"temporal" schemapb:"default={}"`
-	Shutdown Shutdown `json:"shutdown" schemapb:"default={}"`
+	Consul   Consul   `json:"consul"`
+	NATS     NATS     `json:"nats"`
+	Temporal Temporal `json:"temporal"`
+	Shutdown Shutdown `json:"shutdown"`
 
 	// Instance id; default <service>-<hostname>.
 	Instance string `json:"instance,omitempty"`

@@ -248,8 +248,9 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_LOG_LEVEL`, `BACKPLANE_SHUTDOWN_TIMEOUT` | лог (`info`), бюджет остановки (25s) |
 | `BACKPLANE_CONFIG_FILE` | файл конфигурации (YAML/JSON) той же формы, что структура |
 
-Телеметрия — стандартные `OTEL_*` (xtrace `contrib/sdk`); без
-`OTEL_EXPORTER_OTLP_ENDPOINT` экспорт выключен, одно предупреждение.
+Телеметрия — стандартные `OTEL_*` (xtrace `contrib/sdk`); сигнал без
+endpoint (общего `OTEL_EXPORTER_OTLP_ENDPOINT` или своего
+`OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT`) не экспортируется, одна запись в лог.
 
 ### 4.4 SDK изнутри
 

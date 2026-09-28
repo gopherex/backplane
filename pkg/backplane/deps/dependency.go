@@ -178,7 +178,7 @@ func (c *depCell[T]) provide(ctx context.Context) error {
 // retry provides with backoff while err is set, until success or ctx ends.
 func (c *depCell[T]) retry(ctx context.Context, err error) error {
 	for delay := c.retryMin; err != nil; delay = min(delay*retryFactor, c.retryMax) {
-		c.node.Log().Warn("dependency unavailable, retrying", xlog.Err(err), xlog.String("in", delay.String()))
+		c.node.Log().Warn("dependency unavailable, retrying", xlog.Err(err), xlog.Duration("in", delay))
 
 		select {
 		case <-ctx.Done():

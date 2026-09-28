@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"time"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
 	"github.com/gopherex/xconf"
@@ -17,23 +16,18 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 )
 
-const defaultRetry = 30 * time.Second
-
 // Runtime is a loaded, live configuration. Value is stable for the life of
 // the runtime: static fields never change, Live fields change in place.
 type Runtime[C any] struct {
 	value  *C
 	schema *sp.Schema
 	live   []xconf.Path
-	open   func(withConsul bool) (*xconf.TypedRuntime[C], error)
-	retry  time.Duration
+	rt     *xconf.TypedRuntime[C]
 	stop   context.CancelFunc
 	wg     sync.WaitGroup
 	once   sync.Once
 
 	mu       sync.Mutex
-	rt       *xconf.TypedRuntime[C]
-	degraded error
 	rejected error
 	changes  []func()
 }
@@ -47,9 +41,10 @@ type Effective struct {
 }
 
 // Open loads the configuration and keeps it live: Consul KV (named by the
-// embedded Backplane block) overrides Live fields only. When Consul is
-// configured but unreachable, Open succeeds without that layer, reports it
-// through Degraded and keeps retrying. Close it when done.
+// embedded Backplane block) overrides Live fields only. The Consul layer is
+// resilient: unreachable at start it is empty, failing later it keeps its
+// last values; either way Open succeeds, Degraded reports it and the layer
+// recovers on its own. Close it when done.
 func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error) {
 	st, err := newSettings(opts)
 	if err != nil {
@@ -61,78 +56,49 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 		return nil, err
 	}
 
-	base, err := st.baseSources(reflect.TypeFor[C]())
+	sources, err := st.baseSources(reflect.TypeFor[C]())
 	if err != nil {
 		return nil, err
 	}
 
-	first, err := xconf.LoadAs[C](ctx, schema, base...)
+	first, err := xconf.LoadAs[C](ctx, schema, sources...)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 
-	consul := first.BackplaneConfig().Consul
-	withConsul := consul.Enabled() && !st.noConsul
 	live := LivePaths(schema)
 
-	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
-	r := &Runtime[C]{schema: schema, live: live, retry: st.retryEvery, stop: stop}
-
-	if r.retry <= 0 {
-		r.retry = defaultRetry
-	}
-
-	r.open = func(withConsul bool) (*xconf.TypedRuntime[C], error) {
-		sources := base
-
-		if withConsul {
-			src, err := st.consulSource(consul, live)
-			if err != nil {
-				return nil, err
-			}
-
-			sources = append(append([]xconf.Source{}, base...), src)
+	if consul := first.BackplaneConfig().Consul; consul.Enabled() && !st.noConsul {
+		src, err := st.consulSource(consul, live)
+		if err != nil {
+			return nil, err
 		}
 
-		return xconf.OpenAs[C](runCtx, schema, sources...)
+		sources = append(sources, src)
 	}
 
-	if err := r.load(runCtx, withConsul); err != nil {
+	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+
+	rt, err := xconf.OpenAs[C](runCtx, schema, sources...)
+	if err != nil {
 		stop()
 
-		return nil, err
-	}
-
-	if r.degraded != nil {
-		r.wg.Add(1)
-
-		go r.repair(runCtx)
-	}
-
-	return r, nil
-}
-
-// load opens the first runtime, without Consul when it is unreachable.
-func (r *Runtime[C]) load(ctx context.Context, withConsul bool) error {
-	rt, err := r.open(withConsul)
-	if err != nil && withConsul && fromConsul(err) {
-		r.degraded = err
-		rt, err = r.open(false)
-	}
-
-	if err != nil {
-		return fmt.Errorf("config: %w", err)
+		return nil, fmt.Errorf("config: %w", err)
 	}
 
 	value, err := rt.Current()
 	if err != nil {
-		return errors.Join(fmt.Errorf("config: decode: %w", err), rt.Close())
+		stop()
+
+		return nil, errors.Join(fmt.Errorf("config: decode: %w", err), rt.Close())
 	}
 
-	r.value = &value
-	r.adopt(ctx, rt)
+	r := &Runtime[C]{value: &value, schema: schema, live: live, rt: rt, stop: stop}
+	r.wg.Add(1)
 
-	return nil
+	go r.forward(runCtx)
+
+	return r, nil
 }
 
 func (st *settings) consulSource(c Consul, live []xconf.Path) (xconf.Source, error) {
@@ -144,48 +110,27 @@ func (st *settings) consulSource(c Consul, live []xconf.Path) (xconf.Source, err
 	prefix := "config/" + st.service + "/"
 	opts := append([]consulsrc.Option{consulsrc.Name(sourceConsul + prefix)}, st.consulOpts...)
 
-	return xconf.Optional(xconf.AllowPaths(consulsrc.NewPrefix(client.KV(), prefix, opts...), live...)), nil
-}
-
-func fromConsul(err error) bool {
-	var se *xconf.SourceError
-
-	return errors.As(err, &se) && strings.HasPrefix(se.Source, sourceConsul)
-}
-
-// adopt makes rt current and applies its updates.
-func (r *Runtime[C]) adopt(ctx context.Context, rt *xconf.TypedRuntime[C]) {
-	r.mu.Lock()
-	old := r.rt
-	r.rt = rt
-	r.mu.Unlock()
-
-	if old != nil {
-		_ = old.Close()
+	var retry []xconf.ResilientOption
+	if st.retryMin > 0 {
+		retry = append(retry, xconf.Backoff(st.retryMin, st.retryMax))
 	}
 
-	r.wg.Add(1)
+	src := xconf.Optional(xconf.AllowPaths(consulsrc.NewPrefix(client.KV(), prefix, opts...), live...))
 
-	go r.forward(ctx, rt)
+	return xconf.Resilient(src, retry...), nil
 }
 
-// forward applies rt's snapshots while rt is current.
-func (r *Runtime[C]) forward(ctx context.Context, rt *xconf.TypedRuntime[C]) {
+// forward applies the runtime's snapshots to Value.
+func (r *Runtime[C]) forward(ctx context.Context) {
 	defer r.wg.Done()
 
-	for ev := range rt.Subscribe(ctx) {
+	for ev := range r.rt.Subscribe(ctx) {
 		next, err := xconf.Decode[C](ev.Snapshot)
 		if ev.Err != nil {
 			err = ev.Err
 		}
 
 		r.mu.Lock()
-		if r.rt != rt {
-			r.mu.Unlock()
-
-			return
-		}
-
 		r.rejected = err
 		r.mu.Unlock()
 
@@ -247,44 +192,6 @@ func (r *Runtime[C]) notify() {
 	}
 }
 
-// repair retries the Consul layer until it opens, then swaps runtimes.
-func (r *Runtime[C]) repair(ctx context.Context) {
-	defer r.wg.Done()
-
-	ticker := time.NewTicker(r.retry)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-
-		rt, err := r.open(true)
-		if err == nil {
-			var next C
-
-			if next, err = rt.Current(); err == nil {
-				transfer(reflect.ValueOf(r.value).Elem(), reflect.ValueOf(&next).Elem())
-				r.adopt(ctx, rt)
-			} else {
-				_ = rt.Close()
-			}
-		}
-
-		r.mu.Lock()
-		r.degraded = err
-		r.mu.Unlock()
-
-		if err == nil {
-			r.notify()
-
-			return
-		}
-	}
-}
-
 // Value is the configuration. The pointer is stable; Live fields update in
 // place.
 func (r *Runtime[C]) Value() *C { return r.value }
@@ -303,22 +210,25 @@ func (r *Runtime[C]) OnChange(fn func()) {
 	r.changes = append(r.changes, fn)
 }
 
-// Degraded reports why the Consul layer is missing; nil when active or not
-// configured.
+// Degraded reports why the Consul layer is stale or empty; nil when healthy
+// or not configured.
 func (r *Runtime[C]) Degraded() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	for name, err := range r.rt.Snapshot().Degraded() {
+		if strings.HasPrefix(name, sourceConsul) {
+			return err
+		}
+	}
 
-	return r.degraded
+	return nil
 }
 
 // Effective reports masked values, provenance and the last rejected update.
 func (r *Runtime[C]) Effective() Effective {
 	r.mu.Lock()
-	rt, rejected := r.rt, r.rejected
+	rejected := r.rejected
 	r.mu.Unlock()
 
-	snap := rt.Snapshot()
+	snap := r.rt.Snapshot()
 	eff := Effective{Sources: map[string]backplanev1.ConfigSource{}, Err: rejected}
 
 	values, err := json.Marshal(snap.Baked().Masked().ToGo())
@@ -355,11 +265,8 @@ func (r *Runtime[C]) Close() error {
 
 	r.once.Do(func() {
 		r.stop()
-		r.mu.Lock()
-		rt := r.rt
-		r.mu.Unlock()
 
-		if cerr := rt.Close(); cerr != nil {
+		if cerr := r.rt.Close(); cerr != nil {
 			err = fmt.Errorf("config: close: %w", cerr)
 		}
 

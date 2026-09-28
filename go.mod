@@ -3,27 +3,28 @@ module github.com/gopherex/backplane
 go 1.26.0
 
 require (
-	github.com/gopherex/schemapb/go v0.0.0-20260928113412-04fd8b11d2cc
-	github.com/gopherex/ws-proto v1.5.1
-	github.com/gopherex/xconf v1.2.3
-	github.com/gopherex/xconf/contrib/decoders/json v1.2.3
-	github.com/gopherex/xconf/contrib/decoders/yaml v1.2.3
-	github.com/gopherex/xconf/contrib/sources/consul v1.2.3
-	github.com/gopherex/xconf/contrib/sources/env v1.2.3
-	github.com/gopherex/xconf/contrib/sources/file v1.2.3
-	github.com/gopherex/xlog v1.0.2
-	github.com/gopherex/xprobe v1.0.0
-	github.com/gopherex/xprobe/pkg/transport/grpc v1.0.0
+	github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5
+	github.com/gopherex/ws-proto v1.6.0
+	github.com/gopherex/xconf v1.3.0
+	github.com/gopherex/xconf/contrib/decoders/json v1.3.0
+	github.com/gopherex/xconf/contrib/decoders/yaml v1.3.0
+	github.com/gopherex/xconf/contrib/sources/consul v1.3.0
+	github.com/gopherex/xconf/contrib/sources/env v1.3.0
+	github.com/gopherex/xconf/contrib/sources/file v1.3.0
+	github.com/gopherex/xlog v1.1.0
+	github.com/gopherex/xprobe v1.1.0
+	github.com/gopherex/xprobe/pkg/transport/grpc v1.1.0
 	github.com/gopherex/xshutdown v1.0.0
-	github.com/gopherex/xtrace v1.0.2
-	github.com/gopherex/xtrace/contrib/libs/xlog v1.0.2
-	github.com/gopherex/xtrace/contrib/sdk v1.0.2
+	github.com/gopherex/xtrace v1.1.0
+	github.com/gopherex/xtrace/contrib/libs/xlog v1.1.0
+	github.com/gopherex/xtrace/contrib/sdk v1.1.0
 	github.com/hashicorp/consul/api v1.33.4
 	github.com/soheilhy/cmux v0.1.5
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
+	go.opentelemetry.io/otel/trace v1.45.0
 	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -78,7 +79,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.21.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect
-	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250808145144-a408d31f581a // indirect

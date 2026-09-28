@@ -4,7 +4,9 @@
 package wsproto
 
 import (
+	"maps"
 	"net/http"
+	"slices"
 
 	"google.golang.org/grpc"
 
@@ -28,15 +30,25 @@ func Serve(
 	register func(grpc.ServiceRegistrar), opts ...route.HTTPOption,
 ) {
 	srv := wsrpc.NewServer(originOption(origins))
-	reg := newRegistrar(srv)
+	reg := wsrpc.GRPCRegistrar(srv)
 	register(reg)
 
-	fds, err := manifest.Descriptors(reg.services)
+	var services []string
+	if si, ok := reg.(serviceInfo); ok {
+		services = slices.Sorted(maps.Keys(si.GetServiceInfo()))
+	}
+
+	fds, err := manifest.Descriptors(services)
 	if err != nil {
 		svc.Log().Warn("ws-proto descriptors", xlog.String("path", path), xlog.Err(err))
 	}
 
 	svc.HTTP(path, srv, append(opts, route.AsWSProto(fds))...)
+}
+
+// serviceInfo is implemented by wsrpc.GRPCRegistrar, like *grpc.Server.
+type serviceInfo interface {
+	GetServiceInfo() map[string]grpc.ServiceInfo
 }
 
 // originOption maps the policy onto wsrpc: its own check allows same-origin
