@@ -1,18 +1,20 @@
-// Package backoff is the SDK's one retry policy: exponential with jitter,
-// so instances recovering from the same outage do not retry in lockstep.
+// Package backoff is the SDK's retry policy as a value: bounds the author
+// can set, run by github.com/cenkalti/backoff (exponential, jittered, so
+// instances recovering from one outage do not retry in lockstep).
 package backoff
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"time"
+
+	cenkalti "github.com/cenkalti/backoff/v5"
 )
 
 const (
-	factor = 2
-	jitter = 0.2 // ±20%
+	multiplier = 2
+	jitter     = 0.2 // ±20%
 )
 
 // ErrPolicy: a policy that would spin or never grow.
@@ -32,39 +34,28 @@ func (p Policy) Validate() error {
 	return nil
 }
 
-// Next is the delay after prev (0 for the first retry), jittered.
-func (p Policy) Next(prev time.Duration) time.Duration {
-	next := p.Min
-	if prev > 0 {
-		next = min(time.Duration(float64(prev)*factor), p.Max)
-	}
-
-	return time.Duration(float64(next) * (1 - jitter + 2*jitter*rand.Float64())) //nolint:gosec // jitter, not crypto
-}
-
-// Retry calls fn until it succeeds or ctx ends; onRetry sees every failure
-// with the delay before the next attempt.
+// Retry calls fn until it succeeds or ctx ends, with no limit on attempts;
+// onRetry sees every failure with the delay before the next attempt.
 func Retry(
 	ctx context.Context, p Policy, fn func(ctx context.Context) error, onRetry func(err error, in time.Duration),
 ) error {
-	var delay time.Duration
-
-	for {
-		err := fn(ctx)
-		if err == nil {
-			return nil
-		}
-
-		delay = p.Next(delay)
-		onRetry(err, delay)
-
-		t := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-
-			return fmt.Errorf("%w (last error: %w)", ctx.Err(), err)
-		case <-t.C:
-		}
+	b := &cenkalti.ExponentialBackOff{
+		InitialInterval:     p.Min,
+		RandomizationFactor: jitter,
+		Multiplier:          multiplier,
+		MaxInterval:         p.Max,
 	}
+
+	var last error
+
+	_, err := cenkalti.Retry(ctx, func() (struct{}, error) {
+		last = fn(ctx)
+
+		return struct{}{}, last
+	}, cenkalti.WithBackOff(b), cenkalti.WithMaxElapsedTime(0), cenkalti.WithNotify(onRetry))
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("%w (last error: %w)", ctx.Err(), last)
+	}
+
+	return err //nolint:wrapcheck // fn's error as is
 }

@@ -187,7 +187,10 @@ func (p *Presence) Stop(ctx context.Context) error {
 	}
 
 	var errs []error
-	if p.register {
+
+	// The catalog entry is keyed by instance id: a live duplicate holding
+	// the state key owns it too, so only its holder deregisters.
+	if p.register && p.holdsState(ctx) {
 		errs = append(errs, p.client.Agent().ServiceDeregisterOpts(p.id.Instance, query(ctx)))
 	}
 
@@ -198,6 +201,22 @@ func (p *Presence) Stop(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// holdsState reports whether our session holds the instance state key; an
+// unreachable Consul counts as holding it (best-effort leave).
+func (p *Presence) holdsState(ctx context.Context) bool {
+	session := p.currentSession()
+	if session == "" {
+		return false
+	}
+
+	kv, _, err := p.client.KV().Get(p.key("instances/"+p.id.Instance), query(ctx))
+	if err != nil {
+		return true
+	}
+
+	return kv != nil && kv.Session == session
 }
 
 // enter marks the loop running unless Stop came first.

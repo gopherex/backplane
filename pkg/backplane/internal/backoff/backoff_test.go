@@ -33,29 +33,6 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func within(t *testing.T, got, want time.Duration) {
-	t.Helper()
-
-	lo, hi := time.Duration(float64(want)*0.8), time.Duration(float64(want)*1.2)
-	if got < lo || got > hi {
-		t.Fatalf("delay %v outside %v..%v", got, lo, hi)
-	}
-}
-
-func TestNextGrowsWithinJitterAndCaps(t *testing.T) {
-	t.Parallel()
-
-	p := backoff.Policy{Min: 100 * time.Millisecond, Max: time.Second}
-
-	for range 100 {
-		within(t, p.Next(0), 100*time.Millisecond)
-		within(t, p.Next(100*time.Millisecond), 200*time.Millisecond)
-		within(t, p.Next(300*time.Millisecond), 600*time.Millisecond)
-		within(t, p.Next(800*time.Millisecond), time.Second)
-		within(t, p.Next(time.Hour), time.Second)
-	}
-}
-
 func TestRetryUntilSuccess(t *testing.T) {
 	t.Parallel()
 

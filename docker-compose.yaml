@@ -27,23 +27,12 @@ services:
     command: -js -m 8222
     ports: ["4222:4222", "8222:8222"]
 
+  # Dev server: SQLite in memory, Nexus enabled; enough for development
+  # and conformance. Production runs a real Temporal cluster.
   temporal:
-    image: temporalio/auto-setup:1.29
-    environment:
-      DB: postgres12
-      DB_PORT: "5432"
-      POSTGRES_USER: backplane
-      POSTGRES_PWD: backplane
-      POSTGRES_SEEDS: postgres
-    depends_on: [postgres]
-    ports: ["7233:7233"]
-
-  temporal-ui:
-    image: temporalio/ui:2.40.1
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-    depends_on: [temporal]
-    ports: ["8233:8080"]
+    image: temporalio/temporal:1.5.1
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--ui-port", "8233", "--namespace", "default"]
+    ports: ["7233:7233", "8233:8233"]
 
 volumes:
   pg: {}

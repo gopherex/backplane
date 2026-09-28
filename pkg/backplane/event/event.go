@@ -64,7 +64,7 @@ func (r Ref[T]) Publish(ctx context.Context, v T, opts ...PublishOption) error {
 		o.apply(&p)
 	}
 
-	t := r.env.Transport()
+	t := r.env.Broker()
 	if t == nil {
 		return fmt.Errorf("event %s: %w", r.Name(), ErrUnavailable)
 	}
@@ -93,12 +93,12 @@ func React[T any](scope deps.Scope, event string, fn func(ctx context.Context, v
 	}
 
 	e.Manifest.Subscription(&backplanev1.Subscription{Event: event, Consumer: consumer})
-	e.Reactor(consumer, func(ctx context.Context, in []byte) ([]byte, error) {
+	e.Reactor(env.Reactor{Event: event, Consumer: consumer, Handler: func(ctx context.Context, in []byte) ([]byte, error) {
 		var v T
 		if err := decl.Decode(in, &v); err != nil {
 			return nil, fmt.Errorf("reactor %s: decode: %w", consumer, err)
 		}
 
 		return nil, fn(ctx, v)
-	})
+	}})
 }

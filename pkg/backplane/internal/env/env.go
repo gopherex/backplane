@@ -7,6 +7,7 @@ package env
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
@@ -16,15 +17,38 @@ import (
 // ErrUnavailable: no transport carries this call (yet).
 var ErrUnavailable = errors.New("backplane: transport unavailable")
 
-// Transport carries events and hook calls; payloads are encoded JSON. The
-// SDK installs one when NATS/Temporal are wired; tests install a recorder.
-type Transport interface {
+// ErrNoBinding: backplane has no binding for the hook.
+var ErrNoBinding = errors.New("no binding")
+
+// NonRetryableError marks a handler error the transport must not retry:
+// the input is wrong, retrying cannot help.
+type NonRetryableError struct{ Err error }
+
+func (e NonRetryableError) Error() string { return e.Err.Error() }
+
+func (e NonRetryableError) Unwrap() error { return e.Err }
+
+// Broker carries events (NATS JetStream; a recorder in tests). payload is
+// encoded JSON.
+type Broker interface {
 	Publish(ctx context.Context, event, key string, payload []byte) error
+}
+
+// Caller carries hook calls (Temporal Nexus; a stub in tests). Payloads are
+// encoded JSON.
+type Caller interface {
 	Call(ctx context.Context, hook string, in []byte) ([]byte, error)
 }
 
 // Handler serves an activity or a reactor; payloads are encoded JSON.
 type Handler func(ctx context.Context, in []byte) ([]byte, error)
+
+// Reactor is a declared durable consumer of another service's event.
+type Reactor struct {
+	Event    string // full name "<service>.<Event>"
+	Consumer string // unique within the service
+	Handler  Handler
+}
 
 // Env of one service.
 type Env struct {
@@ -32,14 +56,17 @@ type Env struct {
 	Manifest *manifest.Builder
 
 	mu         sync.RWMutex
-	transport  Transport
+	broker     Broker
+	caller     Caller
 	activities map[string]Handler
-	reactors   map[string]Handler // by consumer
+	reactors   []Reactor
+	registers  []func(registry any)
+	workflows  func() (any, error)
 }
 
 // New creates the env of service.
 func New(service string, m *manifest.Builder) *Env {
-	return &Env{Service: service, Manifest: m, activities: map[string]Handler{}, reactors: map[string]Handler{}}
+	return &Env{Service: service, Manifest: m, activities: map[string]Handler{}}
 }
 
 // Of returns the env of the tree n belongs to.
@@ -49,20 +76,36 @@ func Of(n *node.Node) *Env {
 	return e
 }
 
-// SetTransport installs the transport; nil removes it.
-func (e *Env) SetTransport(t Transport) {
+// SetBroker installs the event transport; nil removes it.
+func (e *Env) SetBroker(b Broker) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.transport = t
+	e.broker = b
 }
 
-// Transport is the installed transport or nil.
-func (e *Env) Transport() Transport {
+// Broker is the installed event transport or nil.
+func (e *Env) Broker() Broker {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	return e.transport
+	return e.broker
+}
+
+// SetCaller installs the hook transport; nil removes it.
+func (e *Env) SetCaller(c Caller) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.caller = c
+}
+
+// Caller is the installed hook transport or nil.
+func (e *Env) Caller() Caller {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return e.caller
 }
 
 // Activity stores the handler of a declared activity.
@@ -73,12 +116,33 @@ func (e *Env) Activity(name string, h Handler) {
 	e.activities[name] = h
 }
 
-// Reactor stores the handler of a declared reactor.
-func (e *Env) Reactor(consumer string, h Handler) {
+// Reactor stores a declared reactor.
+func (e *Env) Reactor(r Reactor) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.reactors[consumer] = h
+	e.reactors = append(e.reactors, r)
+}
+
+// Reactors lists the declared reactors in declaration order.
+func (e *Env) Reactors() []Reactor {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return append([]Reactor(nil), e.reactors...)
+}
+
+// Activities lists the declared activities by name.
+func (e *Env) Activities() map[string]Handler {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	out := make(map[string]Handler, len(e.activities))
+	for k, v := range e.activities {
+		out[k] = v
+	}
+
+	return out
 }
 
 // ActivityHandler returns the handler of a declared activity.
@@ -96,7 +160,49 @@ func (e *Env) ReactorHandler(consumer string) (Handler, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	h, ok := e.reactors[consumer]
+	for _, r := range e.reactors {
+		if r.Consumer == consumer {
+			return r.Handler, true
+		}
+	}
 
-	return h, ok
+	return nil, false
+}
+
+// RegisterWorker adds fn, called with the service's Temporal worker
+// (worker.Registry) whenever the worker is built.
+func (e *Env) RegisterWorker(fn func(registry any)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.registers = append(e.registers, fn)
+}
+
+// WorkerRegistrations are the functions given to RegisterWorker.
+func (e *Env) WorkerRegistrations() []func(registry any) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return append([]func(any){}, e.registers...)
+}
+
+// SetWorkflowClient installs how the Temporal client is reached.
+func (e *Env) SetWorkflowClient(fn func() (any, error)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.workflows = fn
+}
+
+// WorkflowClient is the connected Temporal client (a client.Client).
+func (e *Env) WorkflowClient() (any, error) {
+	e.mu.RLock()
+	fn := e.workflows
+	e.mu.RUnlock()
+
+	if fn == nil {
+		return nil, fmt.Errorf("temporal is not configured: %w", ErrUnavailable)
+	}
+
+	return fn()
 }

@@ -158,7 +158,11 @@ linters:
         - github.com/gopherex/xconf.Source
         # The installed transport and the tree's readiness are interfaces by
         # nature: whatever carries events, whatever composite of probes.
-        - github.com/gopherex/backplane/pkg/backplane/internal/env.Transport
+        - github.com/gopherex/backplane/pkg/backplane/internal/env.Broker
+        - github.com/gopherex/backplane/pkg/backplane/internal/env.Caller
+        # Temporal's client and logger are interfaces by the SDK's design.
+        - go.temporal.io/sdk/client.Client
+        - go.temporal.io/sdk/log.Logger
         - github.com/gopherex/xprobe/pkg/probe.Probe
         # A component exposes its OpenTelemetry tracer and meter as is.
         - go.opentelemetry.io/otel/trace.Tracer

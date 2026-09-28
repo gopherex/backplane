@@ -775,3 +775,65 @@ func TestDuplicateInstanceNotEvicted(t *testing.T) {
 		t.Fatalf("key taken back from the newer process: %v %v", kv, err)
 	}
 }
+
+// A duplicate that lost the state key leaves the catalog entry to the
+// process that holds it.
+//
+//nolint:paralleltest // shares one Consul with other packages' tests
+func TestDuplicateStopKeepsHoldersRegistration(t *testing.T) {
+	c := client(t)
+	id := consul.Identity{
+		Service: "presence-dupreg", Version: "1.0.0", Instance: "presence-dupreg-1",
+		Address: "127.0.0.1", PlatformPort: 1,
+	}
+	key := stateKey(id)
+
+	t.Cleanup(func() {
+		_, _ = c.KV().DeleteTree("backplane/services/presence-dupreg/", nil)
+		_ = c.Agent().ServiceDeregister(id.Instance)
+	})
+
+	older, err := consul.New(consul.Params{
+		Client: c, Identity: id, Register: true, Log: testlog.Discard(),
+		Manifest: &backplanev1.Manifest{Service: id.Service, Version: id.Version},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	older.UseFastTiming()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := older.Start(ctx, group{ctx}); err != nil {
+		t.Fatal(err)
+	}
+
+	eventually(t, "older established", func() bool {
+		kv, _, _ := c.KV().Get(key, nil)
+
+		return kv != nil && kv.Session == older.Session()
+	})
+
+	newer := start(t, consul.Params{Client: c, Identity: id, Register: true})
+
+	eventually(t, "newer took over", func() bool {
+		kv, _, _ := c.KV().Get(key, nil)
+
+		return kv != nil && kv.Session == newer.Session()
+	})
+
+	cancel()
+
+	if err := older.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	services, err := c.Agent().Services()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := services[id.Instance]; !ok {
+		t.Fatal("the stopped duplicate deregistered the holder's catalog entry")
+	}
+}

@@ -92,6 +92,14 @@ func (b *Builder) Seal() {
 	b.sealed = true
 }
 
+// Sealed reports whether declarations have ended.
+func (b *Builder) Sealed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.sealed
+}
+
 // Config records the configuration schema and its live paths.
 func (b *Builder) Config(schema *sp.Schema, live []string) {
 	b.with("config", func(m *backplanev1.Manifest) error {
@@ -168,6 +176,14 @@ func (b *Builder) Event(e *backplanev1.Event) {
 
 		return b.unique("event", e.GetName())
 	})
+}
+
+// HasEvents reports whether the service declared an event.
+func (b *Builder) HasEvents() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return len(b.m.GetEvents()) > 0
 }
 
 // Subscription records a reactor.

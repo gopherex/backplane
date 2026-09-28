@@ -50,7 +50,8 @@ func New(tb testing.TB) *Harness {
 	m := manifest.New("test", "0.0.0")
 	e := env.New("test", m)
 	rec := &recorder{published: map[string][][]byte{}, hooks: map[string]env.Handler{}}
-	e.SetTransport(rec)
+	e.SetBroker(rec)
+	e.SetCaller(rec)
 
 	svc := node.New("test", testlog.Discard(), e)
 

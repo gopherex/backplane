@@ -17,6 +17,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/gate"
@@ -26,6 +27,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 	"github.com/gopherex/backplane/pkg/backplane/internal/telemetry"
+	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
 const (
@@ -58,6 +60,8 @@ type core struct {
 	svc *node.Node // service root: the SDK's nodes and the author's tree
 	app *node.Node // the author's tree
 
+	broker   *broker.Broker   // nil without NATS
+	temporal *temporal.Client // nil without Temporal
 	health   *health.Health
 	guard    guard.Guard
 	gate     *gate.Gate
@@ -103,11 +107,39 @@ func newCore(ctx context.Context, o options, conf configrt.State, cfg config.Bac
 	hn.OnStart(func(ctx context.Context) error { return c.health.Start(ctx, hn) })
 
 	c.listen("platform", listenAddr(cfg.InternalPort), c.internal, c.platformHandler())
+	c.connect()
 
 	c.app = c.svc.Child(id.Service, node.Root, false)
 	c.health.Add(health.Ready, c.app.Readiness())
 
 	return c
+}
+
+// connect adds the NATS and Temporal connections ahead of the author's tree,
+// so components may publish and call hooks from their start.
+func (c *core) connect() {
+	if c.cfg.NATS.Enabled() {
+		c.broker = broker.New(broker.Params{
+			URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds.Reveal(),
+			Service: c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
+		})
+		n := c.svc.Child("nats", node.System, false)
+		n.OnStart(func(ctx context.Context) error { return c.broker.Connect(ctx, n) })
+		n.OnStop(c.broker.Close)
+		c.env.SetBroker(c.broker)
+	}
+
+	if c.cfg.Temporal.Enabled() {
+		c.temporal = temporal.New(temporal.Params{
+			Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace,
+			Service: c.id.Service, Instance: c.id.Instance, Log: c.log, Env: c.env,
+		})
+		n := c.svc.Child("temporal", node.System, false)
+		n.OnStart(func(ctx context.Context) error { return c.temporal.Connect(ctx, n) })
+		n.OnStop(c.temporal.Close)
+		c.env.SetCaller(c.temporal)
+		c.env.SetWorkflowClient(func() (any, error) { return c.temporal.SDK() })
+	}
 }
 
 // listen adds a listener node.

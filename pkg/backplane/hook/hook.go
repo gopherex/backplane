@@ -1,21 +1,29 @@
 // Package hook declares operations a service calls without implementing
-// them ("нужно"). Who answers is a binding in backplane; the call travels
-// over the service's transport (Temporal Nexus, M2). Without a transport
-// Call returns ErrUnavailable.
+// them ("нужно"). Who answers is a binding in backplane; the call is a
+// Temporal Nexus operation <Name> of service <service>.Hooks on endpoint
+// <service>. Call works from any Go code; WorkflowCall is the same call from
+// workflow code. Without Temporal Call returns ErrUnavailable.
 package hook
 
 import (
 	"context"
 	"fmt"
 
+	"go.temporal.io/sdk/workflow"
+
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
-// ErrUnavailable is returned while no transport carries hook calls.
-var ErrUnavailable = env.ErrUnavailable
+var (
+	// ErrUnavailable is returned while no transport carries hook calls.
+	ErrUnavailable = env.ErrUnavailable
+	// ErrNoBinding: backplane has no binding for the hook.
+	ErrNoBinding = env.ErrNoBinding
+)
 
 // Ref is a declared hook. The zero Ref is undeclared: Call fails.
 type Ref[Req, Res any] struct {
@@ -65,7 +73,9 @@ func (r Ref[Req, Res]) Name() string {
 	return r.env.Service + "." + r.name
 }
 
-// Call raises the hook and waits for the bound implementation.
+// Call raises the hook and waits for the bound implementation within ctx
+// (30s when ctx has no deadline). Outside workflow code only: in a workflow
+// use WorkflowCall.
 func (r Ref[Req, Res]) Call(ctx context.Context, in Req) (Res, error) {
 	var out Res
 
@@ -73,7 +83,7 @@ func (r Ref[Req, Res]) Call(ctx context.Context, in Req) (Res, error) {
 		return out, fmt.Errorf("hook: call on an undeclared Ref: %w", ErrUnavailable)
 	}
 
-	t := r.env.Transport()
+	t := r.env.Caller()
 	if t == nil {
 		return out, fmt.Errorf("hook %s: %w", r.Name(), ErrUnavailable)
 	}
@@ -89,6 +99,39 @@ func (r Ref[Req, Res]) Call(ctx context.Context, in Req) (Res, error) {
 	}
 
 	if err := decl.Decode(res, &out); err != nil {
+		return out, fmt.Errorf("hook %s: decode: %w", r.Name(), err)
+	}
+
+	return out, nil
+}
+
+// WorkflowCall raises the hook from workflow code: the Nexus operation
+// directly, no extra workflow. The rest of the run's timeout is the call's
+// deadline. The error is readable ("hook <service>.<Name>: no binding")
+// and matches ErrNoBinding when there is no binding.
+func (r Ref[Req, Res]) WorkflowCall(ctx workflow.Context, in Req) (Res, error) {
+	var out Res
+
+	if r.env == nil {
+		return out, fmt.Errorf("hook: call on an undeclared Ref: %w", ErrUnavailable)
+	}
+
+	payload, err := decl.Encode(in)
+	if err != nil {
+		return out, fmt.Errorf("hook %s: encode: %w", r.Name(), err)
+	}
+
+	res, err := temporal.ExecuteHook(ctx, &backplanev1.HookCall{
+		Hook:     r.Name(),
+		Payload:  payload,
+		Trace:    temporal.WorkflowTrace(ctx),
+		Deadline: temporal.WorkflowDeadline(ctx),
+	})
+	if err != nil {
+		return out, fmt.Errorf("hook %s: %w", r.Name(), temporal.Local(err))
+	}
+
+	if err := decl.Decode(res.GetPayload(), &out); err != nil {
 		return out, fmt.Errorf("hook %s: decode: %w", r.Name(), err)
 	}
 

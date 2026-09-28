@@ -106,12 +106,15 @@ func (c *core) seal() (*backplanev1.Manifest, error) {
 }
 
 // tail adds the nodes that follow the author's tree: internal API gate,
-// public ports, the drain pause, Consul presence and the serving gate. They
-// start in this order and stop in reverse.
+// reactors, the Temporal worker, public ports, the drain pause, Consul
+// presence and the serving gate. They start in this order and stop in
+// reverse: traffic of every kind ends before the tree stops.
 func (c *core) tail(m *backplanev1.Manifest) {
 	gn := c.svc.Child("internal-api", node.System, false)
 	gn.OnStart(func(context.Context) error { c.gate.Open(); return nil })
 	gn.OnStop(c.gate.Close)
+
+	c.work(m)
 
 	for _, p := range c.public {
 		c.listen("public"+p.addr, p.addr, p.grpc, p.handler())
@@ -129,6 +132,30 @@ func (c *core) tail(m *backplanev1.Manifest) {
 	sn := c.svc.Child("serving", node.System, false)
 	sn.OnStart(func(ctx context.Context) error { c.health.Serving(ctx, true); return nil })
 	sn.OnStop(func(ctx context.Context) error { c.health.Serving(ctx, false); return nil })
+}
+
+// work adds the event reactors and the Temporal worker when the service
+// declared something for them; without the transport it warns.
+func (c *core) work(m *backplanev1.Manifest) {
+	switch {
+	case len(m.GetSubscriptions()) == 0:
+	case c.broker == nil:
+		c.log.Warn("reactors declared but NATS is not configured: events will not be consumed")
+	default:
+		n := c.svc.Child("reactors", node.System, false)
+		n.OnStart(func(ctx context.Context) error { return c.broker.StartReactors(ctx, n) })
+		n.OnStop(c.broker.StopReactors)
+	}
+
+	switch {
+	case len(m.GetActivities()) == 0 && len(m.GetHooks()) == 0 && len(c.env.WorkerRegistrations()) == 0:
+	case c.temporal == nil:
+		c.log.Warn("activities, hooks or workflows declared but Temporal is not configured: they are unavailable")
+	default:
+		n := c.svc.Child("worker", node.System, false)
+		n.OnStart(func(ctx context.Context) error { return c.temporal.StartWorker(ctx, n) })
+		n.OnStop(c.temporal.StopWorker)
+	}
 }
 
 // pause waits d or until ctx ends: load balancers catch up with the

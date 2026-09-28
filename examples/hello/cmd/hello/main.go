@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -23,6 +24,9 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/route"
 	"github.com/gopherex/backplane/pkg/backplane/wsproto"
 )
+
+// greetTimeout bounds the hook call of the HTTP handler.
+const greetTimeout = 2 * time.Second
 
 // Config is the whole configuration: file < env (HELLO_*, BACKPLANE_* for the
 // block) < Consul KV for Live fields only.
@@ -148,8 +152,12 @@ func run(ctx context.Context) error {
 			name = "world"
 		}
 
-		// A bound hook answers first; the local greeter is the fallback.
-		if out, err := st.Greet.Call(r.Context(), GreetIn{Name: name}); err == nil {
+		// A bound hook answers first; the local greeter is the fallback when
+		// there is no Temporal, no binding or no answer in time.
+		ctx, cancel := context.WithTimeout(r.Context(), greetTimeout)
+		defer cancel()
+
+		if out, err := st.Greet.Call(ctx, GreetIn{Name: name}); err == nil {
 			fmt.Fprintln(w, out.Text)
 
 			return

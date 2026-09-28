@@ -224,8 +224,8 @@ JSON-payload (§8). `event.Declare[T](scope, "Greeted")` возвращает
 `iam.SendEmail(to, template, data) → {message_id}`. Кто и как ответит —
 биндинг в backplane (§7). `hook.Declare[Req, Res](scope, "SendEmail",
 hook.Required())` возвращает `hook.Ref[Req, Res]`; `ref.Call(ctx, req)`
-работает из любого кода — HTTP-handler'а, workflow, чего угодно; путь
-выбирает SDK (§7.2). Хук помечается `required` (`hook.Required()`), если
+работает из любого Go-кода — HTTP-handler'а, реактора, активити; из
+workflow-кода — `ref.WorkflowCall(wctx, req)` с `workflow.Context` (§7.2). Хук помечается `required` (`hook.Required()`), если
 без биндинга сервис работать не может. Пока транспорта нет, `Call`
 возвращает `hook.ErrUnavailable`.
 
@@ -324,7 +324,7 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_INTERNAL_PORT` | платформенный порт (9400) |
 | `BACKPLANE_INTERNAL_SECRET` | секрет платформенного порта (§11.1); пусто — проверка выключена, `Run` пишет предупреждение |
 | `BACKPLANE_PUBLIC_PORT` | публичный порт managed-роутов (8080) |
-| `BACKPLANE_NATS_URL`, `_NATS_CREDS` | события; пусто — без NATS |
+| `BACKPLANE_NATS_URL`, `_NATS_CREDS` | события; пусто — без NATS; `_NATS_CREDS` — содержимое `.creds`-файла |
 | `BACKPLANE_TEMPORAL_ADDR`, `_TEMPORAL_NS` | хуки, активити, workflows; пусто — без Temporal |
 | `BACKPLANE_ENVIRONMENT` | `deployment.environment.name` |
 | `BACKPLANE_LOG_LEVEL` | уровень лога (`info`) |
@@ -628,30 +628,55 @@ IAM знает только свою `SendEmail`; template и smtp — толь�
 ### 7.2 Исполнение — Temporal Nexus
 
 Своего транспорта нет. Хук — **Nexus-операция**: Nexus service = сервис
-хуков вызывающего (`iam.Hooks`), операция = хук, endpoint = имя сервиса
-(`iam`). Endpoint в реестре Temporal указывает на task queue `backplane`;
+хуков вызывающего (`iam.Hooks`), операция = имя хука (`SendEmail`),
+endpoint = имя сервиса (`iam`). Endpoint в реестре Temporal указывает на task queue `backplane`;
 backplane — Nexus-handler: находит биндинг, исполняет его как workflow
 (шаг = activity или child workflow **по имени** на очереди целевого
 сервиса), возвращает результат.
 
 Два уровня данных: **envelope — наш proto** (`backplane.HookCall{hook,
-trace, deadline, payload}` на входе Nexus-операции,
-`backplane.ActivityCall{activity, trace, payload}` на входе активити,
-симметричные `*Result`); **payload — JSON** автора внутри `bytes`. CEL
+instance, trace, deadline, payload}` на входе Nexus-операции, `hook` —
+полное имя `iam.SendEmail`, `trace` — W3C (`traceparent`, `tracestate`,
+`baggage`); `backplane.ActivityCall{activity, trace, payload, binding,
+step}` на входе активити; симметричные `*Result`); **payload — JSON** автора внутри `bytes`. CEL
 работает над payload, envelope не видит. Если тип автора — proto, SDK
 кладёт protojson — это тот же JSON, читаемый и в Temporal UI.
 
 - Endpoint `<service>` backplane создаёт, **как только видит манифест с
   хуками** — не при сохранении биндинга; вызов без биндинга получает
-  `no binding`, а не «endpoint not found».
-- Nexus вызывается только из workflow-кода. `Call` хука (`hook.Ref.Call`) внутри workflow —
-  Nexus напрямую; вне workflow (HTTP-handler, реактор события) SDK
-  стартует короткий workflow на очереди самого сервиса, который делает
-  Nexus-вызов и возвращает результат. Автор пишет один `Call`; цена вне
-  workflow — лишний hop в миллисекунды.
-- Активити — Temporal activities/workflows сервиса на его очереди
-  `<service>`; регистрируются SDK по имени из манифеста с входом
-  `ActivityCall`; декодирование payload в тип автора — в SDK.
+  `no binding`, а не «endpoint not found». Пока endpoint'а нет (backplane
+  ещё не видел сервис), `Call` сразу возвращает `hook.ErrUnavailable`
+  («no Nexus endpoint»), не дожидаясь дедлайна.
+- Nexus вызывается только из workflow-кода. Внутри workflow —
+  `hook.Ref.WorkflowCall(wctx, req)`: Nexus напрямую, дедлайн — остаток
+  таймаута run'а. Вне workflow (HTTP-handler, реактор события) —
+  `hook.Ref.Call(ctx, req)`: SDK стартует короткий workflow
+  `backplane.CallHook` на очереди самого сервиса (id
+  `hook/<service>/<Name>/<uuid>`), он делает Nexus-вызов и возвращает
+  результат; цена — лишний hop в миллисекунды. Дедлайн — из `ctx`, без
+  него 30 с; он же `HookCall.deadline`, schedule-to-close Nexus-операции и
+  execution timeout workflow. Worker сервиса регистрирует
+  `backplane.CallHook`, если сервис объявил хуки.
+- Ошибки хука: backplane без биндинга завершает операцию non-retryable
+  application error типа `backplane.NoBinding` — автор получает
+  `hook.ErrNoBinding` («hook iam.SendEmail: no binding»); прочие отказы —
+  сообщение обработчика без обёрток Temporal; истёкший дедлайн —
+  `context.DeadlineExceeded`.
+- Активити — Temporal activities сервиса на его очереди `<service>`; тип
+  activity — имя активити как объявлено (`Send`), вход `ActivityCall`,
+  выход `ActivityResult`; регистрирует SDK, декодирование payload в тип
+  автора — в SDK. Ошибка обработчика — с префиксом `<service>.<Name>: `,
+  по умолчанию retryable (ретраи — по политике шага биндинга);
+  `activity.NonRetryable(err)` — non-retryable (тип
+  `backplane.NonRetryable`); `*temporal.ApplicationError` автора
+  передаётся как есть; не декодируемый вход — non-retryable.
+- Trace: OTel-интерцепторы Temporal несут его заголовками через workflow,
+  Nexus и activity. Если заголовки не донесли trace, активити продолжает
+  trace из `ActivityCall.trace` (span со ссылкой на текущий).
+- Temporal недоступен — не ошибка сервиса: SDK подключается в фоне с
+  backoff, `Call` до подключения сразу возвращает `hook.ErrUnavailable`,
+  worker стартует, как только есть соединение; readiness от Temporal не
+  зависит.
 
 Даром от Temporal: durability (цель лежит — шаг ретраится, сделанные шаги
 не переисполняются), компенсации, async-вызов, at-least-once, access
@@ -668,33 +693,85 @@ for iam.SendEmail`, `transform failed at step render: <CEL>`.
 Тонкая обёртка SDK над брокером; под капотом NATS JetStream. Сервис при
 желании берёт из SDK нативный клиент.
 
-- **Стрим на сервис** `bp_<service>`, subjects `bp.<service>.<event>`;
-  retention и размер изолированы. Создаётся **идемпотентно любой
-  стороной** — эмиттером при старте, подписчиком или backplane при
-  создании consumer'а; имя и subjects выводятся из имени сервиса,
-  retention — дефолт платформы, эмиттер при старте обновляет на своё.
-  Поэтому стрим есть до того, как эмиттер впервые запустился.
+- **Стрим на сервис** `bp_<service>`, subjects `bp.<service>.<Event>`
+  (фильтр стрима — `bp.<service>.>`); retention и размер изолированы.
+  Создаётся **идемпотентно любой стороной** — эмиттером при старте,
+  подписчиком или backplane при создании consumer'а; имя и subjects
+  выводятся из имени сервиса. Эмиттер (сервис, объявивший хотя бы одно
+  событие) при старте делает create-or-update — его конфигурация
+  побеждает; подписчик создаёт отсутствующий стрим с дефолтами платформы и
+  существующий не трогает. Поэтому стрим есть до того, как эмиттер впервые
+  запустился. Дефолты платформы: limits-retention, file storage, discard
+  old, `max_age` 7 суток, окно дедупликации 2 минуты, 1 реплика; в
+  metadata стрима — `bp.service`, `bp.kind` (`events`) и `bp.ensured-by`
+  (`emitter` или `subscriber` — кто создал или обновил последним).
+- **Имена в NATS.** Имя сервиса, события и consumer'а становится токеном
+  NATS так: ASCII-буквы, цифры и `-` остаются, любой другой байт — `_XX`
+  (две заглавные hex-цифры). Отображение взаимно однозначно, и в
+  экранированном токене не бывает `__`; имена по конвенциям (§17) не
+  меняются. Полное имя события `<service>.<Event>` делится по первой точке.
+  Имя сервиса `dlq` зарезервировано под dead letters (`Connect` его
+  отвергает).
 - **Событие** — именованное сообщение, payload JSON (proto-тип — как
   protojson); envelope — стандартные заголовки CloudEvents, не наш proto.
   Тип автора — что угодно; SDK сериализует.
   `sent := event.Declare[MailSent](scope, "MailSent")`,
   `sent.Publish(ctx, v, event.Key(k))`; ключ — `subject`.
-- **Метаданные — CloudEvents** (NATS binding, headers `ce-*`): `id`,
-  `source` = сервис, `type` = имя события, `time`, `subject` = ключ,
-  `datacontenttype = application/json`, `dataschema` = ссылка на схему в
-  манифесте, если есть; расширения `instance`, `version`, `traceparent`.
+- **Метаданные — CloudEvents** (NATS binding, binary mode, headers
+  `ce-*`): `ce-specversion` = `1.0`, `ce-id` (UUID), `ce-source` = сервис,
+  `ce-type` = полное имя события `<service>.<Event>`, `ce-time` (RFC 3339,
+  UTC), `ce-subject` = ключ (если задан), `ce-datacontenttype` и
+  `content-type` = `application/json`; расширения `ce-instance`,
+  `ce-version`; контекст трассировки — заголовки W3C `traceparent` /
+  `tracestate` (пропагатор OpenTelemetry). `dataschema` в v0 не
+  выставляется: схема события — в манифесте. `Nats-Msg-Id` = `ce-id`:
+  повтор той же публикации в окне дедупликации JetStream отбрасывает.
+- **Публикация** ждёт PubAck JetStream (в пределах `ctx`; без дедлайна —
+  5 с). Пока NATS недоступен, `Publish` сразу возвращает ошибку
+  (`ErrUnavailable`): SDK не буферизует и не ждёт переподключения. Если
+  собственного стрима нет, SDK создаёт его и повторяет публикацию один раз.
+- **Подключение** не блокирует старт: недоступный NATS — предупреждение,
+  клиент переподключается бесконечно (пауза 2 с плюс jitter до 1 с), стрим
+  эмиттера и consumers реакторов досоздаются в фоне с backoff; разрывы и
+  переподключения пишутся в лог. `BACKPLANE_NATS_CREDS` — содержимое
+  `.creds`-файла (JWT и seed пользователя). На остановке соединение
+  дренируется в бюджете остановки. На readiness NATS не влияет.
 - **Порядок** — внутри subject. Партиций нет.
 - **Реакторы**: `event.React[UserRegistered](scope, "iam.UserRegistered",
-  handler)` = durable consumer, ack/nak, redelivery, `max_deliver` → DLQ.
-  Consumer назван по пути узла и событию (`<путь узла>:<событие>`, на
+  handler)` = durable pull consumer, ack/nak, redelivery, `max_deliver` →
+  DLQ. Consumer назван по пути узла и событию (`<путь узла>:<событие>`, на
   `Root` — само имя события) и уникален в сервисе: у каждого реактора своя
   позиция, несколько реакторов на одно событие не мешают друг другу.
-  Манифест перечисляет их в `subscriptions` (`event`, `consumer`); имя
-  durable consumer'а в NATS выводится из имени сервиса-подписчика и
-  `consumer` (символы, недопустимые в именах NATS, экранируются). Подписчик декодирует своим типом (копия схемы) или
-  динамически. Читать чужие стримы может любой; «подписан на всё» =
-  consumer на каждый стрим из каталога манифестов, новые — по мере
-  появления. Ограничения доступа, если нужны, — правами NATS-пользователя.
+  Манифест перечисляет их в `subscriptions` (`event`, `consumer`); durable
+  consumer в NATS — `<subscriber>__<consumer>` (оба экранированы, см.
+  «Имена в NATS»; длиннее 200 символов — обрезается и дополняется хешем),
+  на стриме `bp_<src>` с фильтром `bp.<src>.<Event>`. Новый consumer
+  начинает с событий, опубликованных после его создания (`deliver_policy
+  new`); дальше позиция хранится в NATS. Подписчик декодирует своим типом
+  (копия схемы) или динамически. Читать чужие стримы может любой;
+  «подписан на всё» = consumer на каждый стрим из каталога манифестов,
+  новые — по мере появления. Ограничения доступа, если нужны, — правами
+  NATS-пользователя.
+- **Доставка реактору.** Explicit ack; до 4 обработчиков одновременно на
+  реактор; обработчик получает контекст с трассой события и таймаут 30 с;
+  паника — ошибка. Успех — ack. Ошибка — nak с задержкой 1 с, удваивающейся
+  с каждой доставкой до 1 мин. `max_deliver` = 5; `ack_wait` = таймаут
+  обработчика + 15 с — через столько возвращается сообщение, которое никто
+  не подтвердил (процесс упал). Свой `BackOff` consumer'а не задан: сервер
+  отсчитывает задержку nak от `ack_wait`, и вместе с `BackOff` задержки
+  расходились бы. Consumption переживает переподключения NATS.
+- **DLQ.** Если последняя доставка (`max_deliver`) тоже неуспешна,
+  сообщение с исходными payload и заголовками (кроме служебных `Nats-*`)
+  публикуется в `bp.dlq.<subscriber>.<consumer>` — стрим
+  `bp_dlq_<subscriber>` (subjects `bp.dlq.<subscriber>.>`, создаёт
+  подписчик при старте реакторов, `max_age` 30 суток) — с заголовками
+  `bp-error` (текст последней ошибки, до 4 KiB), `bp-consumer` (имя
+  consumer'а из манифеста) и `bp-delivered`; `Nats-Msg-Id` =
+  `<durable>:<стрим>:<seq>`, так что повтор не дублирует dead letter.
+  Исходное сообщение после этого терминируется (term).
+- **Остановка реакторов** (до остановки дерева автора): выборка
+  прекращается, SDK ждёт обработчиков в полёте в бюджете остановки; если
+  бюджет кончился — их контексты отменяются.
 - Интерфейс SDK узкий и брокеро-независимый: publish, durable subscribe,
   ack/nak, replay, DLQ. Kafka под него встаёт; v0 — NATS.
 - backplane в data path событий не участвует; наблюдает каталог, lag, DLQ;
@@ -732,8 +809,13 @@ on iam.UserRegistered when event.email != "" :=
 
 Сервис описывает свои workflows и activities как хочет; с proto —
 `protoc-gen-go-temporal` даёт стабы и типизированные клиенты. Task queue =
-имя сервиса, namespace один. SDK даёт подключение и регистрацию worker'а;
-больше ничего своего.
+имя сервиса, namespace один (`BACKPLANE_TEMPORAL_NS`, по умолчанию
+`default`). SDK даёт подключение и регистрацию worker'а; больше ничего
+своего. Worker (identity = id инстанса) несёт активити (§3.5) и
+`backplane.CallHook` (§7.2), стартует после дерева автора и
+останавливается до него: `Stop` перестаёт брать задачи и ждёт идущие
+активити в пределах бюджета остановки. Логи Temporal SDK идут в логгер
+сервиса, метрики и трейсы — в OTel сервиса.
 
 - внутри сервиса — обычный Temporal: retry, таймеры, сигналы, cron
   (Temporal Schedules);
@@ -907,9 +989,12 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
    на всё»), читать свой `config/<name>/`. Токен
    backplane: читать каталог и `backplane/*`, писать `config/*`. Шаблоны
    политик — в репозитории. В dev без ACL работает.
-3. **NATS.** Пользователь на сервис: publish `bp.<name>.>`, subscribe
-   `bp.>`, JetStream API на свои consumers. backplane — читать всё, JS API
-   для consumers правил. В dev без auth работает.
+3. **NATS.** Пользователь на сервис: publish `bp.<name>.>` и
+   `bp.dlq.<name>.>`, subscribe `bp.>`, JetStream API на свои стримы
+   (`bp_<name>`, `bp_dlq_<name>`), на создание отсутствующих `bp_*`
+   (подписчик создаёт стрим источника) и на свои consumers `<name>__*`.
+   backplane — читать всё, JS API для consumers правил. В dev без auth
+   работает.
 4. **Temporal.** Один namespace; per-service авторизация в OSS требует
    authorizer-плагина — в v0 нет, доверие внутри namespace явное. Nexus
    endpoint access policy — allowlist namespace.
@@ -1090,8 +1175,8 @@ case в SDK ради них — дефект модели.
 | env | `<SERVICE>_<PATH>`, путь — верхний регистр, `_` между уровнями; блок SDK — `BACKPLANE_<PATH>` |
 | файл | `BACKPLANE_CONFIG_FILE` (YAML/JSON) той же формы, что структура конфигурации |
 | блок SDK | `BACKPLANE_*` — таблица §4.3 |
-| NATS | стрим `bp_<service>`, subject `bp.<service>.<event>`, consumer — из имени подписчика и `subscriptions[].consumer` манифеста (`<путь узла>:<событие>`), правила `backplane__rule_<id>` |
-| Temporal | namespace один; task queue `<service>`; очередь backplane `backplane`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`; workflow id правила `rule/<id>/<ce-id>` |
+| NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>`; durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста, `<путь узла>:<событие>`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; имена экранируются (§8); правила `backplane__rule_<id>` |
+| Temporal | namespace один; task queue `<service>`; очередь backplane `backplane`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow вызова хука вне workflow `backplane.CallHook`, id `hook/<service>/<Name>/<uuid>`; workflow id правила `rule/<id>/<ce-id>`; тип ошибки «нет биндинга» `backplane.NoBinding` |
 | имена хуков, активити, событий | `<service>.<Name>`, `Name` — CamelCase |
 | proto-пакеты | внутреннее API `<service>.console.v1`; хуки `<service>.hooks.v1`; активити `<service>.activities.v1`; события `<service>.events.v1` |
 | консоль | `/s/<service>/...` — плагин; `/plugins/<service>/<hash>/...` — бандл |

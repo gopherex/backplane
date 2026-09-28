@@ -105,6 +105,11 @@ func start(t *testing.T) *env {
 		t.Fatal(err)
 	}
 
+	// The run owns every key of the service: refuse to wipe a live one.
+	if keys, _, err := c.KV().Keys("backplane/services/"+service+"/instances/", "", nil); err == nil && len(keys) > 0 {
+		t.Fatalf("a %s instance is live on this Consul (%v): stop it before running conformance", service, keys)
+	}
+
 	cleanup := func() {
 		_, _ = c.KV().DeleteTree("backplane/services/"+service+"/", nil)
 		_, _ = c.KV().DeleteTree("config/"+service+"/", nil)

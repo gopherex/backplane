@@ -114,7 +114,7 @@ func TestPublishKey(t *testing.T) {
 
 	root, e := bare(t)
 	rec := &keys{}
-	e.SetTransport(rec)
+	e.SetBroker(rec)
 
 	ref := event.Declare[Greeted](root, "Greeted")
 	if err := ref.Publish(t.Context(), Greeted{}, event.Key("user-1")); err != nil {
