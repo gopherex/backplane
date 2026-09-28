@@ -111,7 +111,7 @@ func TestLivePathsFromSchema(t *testing.T) {
 	defer rt.Close()
 
 	got := fmt.Sprint(link.ConfigState(rt).LivePaths())
-	if got != "[postgres.log_level suffix]" {
+	if got != "[backplane.log_level postgres.log_level suffix]" {
 		t.Fatalf("live paths: %s", got)
 	}
 

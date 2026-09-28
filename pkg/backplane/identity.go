@@ -50,7 +50,7 @@ func (id Identity) resolve(ctx context.Context, cfg config.Backplane) Identity {
 func (id Identity) logger(given *xlog.Logger, cfg config.Backplane) *xlog.Logger {
 	log := given
 	if log == nil {
-		level, err := xlog.ParseLevel(cfg.LogLevel)
+		level, err := xlog.ParseLevel(cfg.LogLevel.Get())
 
 		stdout := xlog.NewJSON(xlog.WithLevel(level)).Core()
 		otlp := xlogtrace.Core(global.GetLoggerProvider().Logger(id.Service))

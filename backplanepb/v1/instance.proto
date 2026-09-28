@@ -25,6 +25,37 @@ message InstanceState {
   uint64 config_revision = 9;
   // Why the last KV update was not applied; empty when applied.
   string config_error = 10;
+  // Revision of the last KV update that was rejected; 0 when none.
+  uint64 config_rejected_revision = 11;
+  InstancePhase phase = 12;
+  // Author's nodes that hold readiness or can fail: dependencies.
+  repeated NodeStatus nodes = 13;
+  // Consul, NATS, Temporal, OTLP.
+  repeated TransportStatus transports = 14;
+  string sdk_version = 15;
+  string commit = 16;
+}
+
+enum InstancePhase {
+  INSTANCE_PHASE_UNSPECIFIED = 0;
+  // The tree is starting: dependencies are being provided.
+  INSTANCE_PHASE_STARTING = 1;
+  INSTANCE_PHASE_SERVING = 2;
+  INSTANCE_PHASE_STOPPING = 3;
+}
+
+message NodeStatus {
+  string path = 1;
+  bool ready = 2;
+  // Why it is not ready.
+  string error = 3;
+}
+
+message TransportStatus {
+  // "consul", "nats", "temporal", "otlp".
+  string name = 1;
+  bool connected = 2;
+  string error = 3;
 }
 
 enum ConfigSource {

@@ -39,6 +39,8 @@ message Manifest {
   repeated Subscription subscriptions = 14;
   // Temporal Schedules of the service's own workflows.
   repeated Schedule schedules = 15;
+  // The service's own workflows the console may start (§9).
+  repeated Workflow workflows = 16;
 }
 
 // The configuration. `keys` is the declaration; `schema` is optional and,
@@ -68,10 +70,10 @@ enum NodeKind {
 
 // A public route for Envoy.
 message Route {
-  oneof match {
-    string prefix = 1;
-    string host = 2;
-  }
+  // Path prefix ("/api/"); gRPC routes use "/<full service name>/".
+  string prefix = 1;
+  // Host header to match in addition to the prefix; empty matches any host.
+  string host = 2;
   RouteKind kind = 3;
   // Port of the external API this route leads to; 0 = the port registered
   // in Consul.
@@ -89,6 +91,35 @@ message Route {
     // Introspection result as JSON (GraphQL).
     bytes graphql = 7;
   }
+  // Envoy policy; unset fields take the platform defaults.
+  RoutePolicy policy = 9;
+}
+
+// What Envoy enforces on a route. Durations of zero mean "platform default";
+// a stream route should set timeout explicitly (Envoy's default is 15s).
+message RoutePolicy {
+  google.protobuf.Duration timeout = 1;
+  google.protobuf.Duration idle_timeout = 2;
+  RetryPolicy retry = 3;
+  Cors cors = 4;
+  // 0 = platform default.
+  uint64 max_request_bytes = 5;
+}
+
+message RetryPolicy {
+  uint32 attempts = 1;
+  google.protobuf.Duration per_try_timeout = 2;
+  // Envoy retry_on conditions ("5xx", "reset", "unavailable", ...).
+  repeated string retry_on = 3;
+}
+
+message Cors {
+  repeated string origins = 1;
+  repeated string methods = 2;
+  repeated string headers = 3;
+  repeated string expose_headers = 4;
+  bool credentials = 5;
+  google.protobuf.Duration max_age = 6;
 }
 
 enum RouteKind {
@@ -103,6 +134,7 @@ enum RouteKind {
 message Event {
   string name = 1;
   schemapb.Schema schema = 2;
+  string description = 3;
 }
 
 // A reactor: a durable consumer of another service's event.
@@ -121,6 +153,9 @@ message Hook {
   schemapb.Schema output = 3;
   // The service cannot work without a binding.
   bool required = 4;
+  // Default deadline of a call; 0 = platform default.
+  google.protobuf.Duration timeout = 5;
+  string description = 6;
 }
 
 // An operation the service implements; a binding step target.
@@ -128,6 +163,29 @@ message Activity {
   string name = 1;
   schemapb.Schema input = 2;
   schemapb.Schema output = 3;
+  ActivityKind kind = 4;
+  // Defaults for a binding step calling it; the binding may override.
+  google.protobuf.Duration start_to_close = 5;
+  google.protobuf.Duration heartbeat = 6;
+  RetryPolicy retry = 7;
+  string description = 8;
+}
+
+enum ActivityKind {
+  ACTIVITY_KIND_UNSPECIFIED = 0;
+  // A Temporal activity on the service's queue.
+  ACTIVITY_KIND_ACTIVITY = 1;
+  // A Temporal workflow on the service's queue, run as a child workflow.
+  ACTIVITY_KIND_WORKFLOW = 2;
+}
+
+// A workflow of the service the console may start with a form.
+message Workflow {
+  // Temporal workflow type name.
+  string name = 1;
+  schemapb.Schema input = 2;
+  schemapb.Schema output = 3;
+  string description = 4;
 }
 
 message UI {

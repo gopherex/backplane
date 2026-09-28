@@ -146,15 +146,9 @@ func (c *core) mountHTTP(
 	})
 }
 
-// setMatch matches r by host when given, else by path prefix.
+// setMatch matches r by path prefix and, when given, host.
 func setMatch(r *backplanev1.Route, host, prefix string) {
-	if host != "" {
-		r.Match = &backplanev1.Route_Host{Host: host}
-
-		return
-	}
-
-	r.Match = &backplanev1.Route_Prefix{Prefix: prefix}
+	r.Prefix, r.Host = prefix, host
 }
 
 // Internal registers the internal API: gRPC on the platform port for the

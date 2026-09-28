@@ -22,6 +22,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type InstancePhase int32
+
+const (
+	InstancePhase_INSTANCE_PHASE_UNSPECIFIED InstancePhase = 0
+	// The tree is starting: dependencies are being provided.
+	InstancePhase_INSTANCE_PHASE_STARTING InstancePhase = 1
+	InstancePhase_INSTANCE_PHASE_SERVING  InstancePhase = 2
+	InstancePhase_INSTANCE_PHASE_STOPPING InstancePhase = 3
+)
+
+// Enum value maps for InstancePhase.
+var (
+	InstancePhase_name = map[int32]string{
+		0: "INSTANCE_PHASE_UNSPECIFIED",
+		1: "INSTANCE_PHASE_STARTING",
+		2: "INSTANCE_PHASE_SERVING",
+		3: "INSTANCE_PHASE_STOPPING",
+	}
+	InstancePhase_value = map[string]int32{
+		"INSTANCE_PHASE_UNSPECIFIED": 0,
+		"INSTANCE_PHASE_STARTING":    1,
+		"INSTANCE_PHASE_SERVING":     2,
+		"INSTANCE_PHASE_STOPPING":    3,
+	}
+)
+
+func (x InstancePhase) Enum() *InstancePhase {
+	p := new(InstancePhase)
+	*p = x
+	return p
+}
+
+func (x InstancePhase) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (InstancePhase) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_v1_instance_proto_enumTypes[0].Descriptor()
+}
+
+func (InstancePhase) Type() protoreflect.EnumType {
+	return &file_backplanepb_v1_instance_proto_enumTypes[0]
+}
+
+func (x InstancePhase) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use InstancePhase.Descriptor instead.
+func (InstancePhase) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_v1_instance_proto_rawDescGZIP(), []int{0}
+}
+
 type ConfigSource int32
 
 const (
@@ -61,11 +114,11 @@ func (x ConfigSource) String() string {
 }
 
 func (ConfigSource) Descriptor() protoreflect.EnumDescriptor {
-	return file_backplanepb_v1_instance_proto_enumTypes[0].Descriptor()
+	return file_backplanepb_v1_instance_proto_enumTypes[1].Descriptor()
 }
 
 func (ConfigSource) Type() protoreflect.EnumType {
-	return &file_backplanepb_v1_instance_proto_enumTypes[0]
+	return &file_backplanepb_v1_instance_proto_enumTypes[1]
 }
 
 func (x ConfigSource) Number() protoreflect.EnumNumber {
@@ -74,7 +127,7 @@ func (x ConfigSource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ConfigSource.Descriptor instead.
 func (ConfigSource) EnumDescriptor() ([]byte, []int) {
-	return file_backplanepb_v1_instance_proto_rawDescGZIP(), []int{0}
+	return file_backplanepb_v1_instance_proto_rawDescGZIP(), []int{1}
 }
 
 // InstanceState is written by the SDK to Consul KV
@@ -96,7 +149,16 @@ type InstanceState struct {
 	// Revision from Consul KV `config/<service>/_revision` that is applied.
 	ConfigRevision uint64 `protobuf:"varint,9,opt,name=config_revision,json=configRevision,proto3" json:"config_revision,omitempty"`
 	// Why the last KV update was not applied; empty when applied.
-	ConfigError   string `protobuf:"bytes,10,opt,name=config_error,json=configError,proto3" json:"config_error,omitempty"`
+	ConfigError string `protobuf:"bytes,10,opt,name=config_error,json=configError,proto3" json:"config_error,omitempty"`
+	// Revision of the last KV update that was rejected; 0 when none.
+	ConfigRejectedRevision uint64        `protobuf:"varint,11,opt,name=config_rejected_revision,json=configRejectedRevision,proto3" json:"config_rejected_revision,omitempty"`
+	Phase                  InstancePhase `protobuf:"varint,12,opt,name=phase,proto3,enum=backplane.v1.InstancePhase" json:"phase,omitempty"`
+	// Author's nodes that hold readiness or can fail: dependencies.
+	Nodes []*NodeStatus `protobuf:"bytes,13,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	// Consul, NATS, Temporal, OTLP.
+	Transports    []*TransportStatus `protobuf:"bytes,14,rep,name=transports,proto3" json:"transports,omitempty"`
+	SdkVersion    string             `protobuf:"bytes,15,opt,name=sdk_version,json=sdkVersion,proto3" json:"sdk_version,omitempty"`
+	Commit        string             `protobuf:"bytes,16,opt,name=commit,proto3" json:"commit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -201,11 +263,175 @@ func (x *InstanceState) GetConfigError() string {
 	return ""
 }
 
+func (x *InstanceState) GetConfigRejectedRevision() uint64 {
+	if x != nil {
+		return x.ConfigRejectedRevision
+	}
+	return 0
+}
+
+func (x *InstanceState) GetPhase() InstancePhase {
+	if x != nil {
+		return x.Phase
+	}
+	return InstancePhase_INSTANCE_PHASE_UNSPECIFIED
+}
+
+func (x *InstanceState) GetNodes() []*NodeStatus {
+	if x != nil {
+		return x.Nodes
+	}
+	return nil
+}
+
+func (x *InstanceState) GetTransports() []*TransportStatus {
+	if x != nil {
+		return x.Transports
+	}
+	return nil
+}
+
+func (x *InstanceState) GetSdkVersion() string {
+	if x != nil {
+		return x.SdkVersion
+	}
+	return ""
+}
+
+func (x *InstanceState) GetCommit() string {
+	if x != nil {
+		return x.Commit
+	}
+	return ""
+}
+
+type NodeStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Path  string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Ready bool                   `protobuf:"varint,2,opt,name=ready,proto3" json:"ready,omitempty"`
+	// Why it is not ready.
+	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NodeStatus) Reset() {
+	*x = NodeStatus{}
+	mi := &file_backplanepb_v1_instance_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NodeStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NodeStatus) ProtoMessage() {}
+
+func (x *NodeStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_instance_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NodeStatus.ProtoReflect.Descriptor instead.
+func (*NodeStatus) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_instance_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *NodeStatus) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *NodeStatus) GetReady() bool {
+	if x != nil {
+		return x.Ready
+	}
+	return false
+}
+
+func (x *NodeStatus) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type TransportStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "consul", "nats", "temporal", "otlp".
+	Name          string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Connected     bool   `protobuf:"varint,2,opt,name=connected,proto3" json:"connected,omitempty"`
+	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TransportStatus) Reset() {
+	*x = TransportStatus{}
+	mi := &file_backplanepb_v1_instance_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransportStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransportStatus) ProtoMessage() {}
+
+func (x *TransportStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_instance_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransportStatus.ProtoReflect.Descriptor instead.
+func (*TransportStatus) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_instance_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TransportStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *TransportStatus) GetConnected() bool {
+	if x != nil {
+		return x.Connected
+	}
+	return false
+}
+
+func (x *TransportStatus) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_backplanepb_v1_instance_proto protoreflect.FileDescriptor
 
 const file_backplanepb_v1_instance_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbackplanepb/v1/instance.proto\x12\fbackplane.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcd\x03\n" +
+	"\x1dbackplanepb/v1/instance.proto\x12\fbackplane.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe2\x05\n" +
 	"\rInstanceState\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aservice\x18\x02 \x01(\tR\aservice\x12\x18\n" +
@@ -218,10 +444,33 @@ const file_backplanepb_v1_instance_proto_rawDesc = "" +
 	"\asources\x18\b \x03(\v2(.backplane.v1.InstanceState.SourcesEntryR\asources\x12'\n" +
 	"\x0fconfig_revision\x18\t \x01(\x04R\x0econfigRevision\x12!\n" +
 	"\fconfig_error\x18\n" +
-	" \x01(\tR\vconfigError\x1aV\n" +
+	" \x01(\tR\vconfigError\x128\n" +
+	"\x18config_rejected_revision\x18\v \x01(\x04R\x16configRejectedRevision\x121\n" +
+	"\x05phase\x18\f \x01(\x0e2\x1b.backplane.v1.InstancePhaseR\x05phase\x12.\n" +
+	"\x05nodes\x18\r \x03(\v2\x18.backplane.v1.NodeStatusR\x05nodes\x12=\n" +
+	"\n" +
+	"transports\x18\x0e \x03(\v2\x1d.backplane.v1.TransportStatusR\n" +
+	"transports\x12\x1f\n" +
+	"\vsdk_version\x18\x0f \x01(\tR\n" +
+	"sdkVersion\x12\x16\n" +
+	"\x06commit\x18\x10 \x01(\tR\x06commit\x1aV\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\x0e2\x1a.backplane.v1.ConfigSourceR\x05value:\x028\x01*\x8d\x01\n" +
+	"\x05value\x18\x02 \x01(\x0e2\x1a.backplane.v1.ConfigSourceR\x05value:\x028\x01\"L\n" +
+	"\n" +
+	"NodeStatus\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
+	"\x05ready\x18\x02 \x01(\bR\x05ready\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"Y\n" +
+	"\x0fTransportStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1c\n" +
+	"\tconnected\x18\x02 \x01(\bR\tconnected\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error*\x85\x01\n" +
+	"\rInstancePhase\x12\x1e\n" +
+	"\x1aINSTANCE_PHASE_UNSPECIFIED\x10\x00\x12\x1b\n" +
+	"\x17INSTANCE_PHASE_STARTING\x10\x01\x12\x1a\n" +
+	"\x16INSTANCE_PHASE_SERVING\x10\x02\x12\x1b\n" +
+	"\x17INSTANCE_PHASE_STOPPING\x10\x03*\x8d\x01\n" +
 	"\fConfigSource\x12\x1d\n" +
 	"\x19CONFIG_SOURCE_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15CONFIG_SOURCE_DEFAULT\x10\x01\x12\x16\n" +
@@ -241,23 +490,29 @@ func file_backplanepb_v1_instance_proto_rawDescGZIP() []byte {
 	return file_backplanepb_v1_instance_proto_rawDescData
 }
 
-var file_backplanepb_v1_instance_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_backplanepb_v1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_backplanepb_v1_instance_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_backplanepb_v1_instance_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_backplanepb_v1_instance_proto_goTypes = []any{
-	(ConfigSource)(0),             // 0: backplane.v1.ConfigSource
-	(*InstanceState)(nil),         // 1: backplane.v1.InstanceState
-	nil,                           // 2: backplane.v1.InstanceState.SourcesEntry
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+	(InstancePhase)(0),            // 0: backplane.v1.InstancePhase
+	(ConfigSource)(0),             // 1: backplane.v1.ConfigSource
+	(*InstanceState)(nil),         // 2: backplane.v1.InstanceState
+	(*NodeStatus)(nil),            // 3: backplane.v1.NodeStatus
+	(*TransportStatus)(nil),       // 4: backplane.v1.TransportStatus
+	nil,                           // 5: backplane.v1.InstanceState.SourcesEntry
+	(*timestamppb.Timestamp)(nil), // 6: google.protobuf.Timestamp
 }
 var file_backplanepb_v1_instance_proto_depIdxs = []int32{
-	3, // 0: backplane.v1.InstanceState.started_at:type_name -> google.protobuf.Timestamp
-	2, // 1: backplane.v1.InstanceState.sources:type_name -> backplane.v1.InstanceState.SourcesEntry
-	0, // 2: backplane.v1.InstanceState.SourcesEntry.value:type_name -> backplane.v1.ConfigSource
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	6, // 0: backplane.v1.InstanceState.started_at:type_name -> google.protobuf.Timestamp
+	5, // 1: backplane.v1.InstanceState.sources:type_name -> backplane.v1.InstanceState.SourcesEntry
+	0, // 2: backplane.v1.InstanceState.phase:type_name -> backplane.v1.InstancePhase
+	3, // 3: backplane.v1.InstanceState.nodes:type_name -> backplane.v1.NodeStatus
+	4, // 4: backplane.v1.InstanceState.transports:type_name -> backplane.v1.TransportStatus
+	1, // 5: backplane.v1.InstanceState.SourcesEntry.value:type_name -> backplane.v1.ConfigSource
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_v1_instance_proto_init() }
@@ -270,8 +525,8 @@ func file_backplanepb_v1_instance_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_v1_instance_proto_rawDesc), len(file_backplanepb_v1_instance_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   2,
+			NumEnums:      2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

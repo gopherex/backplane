@@ -136,7 +136,7 @@ func (b *Builder) Route(r *backplanev1.Route) {
 func matchOf(r *backplanev1.Route) string {
 	match := "prefix " + r.GetPrefix()
 	if r.GetHost() != "" {
-		match = "host " + r.GetHost()
+		match = "host " + r.GetHost() + " " + match
 	}
 
 	return fmt.Sprintf("%s on port %d", match, r.GetPort())

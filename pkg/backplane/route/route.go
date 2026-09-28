@@ -88,7 +88,7 @@ func (h host) applyGRPC(m *routes.Managed)        { m.Host = string(h) }
 func (h host) applyHTTP(m *routes.Managed)        { m.Host = string(h) }
 func (h host) applyGRPCDecl(r *backplanev1.Route) { h.applyDecl(r) }
 func (h host) applyHTTPDecl(r *backplanev1.Route) { h.applyDecl(r) }
-func (h host) applyDecl(r *backplanev1.Route)     { r.Match = &backplanev1.Route_Host{Host: string(h)} }
+func (h host) applyDecl(r *backplanev1.Route)     { r.Host = string(h) }
 
 // HostOption applies to every route.
 type HostOption interface {
@@ -172,7 +172,7 @@ type Decl struct {
 func GRPC(service string, opts ...GRPCDeclOption) Decl {
 	r := &backplanev1.Route{
 		Kind:     backplanev1.RouteKind_ROUTE_KIND_GRPC,
-		Match:    &backplanev1.Route_Prefix{Prefix: "/" + service + "/"},
+		Prefix:   "/" + service + "/",
 		Services: []string{service},
 	}
 	for _, o := range opts {
@@ -226,5 +226,5 @@ func prefixed(kind backplanev1.RouteKind, prefix string) (*backplanev1.Route, er
 	p, err := routes.Prefix(prefix)
 
 	//nolint:wrapcheck // routes.Prefix speaks for this package ("route: bad path prefix")
-	return &backplanev1.Route{Kind: kind, Match: &backplanev1.Route_Prefix{Prefix: p}}, err
+	return &backplanev1.Route{Kind: kind, Prefix: p}, err
 }

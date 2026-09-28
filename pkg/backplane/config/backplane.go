@@ -16,6 +16,9 @@ type Backplane struct {
 	NATS     NATS     `json:"nats"`
 	Temporal Temporal `json:"temporal"`
 	Shutdown Shutdown `json:"shutdown"`
+	Health   Health   `json:"health"`
+	// Limits of the SDK's HTTP and gRPC servers (public and platform ports).
+	Server Server `json:"server"`
 
 	// Instance id; default <service>-<hostname>.
 	Instance string `json:"instance,omitempty"`
@@ -28,9 +31,48 @@ type Backplane struct {
 	InternalPort int64 `json:"internal_port" schemapb:"default=9400;gte=1;lte=65535"`
 	// Shared secret the console relay presents; empty disables the check.
 	InternalSecret Secret `json:"internal_secret,omitempty"`
+	// Also accepted while the secret rotates: set the new one as
+	// internal_secret and the old one here, then drop it.
+	InternalSecretPrevious Secret `json:"internal_secret_previous,omitempty"`
 	// Default listener of managed public routes.
-	PublicPort int64  `json:"public_port" schemapb:"default=8080;gte=1;lte=65535"`
-	LogLevel   string `json:"log_level"   schemapb:"default=info"`
+	PublicPort int64 `json:"public_port" schemapb:"default=8080;gte=1;lte=65535"`
+	// Log level; changed live from the console.
+	LogLevel Live[string] `json:"log_level" schemapb:"default=info"`
+	// Serve /debug/pprof on the platform port behind the internal secret.
+	Pprof bool `json:"pprof" schemapb:"default=false"`
+}
+
+// TLS of a client connection. PEM contents, not paths: they come from
+// secrets like any other value. Empty CA means the system pool.
+type TLS struct {
+	Enabled    bool   `json:"enabled"               schemapb:"default=false"`
+	CA         string `json:"ca,omitempty"`
+	Cert       string `json:"cert,omitempty"`
+	Key        Secret `json:"key,omitempty"`
+	ServerName string `json:"server_name,omitempty"`
+	// Development only.
+	InsecureSkipVerify bool `json:"insecure_skip_verify" schemapb:"default=false"`
+}
+
+// Health evaluation of the probes.
+type Health struct {
+	Interval time.Duration `json:"interval" schemapb:"default=5s"`
+	// Per evaluation; at most interval.
+	Timeout time.Duration `json:"timeout" schemapb:"default=3s"`
+}
+
+// Server limits, applied to the public and platform listeners.
+type Server struct {
+	ReadHeaderTimeout time.Duration `json:"read_header_timeout" schemapb:"default=10s"`
+	IdleTimeout       time.Duration `json:"idle_timeout"        schemapb:"default=2m"`
+	MaxHeaderBytes    int64         `json:"max_header_bytes"    schemapb:"default=1048576;gte=1"`
+	// gRPC: largest message received.
+	GRPCMaxRecvMsgSize int64 `json:"grpc_max_recv_msg_size" schemapb:"default=4194304;gte=1"`
+	// gRPC: minimum interval of client keepalive pings; Envoy pings more
+	// often than grpc-go's 5m default allows.
+	GRPCKeepaliveMinTime time.Duration `json:"grpc_keepalive_min_time" schemapb:"default=30s"`
+	// gRPC: accept keepalive pings on connections without streams.
+	GRPCPermitWithoutStream bool `json:"grpc_permit_without_stream" schemapb:"default=true"`
 }
 
 // Backplaner is satisfied by any struct embedding Backplane.
@@ -41,10 +83,20 @@ func (b Backplane) BackplaneConfig() Backplane { return b }
 
 // Consul connection.
 type Consul struct {
-	Addr  string `json:"addr,omitempty"`
-	Token Secret `json:"token,omitempty"`
+	Addr       string `json:"addr,omitempty"`
+	Token      Secret `json:"token,omitempty"`
+	Datacenter string `json:"datacenter,omitempty"`
+	TLS        TLS    `json:"tls"`
 	// false when the deployment registers the service itself.
 	Register bool `json:"register" schemapb:"default=true"`
+	// Tags of the catalog registration.
+	Tags []string `json:"tags,omitempty"`
+	// Health check of the catalog registration.
+	CheckInterval   time.Duration `json:"check_interval"   schemapb:"default=10s"`
+	CheckTimeout    time.Duration `json:"check_timeout"    schemapb:"default=5s"`
+	DeregisterAfter time.Duration `json:"deregister_after" schemapb:"default=1m"`
+	// TTL of the session the instance state lives under.
+	SessionTTL time.Duration `json:"session_ttl" schemapb:"default=30s"`
 }
 
 // Enabled reports whether Consul is configured.
@@ -57,6 +109,9 @@ func (c Consul) Enabled() bool { return c.Addr != "" }
 type NATS struct {
 	URL   string `json:"url,omitempty"`
 	Creds Secret `json:"creds,omitempty"`
+	TLS   TLS    `json:"tls"`
+	// Bound of a Publish whose context has no deadline.
+	PublishTimeout time.Duration `json:"publish_timeout" schemapb:"default=5s"`
 
 	// Retention of the service's events.
 	MaxAge time.Duration `json:"max_age" schemapb:"default=168h"`
@@ -78,7 +133,14 @@ func (n NATS) Enabled() bool { return n.URL != "" }
 type Temporal struct {
 	Addr      string `json:"addr,omitempty"`
 	Namespace string `json:"ns"             schemapb:"default=default"`
-	Worker    Worker `json:"worker"`
+	TLS       TLS    `json:"tls"`
+	// Temporal Cloud API key.
+	APIKey Secret `json:"api_key,omitempty"`
+	// First dial attempt; later attempts run in the background.
+	DialTimeout time.Duration `json:"dial_timeout" schemapb:"default=2s"`
+	// Deadline of a hook call whose context and declaration set none.
+	HookTimeout time.Duration `json:"hook_timeout" schemapb:"default=30s"`
+	Worker      Worker        `json:"worker"`
 }
 
 // Worker on the service's task queue: an operational setting, the same
@@ -108,4 +170,9 @@ type Shutdown struct {
 	// Time for load balancers to notice the instance left before its
 	// listeners close.
 	Drain time.Duration `json:"drain" schemapb:"default=3s"`
+	// Longest the listeners drain; then open streams are cut.
+	Listeners time.Duration `json:"listeners" schemapb:"default=10s"`
+	// Kept for the author's tree, dependencies and telemetry after the
+	// listeners: drain + listeners + reserve <= timeout.
+	Reserve time.Duration `json:"reserve" schemapb:"default=5s"`
 }
