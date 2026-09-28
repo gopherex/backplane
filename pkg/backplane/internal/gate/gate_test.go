@@ -32,10 +32,16 @@ type blocker struct {
 	release chan struct{}
 }
 
-func (b *blocker) wait() {
+// wait blocks until release or until the call's context ends.
+func (b *blocker) wait(ctx context.Context) error {
 	b.entered <- struct{}{}
 
-	<-b.release
+	select {
+	case <-b.release:
+		return nil
+	case <-ctx.Done():
+		return status.FromContextError(ctx.Err()).Err()
+	}
 }
 
 func desc() *grpc.ServiceDesc {
@@ -52,8 +58,10 @@ func desc() *grpc.ServiceDesc {
 					return nil, err
 				}
 
-				h := func(context.Context, any) (any, error) {
-					srv.(*blocker).wait()
+				h := func(ctx context.Context, _ any) (any, error) {
+					if err := srv.(*blocker).wait(ctx); err != nil {
+						return nil, err
+					}
 
 					return &emptypb.Empty{}, nil
 				}
@@ -64,10 +72,8 @@ func desc() *grpc.ServiceDesc {
 		Streams: []grpc.StreamDesc{{
 			StreamName:    "Stream",
 			ServerStreams: true,
-			Handler: func(srv any, _ grpc.ServerStream) error {
-				srv.(*blocker).wait()
-
-				return nil
+			Handler: func(srv any, ss grpc.ServerStream) error {
+				return srv.(*blocker).wait(ss.Context())
 			},
 		}},
 	}
@@ -198,29 +204,43 @@ func TestCloseWaitsInFlight(t *testing.T) {
 	}
 }
 
-func TestCloseTimesOut(t *testing.T) {
+// A Close that runs out of budget cancels the calls still in flight: a
+// long stream ends instead of outliving the tree.
+func TestCloseTimesOutCancelsInFlight(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	f.gate.Open()
+	for name, call := range map[string]func(*fixture, context.Context) error{
+		"unary":  (*fixture).unary,
+		"stream": (*fixture).stream,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	callErr := make(chan error, 1)
+			f := newFixture(t)
+			f.gate.Open()
 
-	go func() { callErr <- f.unary(t.Context()) }()
+			callErr := make(chan error, 1)
 
-	<-f.svc.entered
+			go func() { callErr <- call(f, t.Context()) }()
 
-	ctx, cancel := context.WithTimeout(t.Context(), settle)
-	defer cancel()
+			<-f.svc.entered
 
-	if err := f.gate.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("want deadline exceeded, got %v", err)
-	}
+			ctx, cancel := context.WithTimeout(t.Context(), settle)
+			defer cancel()
 
-	close(f.svc.release)
+			if err := f.gate.Close(ctx); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("want deadline exceeded, got %v", err)
+			}
 
-	if err := <-callErr; err != nil {
-		t.Fatalf("in-flight call: %v", err)
+			select {
+			case err := <-callErr:
+				if status.Code(err) != codes.Canceled {
+					t.Fatalf("in-flight call: want Canceled, got %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("in-flight call not cancelled")
+			}
+		})
 	}
 }
 

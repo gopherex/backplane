@@ -4,16 +4,20 @@
 package configrt
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/hashicorp/consul/api"
 	"google.golang.org/protobuf/proto"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
+	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 )
+
+// RevisionKey, under config/<service>/, holds the console's revision of the
+// values next to it; written in one transaction with them.
+const RevisionKey = "_revision"
 
 // LiveAnnotation marks a Live field in the configuration schema: the console
 // may change it and Consul KV overrides apply only to such fields.
@@ -39,15 +43,26 @@ type State interface {
 	// Consul is the client the configuration reads KV through; nil when
 	// Consul is not configured.
 	Consul() *api.Client
+	// SetLog routes the configuration's own logging (rejected updates,
+	// Consul layer transitions) to the service logger; until then it goes
+	// to log/slog.
+	SetLog(log *xlog.Logger)
 	Close() error
 }
 
 // Effective is what the instance runs with: masked values, the layer each
-// path came from, and the last rejected update.
+// path came from, the console revision they came from, and the last
+// rejected update.
 type Effective struct {
 	Values  []byte
 	Sources map[string]backplanev1.ConfigSource
-	Err     error
+	// Revision of config/<service>/_revision read together with the applied
+	// values; 0 when absent.
+	Revision uint64
+	// Err: why the last update was not applied; nil once a later one is.
+	Err error
+	// RejectedRevision of the update Err refers to; 0 when none.
+	RejectedRevision uint64
 }
 
 // SourceOf maps a source name to its kind.
@@ -111,14 +126,4 @@ func walk(s *sp.Schema, prefix []string, visit func(f *sp.Schema_Field, path []s
 			}
 		}
 	}
-}
-
-// ConsulClient builds a Consul API client.
-func ConsulClient(addr, token string) (*api.Client, error) {
-	client, err := api.NewClient(&api.Config{Address: addr, Token: token})
-	if err != nil {
-		return nil, fmt.Errorf("consul client %s: %w", addr, err)
-	}
-
-	return client, nil
 }

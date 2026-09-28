@@ -1,6 +1,10 @@
 package backplane
 
 import (
+	"os"
+
+	"google.golang.org/grpc"
+
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
@@ -14,6 +18,13 @@ type options struct {
 	log    *xlog.Logger
 	config []config.Option
 	slog   bool
+	grpc   []grpc.ServerOption
+
+	requireNATS     bool
+	requireTemporal bool
+
+	signals <-chan os.Signal // tests: instead of SIGINT/SIGTERM
+	exit    func(code int)   // tests: instead of os.Exit
 }
 
 // Name overrides build.Service.
@@ -41,3 +52,20 @@ func ConfigOptions(opts ...config.Option) Option {
 // the service logger (the OTel SDK and other libraries log through it) and
 // restores it when Run returns.
 func KeepSlog() Option { return func(o *options) { o.slog = false } }
+
+// GRPCServerOptions are passed to every public gRPC server after the
+// SDK's own (telemetry, limits of config.Server, panic recovery): a later
+// limit overrides the SDK's; interceptors run inside recovery and outside
+// those of route.Interceptors. The platform port is not affected.
+func GRPCServerOptions(opts ...grpc.ServerOption) Option {
+	return func(o *options) { o.grpc = append(o.grpc, opts...) }
+}
+
+// RequireNATS makes the NATS connection part of readiness: the instance is
+// not ready while it is down. Without NATS configured, Open fails.
+func RequireNATS() Option { return func(o *options) { o.requireNATS = true } }
+
+// RequireTemporal makes the Temporal connection part of readiness: the
+// instance is not ready while it is down. Without Temporal configured,
+// Open fails.
+func RequireTemporal() Option { return func(o *options) { o.requireTemporal = true } }

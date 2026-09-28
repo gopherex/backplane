@@ -1,0 +1,31 @@
+package backplane
+
+import (
+	"os"
+
+	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+)
+
+// WithSignals replaces SIGINT/SIGTERM with ch.
+func WithSignals(ch <-chan os.Signal) Option { return func(o *options) { o.signals = ch } }
+
+// WithExit replaces os.Exit with fn.
+func WithExit(fn func(code int)) Option { return func(o *options) { o.exit = fn } }
+
+// SystemNodes names the service root's children in start order.
+func SystemNodes[St any](s *Service[St]) []string {
+	children := s.svc.Children()
+	names := make([]string, 0, len(children))
+
+	for _, n := range children {
+		names = append(names, n.Name())
+	}
+
+	return names
+}
+
+// NodeStatuses is what the instance state reports for the author's tree.
+func NodeStatuses[St any](s *Service[St]) []*backplanev1.NodeStatus { return s.nodes() }
+
+// TransportStatuses is what the instance state reports for the transports.
+func TransportStatuses[St any](s *Service[St]) []*backplanev1.TransportStatus { return s.transports() }

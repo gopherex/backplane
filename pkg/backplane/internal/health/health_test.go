@@ -57,7 +57,7 @@ func start(t *testing.T, h *health.Health) {
 func TestReadyOnlyWhenServing(t *testing.T) {
 	t.Parallel()
 
-	h := health.New(testlog.Discard(), time.Hour)
+	h := health.New(testlog.Discard(), time.Hour, 0)
 	start(t, h)
 	time.Sleep(20 * time.Millisecond)
 
@@ -89,7 +89,7 @@ func TestReadyOnlyWhenServing(t *testing.T) {
 func TestAuthorProbeGatesReadiness(t *testing.T) {
 	t.Parallel()
 
-	h := health.New(testlog.Discard(), time.Hour)
+	h := health.New(testlog.Discard(), time.Hour, 0)
 	db := probe.NewBool()
 	h.Add(health.Ready, db)
 	start(t, h)
@@ -104,5 +104,35 @@ func TestAuthorProbeGatesReadiness(t *testing.T) {
 
 	if c := code(t, h, "/healthz/readiness"); c != http.StatusOK {
 		t.Fatalf("not ready with passing probe: %d", c)
+	}
+}
+
+// One evaluation is bounded by the timeout, not the interval: a probe that
+// hangs holds readiness down for the timeout only.
+func TestCheckBoundedByTimeout(t *testing.T) {
+	t.Parallel()
+
+	h := health.New(testlog.Discard(), time.Hour, 50*time.Millisecond)
+	if h.Interval() != time.Hour {
+		t.Fatalf("interval %v", h.Interval())
+	}
+
+	h.Add(health.Ready, probe.Func(func(ctx context.Context) probe.Status {
+		<-ctx.Done()
+
+		return probe.StatusDown
+	}))
+
+	begin := time.Now()
+
+	start(t, h)
+	h.Serving(context.Background(), true)
+
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("evaluation took %v with a 50ms timeout", took)
+	}
+
+	if c := code(t, h, "/healthz/readiness"); c == http.StatusOK {
+		t.Fatal("ready with a hanging probe")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -13,26 +14,22 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
-	"go.temporal.io/sdk/workflow"
 
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
 // StartWorker runs the service's worker on its task queue: every declared
-// activity, and CallHookWorkflow when hooks are declared. It does not wait
-// for Temporal: the worker starts on g as soon as the connection is up,
-// retrying a failed start.
+// activity and the workflows registered through Env (the author's own, the
+// workflow-backed activities). It does not wait for Temporal: the worker
+// starts on g as soon as the connection is up, retrying a failed start.
+// Hook calls have their own worker (StartHookWorker).
 func (c *Client) StartWorker(_ context.Context, g node.Group) error {
-	hooks := false
-	if m, err := c.p.Env.Manifest.Build(); err == nil {
-		hooks = len(m.GetHooks()) > 0
-	}
-
 	g.Go(func(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
@@ -40,7 +37,7 @@ func (c *Client) StartWorker(_ context.Context, g node.Group) error {
 		case <-c.ready:
 		}
 
-		_ = backoff.Retry(ctx, c.retry, func(context.Context) error { return c.startWorker(hooks) },
+		_ = backoff.Retry(ctx, c.retry, func(context.Context) error { return c.startWorker() },
 			func(err error, in time.Duration) {
 				c.log.Warn("temporal worker start failed, retrying", xlog.Err(err), xlog.Duration("retry_in", in))
 			})
@@ -52,7 +49,7 @@ func (c *Client) StartWorker(_ context.Context, g node.Group) error {
 }
 
 // startWorker makes one attempt; a worker whose start failed is discarded.
-func (c *Client) startWorker(hooks bool) error {
+func (c *Client) startWorker() error {
 	c.mu.Lock()
 	conn, done := c.client, c.closed || c.stopped
 	c.mu.Unlock()
@@ -65,10 +62,6 @@ func (c *Client) startWorker(hooks bool) error {
 
 	for name, h := range c.p.Env.Activities() {
 		w.RegisterActivityWithOptions(c.activity(name, h), activity.RegisterOptions{Name: name})
-	}
-
-	if hooks {
-		w.RegisterWorkflowWithOptions(callHook, workflow.RegisterOptions{Name: CallHookWorkflow})
 	}
 
 	for _, register := range c.p.Env.WorkerRegistrations() {
@@ -120,6 +113,11 @@ func (c *Client) StopWorker(ctx context.Context) error {
 	c.worker, c.stopped = nil, true
 	c.mu.Unlock()
 
+	return c.stop(ctx, w, "worker")
+}
+
+// stop stops w (nil: nothing) within ctx.
+func (c *Client) stop(ctx context.Context, w worker.Worker, what string) error {
 	if w == nil {
 		return nil
 	}
@@ -135,7 +133,7 @@ func (c *Client) StopWorker(ctx context.Context) error {
 	select {
 	case <-done:
 	case <-ctx.Done():
-		c.log.Warn("temporal worker still stopping at the end of the stop budget: activities in flight are abandoned")
+		c.log.Warn("temporal " + what + " still stopping at the end of the stop budget: work in flight is abandoned")
 	}
 
 	return nil
@@ -143,9 +141,10 @@ func (c *Client) StopWorker(ctx context.Context) error {
 
 // activity adapts a JSON handler to a Temporal activity over the envelope.
 // The trace of the envelope parents the handler when Temporal headers did
-// not carry the same trace. Errors: an application error passes as is;
-// env.NonRetryable becomes a non-retryable one; anything else is retried by
-// the caller's policy. Messages are prefixed with <service>.<Name>.
+// not carry the same trace; the handler's ctx carries env.ActivityInfo.
+// Errors: an application error passes as is; env.NonRetryable becomes a
+// non-retryable one; anything else — a panic too — is retried by the
+// caller's policy. Messages are prefixed with <service>.<Name>.
 func (c *Client) activity(
 	name string, h env.Handler,
 ) func(ctx context.Context, call *backplanev1.ActivityCall) (*backplanev1.ActivityResult, error) {
@@ -153,16 +152,72 @@ func (c *Client) activity(
 	tracer := otel.GetTracerProvider().Tracer(scopeName)
 
 	return func(ctx context.Context, call *backplanev1.ActivityCall) (*backplanev1.ActivityResult, error) {
+		start := time.Now()
+
 		ctx, end := continueTrace(ctx, tracer, full, call.GetTrace())
 		defer end()
 
-		out, err := h(ctx, call.GetPayload())
+		ctx = env.WithActivityInfo(ctx, activityInfo(ctx, call))
+		out, err := c.handle(ctx, full, h, call.GetPayload())
+		metrics.ActivityHandled(ctx, full, outcome(err), time.Since(start))
+
 		if err != nil {
-			return nil, activityError(full, err)
+			return nil, err
 		}
 
 		return &backplanev1.ActivityResult{Payload: out}, nil
 	}
+}
+
+// handle runs h; its error, or a panic, becomes what Temporal gets.
+func (c *Client) handle(ctx context.Context, full string, h env.Handler, in []byte) ([]byte, error) {
+	var (
+		out []byte
+		err error
+	)
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				metrics.Panic(ctx, "activity "+full)
+				c.log.Ctx().Error(ctx, "activity panicked", xlog.String("activity", full),
+					xlog.String("panic", fmt.Sprint(r)), xlog.String("stack", string(debug.Stack())))
+
+				out, err = nil, fmt.Errorf("%s: %w: %v", full, errPanic, r)
+			}
+		}()
+
+		out, err = h(ctx, in)
+		if err != nil {
+			err = activityError(full, err)
+		}
+	}()
+
+	return out, err
+}
+
+var errPanic = errors.New("panic")
+
+// activityInfo of the running activity for its handler.
+func activityInfo(ctx context.Context, call *backplanev1.ActivityCall) env.ActivityInfo {
+	info := activity.GetInfo(ctx)
+
+	return env.ActivityInfo{
+		Attempt:   info.Attempt,
+		Binding:   call.GetBinding(),
+		Step:      call.GetStep(),
+		Key:       info.WorkflowExecution.ID + "/" + info.ActivityID,
+		Deadline:  info.Deadline,
+		Heartbeat: func(details ...any) { activity.RecordHeartbeat(ctx, details...) },
+	}
+}
+
+func outcome(err error) string {
+	if err != nil {
+		return metrics.Error
+	}
+
+	return metrics.OK
 }
 
 func activityError(full string, err error) error {

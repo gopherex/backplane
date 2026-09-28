@@ -9,8 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/gopherex/xprobe/pkg/probe"
 
@@ -24,7 +25,7 @@ import (
 
 //nolint:gochecknoinits // installs the private accessor for the wsproto package
 func init() {
-	link.MountWS = func(svc any, prefix string, h http.Handler, services []string, opts any) {
+	link.MountWS = func(svc any, prefix string, h http.Handler, services []string, spec routes.Managed) {
 		m, ok := svc.(interface {
 			mountWS(prefix string, h http.Handler, services []string, spec routes.Managed)
 		})
@@ -32,7 +33,7 @@ func init() {
 			panic("backplane: wsproto.Serve needs a *backplane.Service")
 		}
 
-		m.mountWS(prefix, h, services, link.Routes.HTTP(opts))
+		m.mountWS(prefix, h, services, spec)
 	}
 }
 
@@ -58,16 +59,27 @@ func (c *core) Route(d route.Decl) {
 
 // GRPC serves gRPC services on a public port: one route per registered
 // service, descriptors derived from the registration. Registering the same
-// service twice on one port is a Run error.
+// service twice on one port is a Run error; so is grpc.health.v1, which
+// every public gRPC server serves already. route.Interceptors and
+// route.StreamInterceptors wrap this registration's services only.
 func (c *core) GRPC(register func(r grpc.ServiceRegistrar), opts ...route.GRPCOption) {
 	spec := link.Routes.GRPC(opts)
 
 	c.declare("gRPC routes", func() {
 		p := c.port(spec.Listen)
+		srv := c.grpcServer(p)
 
-		services, err := manifest.Register(p.grpcServer(), register)
+		services, err := manifest.Register(srv, register)
 		if err != nil {
 			c.env.Manifest.Fail(err)
+		}
+
+		p.dispatch.Add(services, spec.Unary, spec.Stream)
+
+		if spec.Reflection && !p.reflection {
+			reflection.Register(srv)
+
+			p.reflection = true
 		}
 
 		kind := backplanev1.RouteKind_ROUTE_KIND_GRPC
@@ -78,13 +90,16 @@ func (c *core) GRPC(register func(r grpc.ServiceRegistrar), opts ...route.GRPCOp
 		for _, name := range services {
 			r := &backplanev1.Route{Kind: kind, Port: uint32(p.port), Services: []string{name}}
 			setMatch(r, spec.Host, "/"+name+"/")
+			r.Policy = proto.CloneOf(spec.Policy)
 			c.env.Manifest.Route(r)
 		}
 	})
 }
 
 // HTTP serves h under prefix on a public port. The prefix is normalized to
-// end with "/" ("/api" serves "/api/..."); a duplicate is a Run error.
+// end with "/" ("/api" serves "/api/..."); with route.Host it matches that
+// host only, so one prefix may serve several hosts. The same host and
+// prefix twice on one port is a Run error.
 func (c *core) HTTP(prefix string, h http.Handler, opts ...route.HTTPOption) {
 	c.mountHTTP("HTTP route", backplanev1.RouteKind_ROUTE_KIND_HTTP, prefix, h, link.Routes.HTTP(opts), nil)
 }
@@ -120,15 +135,13 @@ func (c *core) mountHTTP(
 		}
 
 		port := c.port(spec.Listen)
-		if !port.handle(p) {
-			c.env.Manifest.Fail(fmt.Errorf("%s %s: %w on %s", what, p, errPrefixTaken, port.addr))
+		if !port.handle(spec.Host, p, spec.Wrap(h)) {
+			c.env.Manifest.Fail(fmt.Errorf("%s %s%s: %w on %s", what, spec.Host, p, errPrefixTaken, port.addr))
 
 			return
 		}
 
-		port.mux().Handle(p, h)
-
-		r := &backplanev1.Route{Kind: kind, Port: uint32(port.port)}
+		r := &backplanev1.Route{Kind: kind, Port: uint32(port.port), Policy: proto.CloneOf(spec.Policy)}
 		setMatch(r, spec.Host, p)
 
 		if spec.OpenAPI != nil {
@@ -146,7 +159,7 @@ func (c *core) mountHTTP(
 	})
 }
 
-// setMatch matches r by path prefix and, when given, host.
+// setMatch matches r by path prefix and, when given, host too.
 func setMatch(r *backplanev1.Route, host, prefix string) {
 	r.Prefix, r.Host = prefix, host
 }
@@ -202,11 +215,13 @@ func (c *core) StartupProbe(p probe.Probe) {
 
 // publicPort is one managed public listener: gRPC and HTTP share it.
 type publicPort struct {
-	addr     string
-	port     uint16
-	grpc     *grpc.Server
-	http     *http.ServeMux
-	prefixes map[string]bool
+	addr       string
+	port       uint16
+	grpc       *grpc.Server
+	dispatch   *routes.Dispatch // per-registration interceptors of grpc
+	reflection bool
+	http       *http.ServeMux
+	prefixes   map[string]*routes.Hosts
 }
 
 // port returns the public port for listen ("" = the default public port).
@@ -221,7 +236,7 @@ func (c *core) port(listen string) *publicPort {
 		}
 	}
 
-	p := &publicPort{addr: listen, prefixes: map[string]bool{}}
+	p := &publicPort{addr: listen, prefixes: map[string]*routes.Hosts{}}
 
 	n, err := portOf(listen)
 	if err != nil {
@@ -250,14 +265,6 @@ func (c *core) primaryPort() uint16 {
 	return 0
 }
 
-func (p *publicPort) grpcServer() *grpc.Server {
-	if p.grpc == nil {
-		p.grpc = grpc.NewServer(serverOptions()...)
-	}
-
-	return p.grpc
-}
-
 func (p *publicPort) mux() *http.ServeMux {
 	if p.http == nil {
 		p.http = http.NewServeMux()
@@ -266,24 +273,16 @@ func (p *publicPort) mux() *http.ServeMux {
 	return p.http
 }
 
-// handle claims prefix; false when it is taken.
-func (p *publicPort) handle(prefix string) bool {
-	if p.prefixes[prefix] {
-		return false
+// handle serves h for host and prefix; false when they are taken.
+func (p *publicPort) handle(host, prefix string, h http.Handler) bool {
+	hosts, ok := p.prefixes[prefix]
+	if !ok {
+		hosts = routes.NewHosts()
+		p.prefixes[prefix] = hosts
+		p.mux().Handle(prefix, hosts)
 	}
 
-	p.prefixes[prefix] = true
-
-	return true
-}
-
-// handler is the traced HTTP side of the port, or nil without HTTP routes.
-func (p *publicPort) handler() http.Handler {
-	if p.http == nil {
-		return nil
-	}
-
-	return otelhttp.NewHandler(p.http, "public"+p.addr)
+	return hosts.Add(host, h)
 }
 
 func portOf(listen string) (uint16, error) {

@@ -70,3 +70,37 @@ func TestGRPC(t *testing.T) {
 		t.Fatal("want unary and stream interceptors")
 	}
 }
+
+func TestPreviousSecretAccepted(t *testing.T) {
+	t.Parallel()
+
+	g := guard.New("new", "old", "")
+	h := g.HTTP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	for presented, want := range map[string]int{"new": 200, "old": 200, "": 403, "other": 403} {
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		if presented != "" {
+			req.Header.Set(guard.HTTPHeader, presented)
+		}
+
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != want {
+			t.Errorf("http secret %q: got %d want %d", presented, rec.Code, want)
+		}
+
+		md := metadata.NewIncomingContext(context.Background(), metadata.Pairs(guard.Header, presented))
+		if err := g.Authorize(md, "/svc.v1.S/M"); (err == nil) != (want == 200) {
+			t.Errorf("grpc secret %q: %v", presented, err)
+		}
+	}
+}
+
+func TestPreviousAloneDoesNotEnable(t *testing.T) {
+	t.Parallel()
+
+	if err := guard.New("", "old").Authorize(context.Background(), "/svc.v1.S/M"); err != nil {
+		t.Fatalf("empty secret must disable the guard: %v", err)
+	}
+}

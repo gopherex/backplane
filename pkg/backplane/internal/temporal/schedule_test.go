@@ -14,6 +14,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/gopherex/xlog"
 
@@ -149,20 +151,37 @@ func eventually(t *testing.T, what string, ok func() bool) {
 func describe(t *testing.T, tc client.Client, id string) (*client.ScheduleDescription, bool) {
 	t.Helper()
 
-	d, err := tc.ScheduleClient().GetHandle(t.Context(), id).Describe(t.Context())
-
 	var missing *serviceerror.NotFound
 
-	switch {
-	case err == nil:
-		return d, true
-	case errors.As(err, &missing):
-		return nil, false
-	default:
-		t.Fatalf("describe %s: %v", id, err)
+	// A busy dev server times RPCs out now and then: retry those, fail on
+	// anything else.
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		d, err := tc.ScheduleClient().GetHandle(ctx, id).Describe(ctx)
 
-		return nil, false
+		cancel()
+
+		switch {
+		case err == nil:
+			return d, true
+		case errors.As(err, &missing):
+			return nil, false
+		case attempt < 5 && transient(err):
+			time.Sleep(200 * time.Millisecond)
+		default:
+			t.Fatalf("describe %s: %v", id, err)
+
+			return nil, false
+		}
 	}
+}
+
+func transient(err error) bool {
+	var unavailable *serviceerror.Unavailable
+
+	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &unavailable) ||
+		status.Code(err) == codes.DeadlineExceeded || status.Code(err) == codes.Unavailable ||
+		status.Code(err) == codes.Canceled
 }
 
 // listed waits until the schedule list (eventually consistent) shows id.

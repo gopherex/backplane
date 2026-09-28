@@ -6,6 +6,7 @@ package decl
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -52,11 +53,47 @@ func Encode(v any) ([]byte, error) {
 	return json.Marshal(v) //nolint:wrapcheck // one encoder per path
 }
 
-// Decode is the inverse of Encode.
+// Decode is the inverse of Encode. Fields the payload has and v does not
+// are ignored on both paths: a producer may add fields before its
+// consumers know them (payloads evolve additively; a renamed field is a
+// new field). v may point to a nil proto message pointer (a Ref[*pb.X]):
+// the message is allocated.
 func Decode(data []byte, v any) error {
-	if m, ok := v.(proto.Message); ok {
-		return protojson.Unmarshal(data, m) //nolint:wrapcheck // one decoder per path
+	if m, ok := message(v); ok {
+		return unmarshal.Unmarshal(data, m) //nolint:wrapcheck // one decoder per path
 	}
 
 	return json.Unmarshal(data, v) //nolint:wrapcheck // one decoder per path
+}
+
+//nolint:gochecknoglobals // immutable options
+var (
+	unmarshal    = protojson.UnmarshalOptions{DiscardUnknown: true}
+	protoMessage = reflect.TypeFor[proto.Message]()
+)
+
+// message is v as a proto message: v itself, or the message a **M points
+// to, allocated when nil.
+func message(v any) (proto.Message, bool) { //nolint:ireturn // any message
+	if m, ok := v.(proto.Message); ok {
+		return m, true
+	}
+
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return nil, false
+	}
+
+	el := rv.Elem()
+	if el.Kind() != reflect.Pointer || !el.Type().Implements(protoMessage) {
+		return nil, false
+	}
+
+	if el.IsNil() {
+		el.Set(reflect.New(el.Type().Elem()))
+	}
+
+	m, ok := el.Interface().(proto.Message)
+
+	return m, ok
 }

@@ -71,6 +71,13 @@ func start(t *testing.T, params consul.Params) *consul.Presence {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	if params.Register {
+		// Serving from the first establish: registration is part of it.
+		if err := p.Register(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	t.Cleanup(func() {
 		cancel()
 
@@ -116,6 +123,7 @@ func (l *logBuf) has(parts ...string) bool {
 type fakeConfig struct {
 	mu     sync.Mutex
 	values []byte
+	eff    configrt.Effective // everything but Values
 	fn     func()
 }
 
@@ -123,7 +131,10 @@ func (c *fakeConfig) Effective() configrt.Effective {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return configrt.Effective{Values: c.values}
+	eff := c.eff
+	eff.Values = c.values
+
+	return eff
 }
 
 func (c *fakeConfig) OnChange(fn func()) {
@@ -155,6 +166,8 @@ type fakeConsul struct {
 	failRenews    int             // the next n renews answer 500
 	failAcquires  int
 	failRegisters int
+	registrations []api.AgentServiceRegistration
+	deregisters   int
 }
 
 type fakeKV struct {
@@ -175,7 +188,9 @@ func newFake(t *testing.T) (*fakeConsul, *api.Client) {
 	mux.HandleFunc("PUT /v1/session/destroy/{id}", f.destroy)
 	mux.HandleFunc("GET /v1/session/info/{id}", f.info)
 	mux.HandleFunc("PUT /v1/agent/service/register", f.register)
-	mux.HandleFunc("PUT /v1/agent/service/deregister/{id}", func(http.ResponseWriter, *http.Request) {})
+	mux.HandleFunc("PUT /v1/agent/service/deregister/{id}", func(http.ResponseWriter, *http.Request) {
+		f.with(func(f *fakeConsul) { f.deregisters++ })
+	})
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -202,6 +217,14 @@ func (f *fakeConsul) put(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
+	if r.URL.Query().Get("cas") == "0" {
+		if _, exists := f.kv[key]; exists {
+			reply(w, false)
+
+			return
+		}
+	}
 
 	if !r.URL.Query().Has("acquire") {
 		f.kv[key] = fakeKV{value: body}
@@ -320,7 +343,7 @@ func (f *fakeConsul) info(w http.ResponseWriter, r *http.Request) {
 	reply(w, []api.SessionEntry{})
 }
 
-func (f *fakeConsul) register(w http.ResponseWriter, _ *http.Request) {
+func (f *fakeConsul) register(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -330,6 +353,11 @@ func (f *fakeConsul) register(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "injected", http.StatusInternalServerError)
 
 		return
+	}
+
+	var reg api.AgentServiceRegistration
+	if err := json.NewDecoder(r.Body).Decode(&reg); err == nil {
+		f.registrations = append(f.registrations, reg)
 	}
 }
 
@@ -664,6 +692,10 @@ func TestPresenceLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if err := p.Register(ctx); err != nil {
+		t.Fatal(err)
+	}
+
 	raw := waitKey(t, c, "backplane/services/presence-test/manifests/1.2.3", true)
 
 	var m backplanev1.Manifest
@@ -804,6 +836,10 @@ func TestDuplicateStopKeepsHoldersRegistration(t *testing.T) {
 	older.UseFastTiming()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	if err := older.Register(ctx); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := older.Start(ctx, group{ctx}); err != nil {
 		t.Fatal(err)
 	}

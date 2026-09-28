@@ -38,9 +38,10 @@ var Routes struct {
 	Decl func(d any) (*backplanev1.Route, error)
 	GRPC func(opts any) routes.Managed
 	HTTP func(opts any) routes.Managed
+	WS   func(opts any) routes.Managed
 }
 
 // MountWS serves a ws-proto endpoint on a *backplane.Service.
 //
 //nolint:gochecknoglobals // set once by backplane at init
-var MountWS func(svc any, prefix string, h http.Handler, services []string, opts any)
+var MountWS func(svc any, prefix string, h http.Handler, services []string, spec routes.Managed)

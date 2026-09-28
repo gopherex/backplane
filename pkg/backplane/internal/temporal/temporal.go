@@ -4,8 +4,9 @@
 // Names: task queue = service name; activity type = activity name as
 // declared; hook = Nexus operation <Name> of Nexus service <service>.Hooks
 // on endpoint <service>. A hook raised outside workflow code runs through
-// the short workflow backplane.CallHook on the service's own queue, id
-// hook/<service>/<Name>/<uuid>.
+// the short workflow backplane.CallHook.v1 on the service's hooks queue
+// <service>.hooks, served by a worker of its own, id
+// hook/<service>/<Name>/<uuid> or, with a key, hook/<service>/<Name>/<key>.
 package temporal
 
 import (
@@ -20,12 +21,16 @@ import (
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/operatorservice/v1"
 	"go.temporal.io/sdk/client"
 	otelsdk "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/interceptor"
 	tlog "go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/gopherex/xlog"
@@ -38,11 +43,9 @@ import (
 
 const (
 	defaultNamespace = "default"
-	// dialTimeout bounds one connection attempt; Connect makes one before
-	// going to the background.
-	dialTimeout = 2 * time.Second
-	// DefaultHookTimeout bounds a hook call whose context has no deadline.
-	DefaultHookTimeout = 30 * time.Second
+	// defaultDialTimeout bounds one connection attempt; Connect makes one
+	// before going to the background.
+	defaultDialTimeout = 2 * time.Second
 	// stopGrace is how long a stopping worker lets activities finish; the
 	// stop budget of the service bounds it in practice.
 	stopGrace = time.Minute
@@ -50,6 +53,18 @@ const (
 	// Bounds of the delay between connection and worker start attempts.
 	retryFloor = time.Second
 	retryCeil  = 30 * time.Second
+	// healthEvery is how often a connected client checks the connection.
+	healthEvery = 5 * time.Second
+)
+
+// Memo and search attributes of a hook call's workflow (§14): who raised
+// it. The search attributes are set only when the namespace has them
+// (Keyword); the memo always.
+const (
+	MemoSource        = "source"
+	AttrService       = "BpService"
+	AttrHook          = "BpHook"
+	transportTemporal = "temporal"
 )
 
 // Params of New.
@@ -61,6 +76,16 @@ type Params struct {
 	Log       *xlog.Logger
 	Env       *env.Env
 	Worker    Tuning
+
+	TLS TLS
+	// APIKey authenticates to Temporal Cloud; it turns TLS on even when
+	// TLS is not enabled.
+	APIKey string
+	// DialTimeout bounds one connection attempt; 0 is 2s.
+	DialTimeout time.Duration
+	// HookTimeout is the deadline of a hook call nothing else bounds; 0 is
+	// env.DefaultHookTimeout. New installs it on Env for WorkflowCall.
+	HookTimeout time.Duration
 }
 
 // Tuning of the worker; a zero field is Temporal's default.
@@ -71,11 +96,12 @@ type Tuning struct {
 	WorkflowPollers            int
 }
 
-// Client is the service's Temporal connection and worker.
+// Client is the service's Temporal connection and workers.
 type Client struct {
 	p      Params
 	log    *xlog.Logger
 	retry  backoff.Policy // between connection and worker start attempts
+	health time.Duration  // between connection checks
 	tracer interceptor.Interceptor
 
 	mu      sync.Mutex
@@ -84,10 +110,19 @@ type Client struct {
 	closed  bool
 	worker  worker.Worker // nil until started
 	stopped bool          // StopWorker ran: a late start is undone
+	hooks   worker.Worker // the hooks worker, nil until started
+	unhook  bool          // StopHookWorker ran
 	ready   chan struct{} // closed once client is set
 
-	endpoint atomic.Bool // the service's Nexus endpoint was seen
+	connected atomic.Bool
+	endpoint  atomic.Bool  // the service's Nexus endpoint was seen
+	attrs     atomic.Int32 // search attributes: 0 not checked, attrsSet, attrsMissing
 }
+
+const (
+	attrsSet int32 = iota + 1
+	attrsMissing
+)
 
 // New creates the client; nothing connects until Connect.
 func New(p Params) *Client {
@@ -95,20 +130,31 @@ func New(p Params) *Client {
 		p.Namespace = defaultNamespace
 	}
 
+	if p.DialTimeout <= 0 {
+		p.DialTimeout = defaultDialTimeout
+	}
+
 	log := p.Log
 	if log == nil {
 		log = xlog.New(nil)
 	}
 
+	if p.Env != nil {
+		p.Env.SetHookTimeout(p.HookTimeout)
+	}
+
 	return &Client{
 		p: p, log: log.With(xlog.String("component", "temporal")),
-		retry: backoff.Policy{Min: retryFloor, Max: retryCeil}, ready: make(chan struct{}),
+		retry:  backoff.Policy{Min: retryFloor, Max: retryCeil},
+		health: healthEvery, ready: make(chan struct{}),
 	}
 }
 
 // Connect dials without blocking on an unreachable Temporal: after one short
 // attempt it keeps retrying on g and returns. Until connected, Call fails
-// fast with env.ErrUnavailable and the worker waits.
+// fast with env.ErrUnavailable and the workers wait. Once connected, the
+// connection is checked on g every few seconds (Connected). A TLS setting
+// that cannot work is an error.
 func (c *Client) Connect(ctx context.Context, g node.Group) error {
 	tracer, err := otelsdk.NewTracingInterceptor(otelsdk.TracerOptions{})
 	if err != nil {
@@ -117,16 +163,34 @@ func (c *Client) Connect(ctx context.Context, g node.Group) error {
 
 	c.tracer = tracer
 
-	if err := c.dial(ctx); err == nil {
+	opts, err := c.options()
+	if err != nil {
+		return err
+	}
+
+	g.Go(func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-c.ready:
+		}
+
+		c.watch(ctx)
+
+		return nil
+	})
+
+	if err := c.dial(ctx, opts); err == nil {
 		return nil
 	}
 
 	c.log.Warn("temporal unreachable, connecting in background", xlog.String("addr", c.p.Addr), xlog.Err(c.dialErr()))
 
 	g.Go(func(ctx context.Context) error {
-		err := backoff.Retry(ctx, c.retry, c.dial, func(err error, in time.Duration) {
-			c.log.Debug("temporal unreachable", xlog.Err(err), xlog.Duration("retry_in", in))
-		})
+		err := backoff.Retry(ctx, c.retry, func(ctx context.Context) error { return c.dial(ctx, opts) },
+			func(err error, in time.Duration) {
+				c.log.Debug("temporal unreachable", xlog.Err(err), xlog.Duration("retry_in", in))
+			})
 		if err == nil {
 			c.log.Info("temporal connected", xlog.String("addr", c.p.Addr))
 		}
@@ -138,11 +202,11 @@ func (c *Client) Connect(ctx context.Context, g node.Group) error {
 }
 
 // dial makes one connection attempt.
-func (c *Client) dial(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, dialTimeout)
+func (c *Client) dial(ctx context.Context, opts client.Options) error {
+	ctx, cancel := context.WithTimeout(ctx, c.p.DialTimeout)
 	defer cancel()
 
-	conn, err := client.DialContext(ctx, c.options())
+	conn, err := client.DialContext(ctx, opts)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -159,15 +223,21 @@ func (c *Client) dial(ctx context.Context) error {
 	default:
 		c.client, c.lastErr = conn, nil
 		close(c.ready)
+		c.setConnected(ctx, true)
 
 		return nil
 	}
 }
 
-func (c *Client) options() client.Options {
+func (c *Client) options() (client.Options, error) {
 	log := c.log
 
-	return client.Options{
+	tlsCfg, err := c.p.TLS.config()
+	if err != nil {
+		return client.Options{}, err
+	}
+
+	opts := client.Options{
 		HostPort:     c.p.Addr,
 		Namespace:    c.p.Namespace,
 		Identity:     c.p.Instance,
@@ -178,7 +248,14 @@ func (c *Client) options() client.Options {
 			OnError:              func(err error) { log.Debug("temporal metric", xlog.Err(err)) },
 			UseMonotonicCounters: true,
 		}),
+		ConnectionOptions: client.ConnectionOptions{TLS: tlsCfg},
 	}
+
+	if c.p.APIKey != "" {
+		opts.Credentials = client.NewAPIKeyStaticCredentials(c.p.APIKey)
+	}
+
+	return opts, nil
 }
 
 func (c *Client) dialErr() error {
@@ -211,7 +288,7 @@ func (c *Client) SDK() (client.Client, error) {
 }
 
 // Close closes the connection; a dial still in flight is dropped.
-func (c *Client) Close(context.Context) error {
+func (c *Client) Close(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -220,13 +297,21 @@ func (c *Client) Close(context.Context) error {
 		c.client.Close()
 	}
 
+	c.setConnected(ctx, false)
+
 	return nil
 }
 
 // Call implements env.Caller: a hook call from outside a workflow. It runs
-// the workflow backplane.CallHook on the service's own queue, which raises
-// the Nexus operation, and waits for it within ctx (DefaultHookTimeout when
-// ctx has no deadline).
+// the workflow backplane.CallHook.v1 on the hooks queue <service>.hooks,
+// which raises the Nexus operation, and waits for it within ctx
+// (Params.HookTimeout when ctx has no deadline).
+//
+// With a key (env.WithCallKey) the workflow id is hook/<service>/<Name>/<key>:
+// a call while one with the key runs joins it, a call after one with the
+// key completed gets its result without running again, a call after one
+// with the key failed runs anew. Temporal keeps a completed run for the
+// namespace's retention; past it the key is forgotten.
 func (c *Client) Call(ctx context.Context, hook string, in []byte) ([]byte, error) {
 	conn := c.current()
 	if conn == nil {
@@ -242,7 +327,7 @@ func (c *Client) Call(ctx context.Context, hook string, in []byte) ([]byte, erro
 		return nil, fmt.Errorf("%w: %q is not a hook of %s", errHookName, hook, c.p.Service)
 	}
 
-	timeout := DefaultHookTimeout
+	timeout := c.hookTimeout()
 	if d, set := ctx.Deadline(); set {
 		timeout = time.Until(d)
 	}
@@ -262,11 +347,7 @@ func (c *Client) Call(ctx context.Context, hook string, in []byte) ([]byte, erro
 		Hook: hook, Instance: c.p.Instance, Payload: in, Trace: Inject(ctx), Deadline: durationpb.New(timeout),
 	}
 
-	run, err := conn.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:                       "hook/" + c.p.Service + "/" + name + "/" + uuid.NewString(),
-		TaskQueue:                c.p.Service,
-		WorkflowExecutionTimeout: timeout,
-	}, CallHookWorkflow, call)
+	run, err := conn.ExecuteWorkflow(ctx, c.startOptions(ctx, conn, name, timeout), CallHookWorkflow, call)
 	if err != nil {
 		return nil, callError(ctx, fmt.Errorf("start: %w", err))
 	}
@@ -277,6 +358,91 @@ func (c *Client) Call(ctx context.Context, hook string, in []byte) ([]byte, erro
 	}
 
 	return res.GetPayload(), nil
+}
+
+// hookTimeout is the platform default of a call.
+func (c *Client) hookTimeout() time.Duration {
+	if c.p.HookTimeout > 0 {
+		return c.p.HookTimeout
+	}
+
+	return env.DefaultHookTimeout
+}
+
+// startOptions of the CallHook workflow of hook name: id, hooks queue,
+// timeout, who raised it (memo, search attributes when the namespace has
+// them), and the key's dedup policies.
+func (c *Client) startOptions(
+	ctx context.Context, conn client.Client, name string, timeout time.Duration,
+) client.StartWorkflowOptions {
+	opts := client.StartWorkflowOptions{
+		ID:                       HookWorkflowID(c.p.Service, name, uuid.NewString()),
+		TaskQueue:                HooksQueue(c.p.Service),
+		WorkflowExecutionTimeout: timeout,
+		Memo:                     map[string]any{MemoSource: c.p.Service + "/" + c.p.Instance},
+	}
+
+	if key := env.CallKeyOf(ctx); key != "" {
+		opts.ID = HookWorkflowID(c.p.Service, name, key)
+		opts.WorkflowIDConflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+		opts.WorkflowIDReusePolicy = enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE_FAILED_ONLY
+	}
+
+	if c.searchAttributes(ctx, conn) {
+		opts.TypedSearchAttributes = temporal.NewSearchAttributes(
+			temporal.NewSearchAttributeKeyKeyword(AttrService).ValueSet(c.p.Service),
+			temporal.NewSearchAttributeKeyKeyword(AttrHook).ValueSet(c.p.Service+"."+name),
+		)
+	}
+
+	return opts
+}
+
+// HookWorkflowID is the id of the CallHook workflow of <service>.<name>
+// under suffix (a uuid, or the call's key).
+func HookWorkflowID(service, name, suffix string) string {
+	return "hook/" + service + "/" + name + "/" + suffix
+}
+
+// HooksQueue is the task queue of service's CallHook workflows.
+func HooksQueue(service string) string { return service + ".hooks" }
+
+// searchAttributes reports whether the namespace has the Keyword search
+// attributes BpService and BpHook; checked once. A server that refuses
+// the check (no operator permission) counts as without them.
+func (c *Client) searchAttributes(ctx context.Context, conn client.Client) bool {
+	switch c.attrs.Load() {
+	case attrsSet:
+		return true
+	case attrsMissing:
+		return false
+	}
+
+	res, err := conn.OperatorService().ListSearchAttributes(ctx, &operatorservice.ListSearchAttributesRequest{
+		Namespace: c.p.Namespace,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return false // not a verdict: checked again next call
+		}
+
+		c.log.Debug("search attributes not checked: hook calls go without them", xlog.Err(err))
+		c.attrs.Store(attrsMissing)
+
+		return false
+	}
+
+	custom := res.GetCustomAttributes()
+	has := custom[AttrService] == enumspb.INDEXED_VALUE_TYPE_KEYWORD &&
+		custom[AttrHook] == enumspb.INDEXED_VALUE_TYPE_KEYWORD
+
+	if has {
+		c.attrs.Store(attrsSet)
+	} else {
+		c.attrs.Store(attrsMissing)
+	}
+
+	return has
 }
 
 var errHookName = errors.New("temporal: bad hook name")
@@ -314,6 +480,14 @@ func (c *Client) checkEndpoint(ctx context.Context, conn client.Client) error {
 func callError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("%w", context.Cause(ctx))
+	}
+
+	// The server can report the deadline a moment before ctx notices it,
+	// and a run timed out at the same deadline surfaces as a timeout error.
+	var timeout *temporal.TimeoutError
+	if status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) ||
+		errors.As(err, &timeout) {
+		return fmt.Errorf("%w", context.DeadlineExceeded)
 	}
 
 	return Local(err)

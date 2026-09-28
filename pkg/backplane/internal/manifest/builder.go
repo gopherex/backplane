@@ -25,6 +25,7 @@ import (
 	sp "github.com/gopherex/schemapb/go/schemapb"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/internal/routes"
 )
 
 const (
@@ -119,10 +120,14 @@ func (b *Builder) Nodes(nodes []*backplanev1.Node) {
 	})
 }
 
-// Route records a route; two routes with the same match on the same port
-// are an error.
+// Route records a route; two routes with the same match (host and prefix)
+// on the same port are an error, and so is a policy Envoy would reject.
 func (b *Builder) Route(r *backplanev1.Route) {
 	b.with("route", func(m *backplanev1.Manifest) error {
+		if err := routes.CheckPolicy(r.GetPolicy()); err != nil {
+			return fmt.Errorf("%s: %w", matchOf(r), err)
+		}
+
 		if err := b.unique("route", matchOf(r)); err != nil {
 			return err
 		}
@@ -201,6 +206,15 @@ func (b *Builder) Schedule(s *backplanev1.Schedule) {
 		m.Schedules = append(m.Schedules, s)
 
 		return b.unique("schedule", s.GetName())
+	})
+}
+
+// Workflow records a workflow the console may start.
+func (b *Builder) Workflow(w *backplanev1.Workflow) {
+	b.with("workflow", func(m *backplanev1.Manifest) error {
+		m.Workflows = append(m.Workflows, w)
+
+		return b.unique("workflow", w.GetName())
 	})
 }
 

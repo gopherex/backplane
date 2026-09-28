@@ -5,19 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hashicorp/consul/api"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
 	"github.com/gopherex/xconf"
 	consulsrc "github.com/gopherex/xconf/contrib/sources/consul"
+	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
+	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 )
 
 //nolint:gochecknoinits // installs the private accessors for the SDK core and backplanetest
@@ -44,13 +48,22 @@ type Runtime[C any] struct {
 	live   [][]string
 	rt     *xconf.TypedRuntime[C]
 	consul *api.Client
-	stop   context.CancelFunc
-	wg     sync.WaitGroup
-	once   sync.Once
+	// kv is the Consul layer's source; nil without Consul.
+	kv   *revisioned
+	stop context.CancelFunc
+	wg   sync.WaitGroup
+	once sync.Once
+	log  atomic.Pointer[xlog.Logger]
 
-	mu       sync.Mutex
-	rejected error
-	changes  []func()
+	mu sync.Mutex
+	// applied is the snapshot whose values Value holds: a rejected update
+	// becomes the xconf runtime's current snapshot but never this one.
+	applied     *xconf.Snapshot
+	revision    uint64
+	rejected    error
+	rejectedRev uint64
+	degraded    bool
+	changes     []func()
 }
 
 // Open loads the configuration and keeps it live: Consul KV (named by the
@@ -59,6 +72,11 @@ type Runtime[C any] struct {
 // last values; Degraded reports it and the layer recovers on its own. A
 // required Live value that only Consul holds keeps Open waiting until
 // Consul answers or ctx ends. The runtime outlives ctx; Close it when done.
+//
+// Every Validator in C (C itself or any section, value or pointer
+// receiver) runs on the loaded configuration — its error fails Open — and
+// on every live update: an update it rejects is not applied, and the
+// instance state reports the error and the rejected revision.
 func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error) {
 	st, err := newSettings(opts)
 	if err != nil {
@@ -89,18 +107,27 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 	r := &Runtime[C]{schema: schema, live: live}
 
 	if consul := first.BackplaneConfig().Consul; consul.Enabled() && !st.noConsul {
-		r.consul, err = configrt.ConsulClient(consul.Addr, consul.Token.Reveal())
+		r.consul, err = consul.client()
 		if err != nil {
 			return nil, fmt.Errorf("config: %w", err)
 		}
 
-		sources = append(sources, st.consulSource(r.consul, live))
+		var src xconf.Source
+
+		src, r.kv = st.consulSource(r.consul, live)
+		sources = append(sources, src)
 	}
 
+	return r.open(ctx, sources)
+}
+
+// open starts the xconf runtime (bounded by ctx, outliving it), takes the
+// first value through Validate and starts forwarding updates.
+func (r *Runtime[C]) open(ctx context.Context, sources []xconf.Source) (*Runtime[C], error) {
 	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	unbind := context.AfterFunc(ctx, stop)
 
-	rt, err := xconf.OpenAs[C](runCtx, schema, sources...)
+	rt, err := xconf.OpenAs[C](runCtx, r.schema, sources...)
 
 	unbind()
 
@@ -111,13 +138,27 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 	}
 
 	value, err := rt.Current()
+	if err == nil {
+		if err = validate(&value); err != nil {
+			err = fmt.Errorf("validate: %w", err)
+		}
+	}
+
 	if err != nil {
 		stop()
 
-		return nil, errors.Join(fmt.Errorf("config: decode: %w", err), rt.Close())
+		return nil, errors.Join(fmt.Errorf("config: %w", err), rt.Close())
 	}
 
 	r.value, r.rt, r.stop = &value, rt, stop
+	r.applied = rt.Snapshot()
+	r.revision = r.revisionOf(r.applied)
+
+	if r.kv != nil {
+		r.degraded = r.Degraded() != nil
+		metrics.ConfigDegraded(ctx, r.degraded)
+	}
+
 	r.wg.Add(1)
 
 	go r.forward(runCtx)
@@ -125,9 +166,13 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 	return r, nil
 }
 
-func (st *settings) consulSource(client *api.Client, live [][]string) xconf.Source {
+// consulSource is the Consul layer: Live paths of config/<service>/, the
+// revision read with them, resilient to Consul being down.
+func (st *settings) consulSource(client *api.Client, live [][]string) (xconf.Source, *revisioned) {
 	prefix := "config/" + st.service + "/"
-	opts := append([]consulsrc.Option{consulsrc.Name(configrt.SourceConsul + prefix)}, st.consulOpts...)
+	opts := append([]consulsrc.Option{
+		consulsrc.Name(configrt.SourceConsul + prefix), consulsrc.IgnoreKeys(configrt.RevisionKey),
+	}, st.consulOpts...)
 
 	paths := make([]xconf.Path, len(live))
 	for i, p := range live {
@@ -139,31 +184,161 @@ func (st *settings) consulSource(client *api.Client, live [][]string) xconf.Sour
 		backoff = append(backoff, xconf.Backoff(st.backoffMin, st.backoffMax))
 	}
 
-	src := xconf.Optional(xconf.AllowPaths(consulsrc.NewPrefix(client.KV(), prefix, opts...), paths...))
+	lister := revisionLister{kv: client.KV(), key: prefix + configrt.RevisionKey}
+	kv := &revisioned{inner: consulsrc.NewPrefix(lister, prefix, opts...)}
+	src := xconf.Optional(xconf.AllowPaths(kv, paths...))
 
-	return xconf.Resilient(src, backoff...)
+	return xconf.Resilient(src, backoff...), kv
 }
 
-// forward applies the runtime's snapshots to Value.
+// forward applies the runtime's snapshots to Value: decoded, validated, then
+// published into the Live fields; a failing one is recorded as rejected.
 func (r *Runtime[C]) forward(ctx context.Context) {
 	defer r.wg.Done()
 
 	for ev := range r.rt.Subscribe(ctx) {
-		next, err := xconf.Decode[C](ev.Snapshot)
-		if ev.Err != nil {
-			err = ev.Err
-		}
-
-		r.mu.Lock()
-		r.rejected = err
-		r.mu.Unlock()
-
-		if err == nil {
-			transfer(reflect.ValueOf(r.value).Elem(), reflect.ValueOf(&next).Elem())
-		}
-
+		r.observeDegraded(ctx, ev.Snapshot)
+		r.handle(ctx, ev)
 		r.notify()
 	}
+}
+
+func (r *Runtime[C]) handle(ctx context.Context, event xconf.Event) {
+	if event.Err != nil {
+		// The update never became a snapshot: its revision is the last read.
+		r.reject(ctx, event.Err, r.kv.lastRevision())
+
+		return
+	}
+
+	r.mu.Lock()
+	same := event.Snapshot == r.applied
+	r.mu.Unlock()
+
+	if same {
+		// Back to the applied snapshot after a failed reload.
+		r.clearRejection()
+
+		return
+	}
+
+	rev := r.revisionOf(event.Snapshot)
+
+	next, err := xconf.Decode[C](event.Snapshot)
+	if err == nil {
+		if err = validate(&next); err != nil {
+			err = fmt.Errorf("validate: %w", err)
+		}
+	}
+
+	if err != nil {
+		r.reject(ctx, err, rev)
+
+		return
+	}
+
+	transfer(reflect.ValueOf(r.value).Elem(), reflect.ValueOf(&next).Elem())
+
+	r.mu.Lock()
+	update := len(event.Changed) > 0 || rev != r.revision
+	r.applied, r.revision, r.rejected, r.rejectedRev = event.Snapshot, rev, nil, 0
+	r.mu.Unlock()
+
+	if update {
+		metrics.ConfigUpdate(ctx, metrics.Applied)
+	}
+}
+
+// reject records an update that is not applied; a repeat of the same
+// rejection (the same revision failing the same way) is not logged again.
+func (r *Runtime[C]) reject(ctx context.Context, err error, rev uint64) {
+	r.mu.Lock()
+	repeat := r.rejected != nil && r.rejectedRev == rev && r.rejected.Error() == err.Error()
+	r.rejected, r.rejectedRev = err, rev
+	r.mu.Unlock()
+
+	if repeat {
+		return
+	}
+
+	metrics.ConfigUpdate(ctx, metrics.Rejected)
+	r.warn("config update rejected, keeping the applied values", err, "revision", rev)
+}
+
+func (r *Runtime[C]) clearRejection() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.rejected, r.rejectedRev = nil, 0
+}
+
+// observeDegraded logs and records the Consul layer going stale and coming
+// back.
+func (r *Runtime[C]) observeDegraded(ctx context.Context, snap *xconf.Snapshot) {
+	if r.kv == nil || snap == nil {
+		return
+	}
+
+	err := consulDegraded(snap)
+
+	r.mu.Lock()
+	changed := r.degraded != (err != nil)
+	r.degraded = err != nil
+	r.mu.Unlock()
+
+	if !changed {
+		return
+	}
+
+	metrics.ConfigDegraded(ctx, err != nil)
+
+	if err != nil {
+		r.warn("config: consul layer unavailable, keeping its last values; retrying", err)
+	} else {
+		r.info("config: consul layer recovered")
+	}
+}
+
+// revisionOf is the console revision the Consul layer of snap came from.
+func (r *Runtime[C]) revisionOf(snap *xconf.Snapshot) uint64 {
+	if r.kv == nil || snap == nil {
+		return 0
+	}
+
+	return parseRevision(snap.Revisions()[r.kv.Name()])
+}
+
+func (s *revisioned) lastRevision() uint64 {
+	if s == nil {
+		return 0
+	}
+
+	return s.last.Load()
+}
+
+func (r *Runtime[C]) warn(msg string, err error, kv ...any) {
+	if log := r.log.Load(); log != nil {
+		fields := []xlog.Field{xlog.Err(err)}
+		for i := 0; i+1 < len(kv); i += 2 {
+			fields = append(fields, xlog.Any(fmt.Sprint(kv[i]), kv[i+1]))
+		}
+
+		log.Warn(msg, fields...)
+
+		return
+	}
+
+	slog.Warn(msg, append([]any{"error", err.Error()}, kv...)...)
+}
+
+func (r *Runtime[C]) info(msg string) {
+	if log := r.log.Load(); log != nil {
+		log.Info(msg)
+
+		return
+	}
+
+	slog.Info(msg)
 }
 
 // transfer publishes every Live field of next into dst, in place.
@@ -207,8 +382,10 @@ func (r *Runtime[C]) Value() *C { return r.value }
 
 // Degraded reports why the Consul layer is stale or empty; nil when healthy
 // or not configured.
-func (r *Runtime[C]) Degraded() error {
-	for name, err := range r.rt.Snapshot().Degraded() {
+func (r *Runtime[C]) Degraded() error { return consulDegraded(r.rt.Snapshot()) }
+
+func consulDegraded(snap *xconf.Snapshot) error {
+	for name, err := range snap.Degraded() {
 		if strings.HasPrefix(name, configrt.SourceConsul) {
 			return err
 		}
@@ -262,15 +439,17 @@ func (s state[C]) Degraded() error { return s.r.Degraded() }
 
 func (s state[C]) Consul() *api.Client { return s.r.consul }
 
+func (s state[C]) SetLog(log *xlog.Logger) { s.r.log.Store(log) }
+
 func (s state[C]) Close() error { return s.r.Close() }
 
 func (s state[C]) Effective() configrt.Effective {
 	s.r.mu.Lock()
-	rejected := s.r.rejected
+	snap, rejected := s.r.applied, s.r.rejected
+	eff := configrt.Effective{
+		Sources: map[string]backplanev1.ConfigSource{}, Revision: s.r.revision, RejectedRevision: s.r.rejectedRev,
+	}
 	s.r.mu.Unlock()
-
-	snap := s.r.rt.Snapshot()
-	eff := configrt.Effective{Sources: map[string]backplanev1.ConfigSource{}}
 
 	values, err := json.Marshal(snap.Baked().Masked().ToGo())
 	eff.Values, eff.Err = values, errors.Join(rejected, err)

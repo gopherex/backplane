@@ -7,10 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
-	"time"
 
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"google.golang.org/grpc"
 	hv1 "google.golang.org/grpc/health/grpc_health_v1"
 
@@ -19,6 +16,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
+	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/gate"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
@@ -26,14 +24,14 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/internal/listener"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
+	"github.com/gopherex/backplane/pkg/backplane/internal/recovery"
 	"github.com/gopherex/backplane/pkg/backplane/internal/telemetry"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
 const (
-	healthInterval = 5 * time.Second
-	uiPath         = "/_backplane/ui/"
-	probesPath     = "/healthz/"
+	uiPath     = "/_backplane/ui/"
+	probesPath = "/healthz/"
 )
 
 // ErrClosed is returned by Run after Close or a previous Run.
@@ -60,14 +58,18 @@ type core struct {
 	svc *node.Node // service root: the SDK's nodes and the author's tree
 	app *node.Node // the author's tree
 
-	broker   *broker.Broker   // nil without NATS
-	temporal *temporal.Client // nil without Temporal
-	health   *health.Health
-	guard    guard.Guard
-	gate     *gate.Gate
-	internal *grpc.Server   // platform port, gRPC: internal API + health
-	platform *http.ServeMux // platform port, HTTP behind the guard: UI bundle
-	public   []*publicPort
+	broker    *broker.Broker // nil without NATS
+	telemetry *telemetry.Telemetry
+	temporal  *temporal.Client // nil without Temporal
+	health    *health.Health
+	guard     guard.Guard
+	gate      *gate.Gate
+	internal  *grpc.Server   // platform port, gRPC: internal API + health
+	platform  *http.ServeMux // platform port, HTTP behind the guard: UI bundle
+	public    []*publicPort
+	// consulPresence is built by Run (it needs the manifest); nil without
+	// Consul.
+	consulPresence *consul.Presence
 
 	mu    sync.Mutex
 	phase phase
@@ -77,37 +79,44 @@ type core struct {
 func newCore(ctx context.Context, o options, conf configrt.State, cfg config.Backplane) *core {
 	id := o.id.resolve(ctx, cfg)
 	log := id.logger(o.log, cfg)
+	conf.SetLog(log)
+	id.warnUnreachable(log, cfg)
 	m := manifest.New(id.Service, id.Version)
 	m.Config(conf.Schema(), conf.LivePaths())
 
 	c := &core{
 		id: id, cfg: cfg, log: log, conf: conf, opts: o,
 		env:      env.New(id.Service, m),
-		health:   health.New(log, healthInterval),
-		guard:    guard.New(cfg.InternalSecret.Reveal()),
+		health:   health.New(log, cfg.Health.Interval, cfg.Health.Timeout),
+		guard:    guard.New(cfg.InternalSecret.Reveal(), cfg.InternalSecretPrevious.Reveal()),
 		gate:     gate.New(),
 		platform: http.NewServeMux(),
 	}
-	c.internal = grpc.NewServer(serverOptions(append(c.guard.ServerOptions(), c.gate.ServerOptions()...)...)...)
+	c.internal = grpc.NewServer(c.serverOptions(recovery.GRPCInternal,
+		append(c.guard.ServerOptions(), c.gate.ServerOptions()...)...)...)
 	hv1.RegisterHealthServer(c.internal, c.health.GRPC())
+	c.platformRoutes()
 
 	c.svc = node.New(id.Service, log, c.env)
+	c.svc.SetProbeInterval(cfg.Health.Interval)
 
 	cn := c.svc.Child("config", node.System, false)
 	cn.OnStop(func(context.Context) error { return conf.Close() })
 
-	tel := telemetry.New(telemetry.Identity{
+	c.telemetry = telemetry.New(telemetry.Identity{
 		Service: id.Service, Version: id.Version, Instance: id.Instance, Environment: id.Environment,
 	}, log)
 	tn := c.svc.Child("telemetry", node.System, false)
-	tn.OnStart(tel.Start)
-	tn.OnStop(tel.Stop)
+	tn.OnStart(c.telemetry.Start)
+	tn.OnStop(c.telemetry.Stop)
 
 	hn := c.svc.Child("health", node.System, false)
 	hn.OnStart(func(ctx context.Context) error { return c.health.Start(ctx, hn) })
 
 	c.listen("platform", listenAddr(cfg.InternalPort), c.internal, c.platformHandler())
+	c.presenceNode()
 	c.connect()
+	c.requireTransports()
 
 	c.app = c.svc.Child(id.Service, node.Root, false)
 	c.health.Add(health.Ready, c.app.Readiness())
@@ -121,7 +130,13 @@ func (c *core) connect() {
 	if c.cfg.NATS.Enabled() {
 		c.broker = broker.New(broker.Params{
 			URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds.Reveal(),
-			Service: c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
+			TLS: broker.TLS{
+				Enabled: c.cfg.NATS.TLS.Enabled, CA: c.cfg.NATS.TLS.CA, Cert: c.cfg.NATS.TLS.Cert,
+				Key: c.cfg.NATS.TLS.Key.Reveal(), ServerName: c.cfg.NATS.TLS.ServerName,
+				InsecureSkipVerify: c.cfg.NATS.TLS.InsecureSkipVerify,
+			},
+			PublishTimeout: c.cfg.NATS.PublishTimeout,
+			Service:        c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
 			Streams: broker.Streams{
 				MaxAge: c.cfg.NATS.MaxAge, MaxBytes: c.cfg.NATS.MaxBytes, Replicas: int(c.cfg.NATS.Replicas),
 				Duplicates: c.cfg.NATS.DedupWindow, DeadMaxAge: c.cfg.NATS.DLQMaxAge,
@@ -138,12 +153,29 @@ func (c *core) connect() {
 			Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace,
 			Service: c.id.Service, Instance: c.id.Instance, Log: c.log, Env: c.env,
 			Worker: tuning(c.cfg.Temporal.Worker),
+			TLS:    temporalTLS(c.cfg.Temporal.TLS), APIKey: c.cfg.Temporal.APIKey.Reveal(),
+			DialTimeout: c.cfg.Temporal.DialTimeout, HookTimeout: c.cfg.Temporal.HookTimeout,
 		})
 		n := c.svc.Child("temporal", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.Connect(ctx, n) })
 		n.OnStop(c.temporal.Close)
+
+		// Its own worker serves hook calls raised outside workflows, so
+		// components may call hooks from OnStart and OnStop.
+		hn := c.svc.Child("hooks", node.System, false)
+		hn.OnStart(func(ctx context.Context) error { return c.temporal.StartHookWorker(ctx, hn) })
+		hn.OnStop(c.temporal.StopHookWorker)
+
 		c.env.SetCaller(c.temporal)
 		c.env.SetWorkflowClient(func() (any, error) { return c.temporal.SDK() })
+	}
+}
+
+// temporalTLS of the Temporal connection from its configuration block.
+func temporalTLS(t config.TLS) temporal.TLS {
+	return temporal.TLS{
+		Enabled: t.Enabled, CA: t.CA, Cert: t.Cert, Key: t.Key.Reveal(),
+		ServerName: t.ServerName, InsecureSkipVerify: t.InsecureSkipVerify,
 	}
 }
 
@@ -158,11 +190,13 @@ func tuning(w config.Worker) temporal.Tuning {
 }
 
 // listen adds a listener node.
-func (c *core) listen(name, addr string, g *grpc.Server, h http.Handler) {
-	l := listener.New(name, addr, g, h, c.log)
+func (c *core) listen(name, addr string, g *grpc.Server, h http.Handler) *node.Node {
+	l := listener.New(name, addr, g, h, c.log, c.limits())
 	n := c.svc.Child(name, node.System, false)
 	n.OnStart(func(ctx context.Context) error { return l.Start(ctx, n) })
 	n.OnStop(l.Stop)
+
+	return n
 }
 
 // Name of the service.
@@ -206,22 +240,6 @@ func (c *core) Close() error {
 	}
 
 	return nil
-}
-
-// serverOptions: telemetry without health-check noise, then extra.
-func serverOptions(extra ...grpc.ServerOption) []grpc.ServerOption {
-	stats := otelgrpc.NewServerHandler(otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))
-
-	return append([]grpc.ServerOption{grpc.StatsHandler(stats)}, extra...)
-}
-
-// platformHandler: probes open, everything else behind the guard.
-func (c *core) platformHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.Handle(probesPath, c.health.HTTP())
-	mux.Handle("/", c.guard.HTTP(c.platform))
-
-	return mux
 }
 
 func listenAddr(port int64) string { return ":" + strconv.FormatInt(port, 10) }

@@ -11,6 +11,11 @@
 //	c, err := workflows.Client(scope)
 //	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: workflows.Queue(scope)}, orders.Ship, in)
 //
+// Declare registers one workflow and records it in the manifest with its
+// input and output schemas, so the console can start it with a form:
+//
+//	workflows.Declare(root, "Ship", orders.Ship, workflows.Describe("ships an order"))
+//
 // Schedule declares a Temporal Schedule of a registered workflow; the SDK
 // creates, updates and deletes the service's schedules to match the
 // declarations at every start:

@@ -32,7 +32,7 @@ func TestDeclarative(t *testing.T) {
 		},
 		"http host": {
 			route.HTTP("/x/", route.Host("api.example.com"), route.OpenAPI([]byte("{}"))),
-			backplanev1.RouteKind_ROUTE_KIND_HTTP, "", "api.example.com", 0, true,
+			backplanev1.RouteKind_ROUTE_KIND_HTTP, "/x/", "api.example.com", 0, true,
 		},
 		"http normalized": {
 			route.HTTP("/api", route.Port(8081)),
@@ -44,7 +44,7 @@ func TestDeclarative(t *testing.T) {
 		},
 		"graphql no introspection": {
 			route.GraphQL("/graphql/", nil, route.Host("gql.example.com")),
-			backplanev1.RouteKind_ROUTE_KIND_GRAPHQL, "", "gql.example.com", 0, false,
+			backplanev1.RouteKind_ROUTE_KIND_GRAPHQL, "/graphql/", "gql.example.com", 0, false,
 		},
 		"wsproto": {
 			route.WSProto("/ws", nil),

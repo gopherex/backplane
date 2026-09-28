@@ -3,6 +3,7 @@ package event_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -36,17 +37,19 @@ func bare(t *testing.T) (deps.Component, *env.Env) {
 	return link.Scope(app).(deps.Component), e
 }
 
-// keys records the ordering keys events were published with.
+// keys records the messages events were published as.
 type keys struct {
 	mu   sync.Mutex
 	keys []string
+	msgs []env.Message
 }
 
-func (k *keys) Publish(_ context.Context, _, key string, _ []byte) error {
+func (k *keys) Publish(_ context.Context, m env.Message) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	k.keys = append(k.keys, key)
+	k.keys = append(k.keys, m.Key)
+	k.msgs = append(k.msgs, m)
 
 	return nil
 }
@@ -143,9 +146,14 @@ func TestReact(t *testing.T) {
 
 	got := make(chan Greeted, 1)
 
-	event.React(mailer, "iam.UserRegistered", func(_ context.Context, v Greeted) error {
+	event.React(mailer, "iam.UserRegistered", func(ctx context.Context, v Greeted) error {
 		if v.Name == "" {
 			return errRejected
+		}
+
+		if d, ok := event.DeliveryOf(ctx); !ok || d.Attempt != 1 || d.Consumer != "mailer:iam.UserRegistered" ||
+			d.Source != "iam" || d.ID == "" {
+			return fmt.Errorf("delivery %+v", d)
 		}
 
 		got <- v

@@ -7,6 +7,9 @@ package telemetry
 
 import (
 	"context"
+	"os"
+	"strings"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 
@@ -24,6 +27,9 @@ type Telemetry struct {
 	id       Identity
 	log      *xlog.Logger
 	shutdown xsdk.Shutdown
+
+	mu       sync.Mutex
+	setupErr error
 }
 
 // New creates the component.
@@ -42,7 +48,12 @@ func (t *Telemetry) Start(ctx context.Context) error {
 
 	shutdown, err := xsdk.Setup(ctx, opts...)
 	if err != nil {
+		t.mu.Lock()
+		t.setupErr = err
+		t.mu.Unlock()
+
 		t.log.Warn("telemetry setup failed, continuing without export", xlog.Err(err))
+
 		return nil
 	}
 
@@ -62,4 +73,30 @@ func (t *Telemetry) Stop(ctx context.Context) error {
 	}
 
 	return t.shutdown(ctx)
+}
+
+// Status of OTLP export for the instance state: configured when an
+// OTEL_EXPORTER_OTLP_*ENDPOINT is set; up unless the setup failed (export
+// errors after setup are not tracked).
+func (t *Telemetry) Status() (configured, up bool, err error) { //nolint:nonamedreturns // three flags read better named
+	if !endpointSet() {
+		return false, false, nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return true, t.setupErr == nil, t.setupErr
+}
+
+// endpointSet reports whether any OTLP endpoint is configured.
+func endpointSet() bool {
+	for _, kv := range os.Environ() {
+		key, value, _ := strings.Cut(kv, "=")
+		if value != "" && strings.HasPrefix(key, "OTEL_EXPORTER_OTLP_") && strings.HasSuffix(key, "ENDPOINT") {
+			return true
+		}
+	}
+
+	return false
 }

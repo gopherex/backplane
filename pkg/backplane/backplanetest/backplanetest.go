@@ -12,9 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/config"
@@ -145,8 +148,9 @@ func Activity[Req, Res any](ctx context.Context, h *Harness, name string, in Req
 
 // React delivers v to the reactor declared for the event name (full,
 // "iam.UserRegistered") on the scope at path ("" for the root), as the
-// broker would: once, with the reactor's event.Timeout on ctx. The error
-// is the handler's; nothing is redelivered or dead-lettered.
+// broker would: once, with the reactor's event.Timeout and an
+// event.Delivery (a new ID, Attempt 1) on ctx. The error is the handler's;
+// nothing is redelivered or dead-lettered.
 func React[T any](ctx context.Context, h *Harness, path, name string, v T) error {
 	consumer := name
 	if path != "" {
@@ -157,6 +161,11 @@ func React[T any](ctx context.Context, h *Harness, path, name string, v T) error
 	if !ok {
 		return fmt.Errorf("%w: reactor %q", ErrNotDeclared, consumer)
 	}
+
+	source, _, _ := strings.Cut(name, ".")
+	ctx = env.WithIncoming(ctx, env.Incoming{
+		ID: uuid.NewString(), Source: source, Type: name, Time: time.Now(), Attempt: 1, Consumer: consumer,
+	})
 
 	if r.Delivery.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -199,11 +208,11 @@ type recorder struct {
 	hooks     map[string]env.Handler
 }
 
-func (r *recorder) Publish(_ context.Context, name, _ string, payload []byte) error {
+func (r *recorder) Publish(_ context.Context, m env.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.published[name] = append(r.published[name], payload)
+	r.published[m.Event] = append(r.published[m.Event], m.Payload)
 
 	return nil
 }

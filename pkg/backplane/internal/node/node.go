@@ -20,6 +20,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gopherex/xlog"
 	"github.com/gopherex/xprobe/pkg/probe"
@@ -73,9 +74,13 @@ type Tree struct {
 	env     any
 	failed  chan error
 
-	mu    sync.Mutex
-	phase phase
+	mu       sync.Mutex
+	phase    phase
+	interval time.Duration
 }
+
+// DefaultProbeInterval is the ProbeInterval of a tree that sets none.
+const DefaultProbeInterval = 5 * time.Second
 
 // Node is one element of the tree.
 type Node struct {
@@ -89,16 +94,18 @@ type Node struct {
 	log      *xlog.Logger
 	scope    *xtrace.Scope
 
-	mu       sync.Mutex
-	status   status
-	children []*Node
-	starts   []func(ctx context.Context) error
-	stops    []func(ctx context.Context) error
-	jobs     []func(ctx context.Context) error
-	ready    probe.Probe
-	ctx      context.Context //nolint:containedctx // the node's lifetime, handed to its goroutines
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	mu        sync.Mutex
+	status    status
+	children  []*Node
+	starts    []func(ctx context.Context) error
+	stops     []func(ctx context.Context) error
+	jobs      []func(ctx context.Context) error
+	ready     probe.Probe
+	condition func() Condition
+	budget    func(ctx context.Context) (context.Context, context.CancelFunc)
+	ctx       context.Context //nolint:containedctx // the node's lifetime, handed to its goroutines
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // namespace keeps paths unique under a Root (or under the service root for
@@ -182,6 +189,27 @@ func (ns *namespace) claim(path string) string {
 	ns.paths[path] = true
 
 	return path
+}
+
+// SetProbeInterval sets how often the service evaluates its health, for
+// nodes that check something periodically; d <= 0 keeps the default.
+func (n *Node) SetProbeInterval(d time.Duration) {
+	n.tree.mu.Lock()
+	defer n.tree.mu.Unlock()
+
+	n.tree.interval = d
+}
+
+// ProbeInterval is how often the service evaluates its health.
+func (n *Node) ProbeInterval() time.Duration {
+	n.tree.mu.Lock()
+	defer n.tree.mu.Unlock()
+
+	if n.tree.interval <= 0 {
+		return DefaultProbeInterval
+	}
+
+	return n.tree.interval
 }
 
 // Name of the node.
@@ -299,6 +327,44 @@ func (n *Node) Ready(p probe.Probe) {
 	n.ready = p
 }
 
+// Condition is a node's current state as a dependency: ready, or why not.
+type Condition struct {
+	Ready bool
+	Err   error
+}
+
+// SetCondition installs what Condition reports.
+func (n *Node) SetCondition(fn func() Condition) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.condition = fn
+}
+
+// Condition of the node; false for a node that reports none.
+func (n *Node) Condition() (Condition, bool) {
+	n.mu.Lock()
+	fn := n.condition
+	n.mu.Unlock()
+
+	if fn == nil {
+		return Condition{}, false
+	}
+
+	return fn(), true
+}
+
+// Budget narrows the node's own stop (its stop hooks and the wait for its
+// goroutines) to the context fn derives from the tree's stop context: a
+// per-node sub-deadline within the shutdown budget. Its children keep the
+// tree's context.
+func (n *Node) Budget(fn func(ctx context.Context) (context.Context, context.CancelFunc)) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.budget = fn
+}
+
 // Start starts n's subtree depth-first in creation order. ctx bounds the
 // start hooks; node lifetimes are detached from it. On error the caller
 // must still call Stop, which unwinds whatever started.
@@ -386,7 +452,7 @@ func (n *Node) stop(ctx context.Context) error {
 		n.status = stopped
 	}
 
-	stops := n.stops
+	stops, budget := n.stops, n.budget
 	n.mu.Unlock()
 
 	if st != started && st != failed {
@@ -394,6 +460,13 @@ func (n *Node) stop(ctx context.Context) error {
 	}
 
 	n.cancel()
+
+	if budget != nil {
+		var cancel context.CancelFunc
+
+		ctx, cancel = budget(ctx)
+		defer cancel()
+	}
 
 	for i := len(stops) - 1; i >= 0; i-- {
 		if err := stops[i](ctx); err != nil {
@@ -422,6 +495,9 @@ func (n *Node) wait(ctx context.Context) error {
 		return fmt.Errorf("%s: %w", n.label(), ErrStopTimeout)
 	}
 }
+
+// Children are n's direct children in creation (start) order.
+func (n *Node) Children() []*Node { return n.snapshot() }
 
 // Walk visits n's subtree depth-first in creation order.
 func (n *Node) Walk(fn func(*Node)) {

@@ -20,19 +20,28 @@
 // Everything — the SDK's own parts and the author's tree — is one tree of
 // nodes. Run starts it in order:
 //
-//	config → telemetry → health → platform port → author's tree → internal API → public ports → Consul → serving
+//	config → telemetry → health → platform → consul → nats → temporal → hooks →
+//	author's tree → internal-api → reactors → worker → schedules →
+//	public:<addr> → drain → register → serving
 //
-// and stops it in exact reverse within one budget: readiness drops, Consul
-// deregisters, listeners drain after a grace period, internal calls finish,
-// then components stop before the dependencies they use. Consul, NATS,
-// Temporal and the telemetry collector are optional: missing ones are
-// warnings, never failures.
+// so components may publish events and call hooks from OnStart to OnStop.
+// It stops in exact reverse within Shutdown.Timeout: readiness drops, the
+// instance deregisters, after Shutdown.Drain the listeners and the internal
+// API finish in-flight calls within one Shutdown.Listeners window (then
+// streams are cut and internal calls cancelled), and at least
+// Shutdown.Reserve is left for components, which stop before the
+// dependencies they use. A second SIGINT/SIGTERM during the stop exits at
+// once with status 1. A panicking handler fails its request (codes.Internal,
+// HTTP 500), never the process. Consul, NATS, Temporal and the telemetry
+// collector are optional: missing ones are warnings, never failures, unless
+// RequireNATS or RequireTemporal make a connection part of readiness.
 package backplane
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/gopherex/backplane/pkg/backplane/build"
 	"github.com/gopherex/backplane/pkg/backplane/config"
@@ -94,13 +103,17 @@ func Open[C config.Backplaner, St any](
 		return nil, fmt.Errorf("backplane: %w (or pass backplane.Name())", build.ErrUnnamed)
 	}
 
+	if !serviceName.MatchString(o.id.Service) {
+		return nil, fmt.Errorf("%w: service name %q must match %s", ErrConfig, o.id.Service, serviceName)
+	}
+
 	conf, err := config.Open[C](ctx, append([]config.Option{config.Service(o.id.Service)}, o.config...)...)
 	if err != nil {
 		return nil, fmt.Errorf("backplane: %w", err)
 	}
 
 	block := (*conf.Value()).BackplaneConfig()
-	if err := validate(block); err != nil {
+	if err := errors.Join(validate(block), o.validate(block)); err != nil {
 		return nil, errors.Join(fmt.Errorf("backplane: %w", err), conf.Close())
 	}
 
@@ -117,19 +130,61 @@ func Open[C config.Backplaner, St any](
 	return &Service[St]{core: c, state: state}, nil
 }
 
-// ErrConfig: the SDK block is unusable.
+// ErrConfig: the SDK block or the service name is unusable.
 var ErrConfig = errors.New("backplane: invalid configuration")
+
+// serviceName is the form of a service name (§17): it becomes a DNS label,
+// a NATS subject token and a Temporal task queue.
+var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // validate checks what the schema cannot express.
 func validate(b config.Backplane) error {
+	return errors.Join(validateShutdown(b.Shutdown), validateHealth(b.Health), validateNATS(b.NATS))
+}
+
+// validateShutdown: the stages fit the budget, leaving the reserve.
+func validateShutdown(s config.Shutdown) error {
 	switch {
-	case b.Shutdown.Timeout <= 0:
-		return fmt.Errorf("%w: shutdown.timeout must be positive, got %v", ErrConfig, b.Shutdown.Timeout)
-	case b.Shutdown.Drain < 0 || b.Shutdown.Drain >= b.Shutdown.Timeout:
-		return fmt.Errorf("%w: shutdown.drain must be in [0, timeout), got %v", ErrConfig, b.Shutdown.Drain)
+	case s.Timeout <= 0:
+		return fmt.Errorf("%w: shutdown.timeout must be positive, got %v", ErrConfig, s.Timeout)
+	case s.Drain < 0 || s.Drain >= s.Timeout:
+		return fmt.Errorf("%w: shutdown.drain must be in [0, timeout), got %v", ErrConfig, s.Drain)
+	case s.Listeners <= 0:
+		return fmt.Errorf("%w: shutdown.listeners must be positive, got %v", ErrConfig, s.Listeners)
+	case s.Reserve < 0:
+		return fmt.Errorf("%w: shutdown.reserve must be >= 0, got %v", ErrConfig, s.Reserve)
+	case s.Drain+s.Listeners+s.Reserve > s.Timeout:
+		return fmt.Errorf("%w: shutdown.drain + listeners + reserve (%v + %v + %v) must be <= timeout (%v): "+
+			"a shorter timeout needs shorter stages (BACKPLANE_SHUTDOWN_LISTENERS, _RESERVE, _DRAIN)",
+			ErrConfig, s.Drain, s.Listeners, s.Reserve, s.Timeout)
 	}
 
-	return validateNATS(b.NATS)
+	return nil
+}
+
+// validateHealth: a check fits its interval.
+func validateHealth(h config.Health) error {
+	switch {
+	case h.Interval <= 0:
+		return fmt.Errorf("%w: health.interval must be positive, got %v", ErrConfig, h.Interval)
+	case h.Timeout <= 0 || h.Timeout > h.Interval:
+		return fmt.Errorf("%w: health.timeout must be in (0, interval], got %v", ErrConfig, h.Timeout)
+	}
+
+	return nil
+}
+
+// validate checks the options against the block: a required transport
+// must be configured.
+func (o options) validate(b config.Backplane) error {
+	switch {
+	case o.requireNATS && !b.NATS.Enabled():
+		return fmt.Errorf("%w: RequireNATS without nats.url", ErrConfig)
+	case o.requireTemporal && !b.Temporal.Enabled():
+		return fmt.Errorf("%w: RequireTemporal without temporal.addr", ErrConfig)
+	}
+
+	return nil
 }
 
 // validateNATS checks the stream settings JetStream would reject.

@@ -1,6 +1,7 @@
 // Package guard protects the platform port with the installation's internal
 // secret: the console relay presents it, the SDK checks it. Health stays
 // open for Consul checks and probes. An empty secret disables the guard.
+// While the secret rotates the previous one is accepted too.
 package guard
 
 import (
@@ -25,19 +26,47 @@ const (
 const healthPrefix = "/grpc.health.v1.Health/"
 
 // Guard checks the secret.
-type Guard struct{ secret []byte }
+type Guard struct{ secrets [][]byte }
 
-// New creates a guard; an empty secret allows everything.
-func New(secret string) Guard { return Guard{secret: []byte(secret)} }
+// New creates a guard accepting secret and, during a rotation, the previous
+// ones; an empty secret allows everything whatever the previous ones are.
+func New(secret string, previous ...string) Guard {
+	if secret == "" {
+		return Guard{}
+	}
 
+	g := Guard{secrets: [][]byte{[]byte(secret)}}
+
+	for _, p := range previous {
+		if p != "" {
+			g.secrets = append(g.secrets, []byte(p))
+		}
+	}
+
+	return g
+}
+
+func (g Guard) disabled() bool { return len(g.secrets) == 0 }
+
+// ok compares the presented secret with every accepted one in constant time,
+// without stopping at a match.
 func (g Guard) ok(presented string) bool {
-	return len(g.secret) == 0 || subtle.ConstantTimeCompare(g.secret, []byte(presented)) == 1
+	if g.disabled() {
+		return true
+	}
+
+	match := 0
+	for _, s := range g.secrets {
+		match |= subtle.ConstantTimeCompare(s, []byte(presented))
+	}
+
+	return match == 1
 }
 
 // Authorize checks the secret in incoming gRPC metadata; health is exempt.
 // The error is a gRPC status and is returned as is.
 func (g Guard) Authorize(ctx context.Context, method string) error {
-	if len(g.secret) == 0 || strings.HasPrefix(method, healthPrefix) {
+	if g.disabled() || strings.HasPrefix(method, healthPrefix) {
 		return nil
 	}
 

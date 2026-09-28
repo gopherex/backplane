@@ -8,7 +8,13 @@
 // not compile.
 //
 // HTTP prefixes are normalized to end with "/": "/api" serves "/api/..." in
-// Go and at Envoy alike.
+// Go and at Envoy alike. A route matches by prefix and, with Host, by host
+// too; two routes with the same host and prefix on one port are an error.
+//
+// Envoy policy (Timeout, IdleTimeout, Retry, CORS, MaxRequestBytes) applies
+// to every route and lands in the manifest; the SDK itself does not enforce
+// it. Interceptors, StreamInterceptors and Middleware wrap only the
+// registration they are passed to.
 package route
 
 import (
@@ -49,6 +55,16 @@ func init() {
 
 		return m
 	}
+	link.Routes.WS = func(opts any) routes.Managed {
+		var m routes.Managed
+
+		list, _ := opts.([]WSProtoOption)
+		for _, o := range list {
+			o.applyWS(&m)
+		}
+
+		return m
+	}
 }
 
 var errZeroDecl = errors.New("route: zero Decl: use route.GRPC, HTTP, GraphQL or WSProto")
@@ -59,6 +75,8 @@ type (
 	GRPCOption interface{ applyGRPC(m *routes.Managed) }
 	// HTTPOption configures Service.HTTP and Service.GraphQL.
 	HTTPOption interface{ applyHTTP(m *routes.Managed) }
+	// WSProtoOption configures wsproto.Serve.
+	WSProtoOption interface{ applyWS(m *routes.Managed) }
 	// GRPCDeclOption configures route.GRPC.
 	GRPCDeclOption interface{ applyGRPCDecl(r *backplanev1.Route) }
 	// HTTPDeclOption configures route.HTTP.
@@ -71,11 +89,13 @@ type listen string
 
 func (l listen) applyGRPC(m *routes.Managed) { m.Listen = string(l) }
 func (l listen) applyHTTP(m *routes.Managed) { m.Listen = string(l) }
+func (l listen) applyWS(m *routes.Managed)   { m.Listen = string(l) }
 
 // ListenOption applies to managed routes.
 type ListenOption interface {
 	GRPCOption
 	HTTPOption
+	WSProtoOption
 }
 
 // Listen serves a managed route on its own listener instead of the shared
@@ -86,6 +106,7 @@ type host string
 
 func (h host) applyGRPC(m *routes.Managed)        { m.Host = string(h) }
 func (h host) applyHTTP(m *routes.Managed)        { m.Host = string(h) }
+func (h host) applyWS(m *routes.Managed)          { m.Host = string(h) }
 func (h host) applyGRPCDecl(r *backplanev1.Route) { h.applyDecl(r) }
 func (h host) applyHTTPDecl(r *backplanev1.Route) { h.applyDecl(r) }
 func (h host) applyDecl(r *backplanev1.Route)     { r.Host = string(h) }
@@ -94,12 +115,15 @@ func (h host) applyDecl(r *backplanev1.Route)     { r.Host = string(h) }
 type HostOption interface {
 	GRPCOption
 	HTTPOption
+	WSProtoOption
 	GRPCDeclOption
 	HTTPDeclOption
 	DeclOption
 }
 
-// Host matches the route by host header instead of path.
+// Host matches the route by Host header in addition to its prefix: an exact
+// host ("api.example.com") or a wildcard ("*.example.com"). Managed HTTP
+// routes with one prefix and different hosts share a port.
 func Host(h string) HostOption { return host(h) }
 
 type port uint32

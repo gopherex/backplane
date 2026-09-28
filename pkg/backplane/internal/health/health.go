@@ -45,6 +45,7 @@ func (k Kind) String() string { return [...]string{"liveness", "readiness", "sta
 type Health struct {
 	log      *xlog.Logger
 	interval time.Duration
+	timeout  time.Duration
 	reg      *state.Registry
 	states   [kinds]*state.State
 	serving  *probe.Bool
@@ -54,10 +55,15 @@ type Health struct {
 	runners [kinds]*runner.Runner
 }
 
-// New creates the health component.
-func New(log *xlog.Logger, interval time.Duration) *Health {
+// New creates the health component: every kind is evaluated each interval,
+// one evaluation bounded by timeout (at most interval; 0 means interval).
+func New(log *xlog.Logger, interval, timeout time.Duration) *Health {
+	if timeout <= 0 || timeout > interval {
+		timeout = interval
+	}
+
 	reg := state.NewRegistry()
-	health := &Health{log: log, interval: interval, reg: reg, serving: probe.NewBool()}
+	health := &Health{log: log, interval: interval, timeout: timeout, reg: reg, serving: probe.NewBool()}
 	health.states = [kinds]*state.State{state.New(), reg.Get(""), state.New()}
 
 	for _, st := range health.states {
@@ -83,6 +89,9 @@ func (h *Health) Serving(ctx context.Context, on bool) {
 	h.check(ctx, Startup)
 }
 
+// Interval between evaluations.
+func (h *Health) Interval() time.Duration { return h.interval }
+
 // GRPC is the grpc.health.v1 server over the cached readiness.
 func (h *Health) GRPC() hv1.HealthServer { return grpcprobe.New(h.reg) }
 
@@ -96,7 +105,7 @@ func (h *Health) HTTP() http.Handler {
 }
 
 // Start builds the composites and re-evaluates each kind every interval; a
-// check may take up to one interval.
+// check may take up to the timeout.
 func (h *Health) Start(ctx context.Context, g node.Group) error {
 	h.mu.Lock()
 	combined := [kinds]probe.Probe{
@@ -109,7 +118,7 @@ func (h *Health) Start(ctx context.Context, g node.Group) error {
 		h.runners[k] = runner.New(combined[k], h.states[k],
 			runner.WithName(k.String()),
 			runner.WithInterval(h.interval),
-			runner.WithTimeout(h.interval),
+			runner.WithTimeout(h.timeout),
 			runner.WithReporter(reporter.Func(h.report)))
 	}
 

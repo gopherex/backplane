@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -16,6 +14,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/build"
 	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
@@ -24,7 +23,8 @@ const devVersion = "0.0.0"
 
 // Run brings the service up and blocks until ctx ends, SIGINT/SIGTERM
 // arrives or a node's goroutine fails; then stops everything within the
-// shutdown budget. A stop requested during start is not an error.
+// shutdown budget. A stop requested during start is not an error. A signal
+// during the stop exits the process at once with status 1.
 func (c *core) Run(ctx context.Context) error {
 	c.mu.Lock()
 	if c.phase != declaring {
@@ -55,8 +55,16 @@ func (c *core) Run(ctx context.Context) error {
 		c.log.Warn("internal secret not set: the internal API and UI on the platform port are open to anyone who reaches it")
 	}
 
-	runCtx, stopSignals := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	sigs, stopSignals := c.signals()
 	defer stopSignals()
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	stopping, done := make(chan struct{}), make(chan struct{})
+	defer close(done)
+
+	go c.watchSignals(sigs, cancelRun, stopping, done)
 
 	var cause error
 
@@ -74,6 +82,8 @@ func (c *core) Run(ctx context.Context) error {
 			cause = fmt.Errorf("backplane: %w", err)
 		}
 	}
+
+	close(stopping)
 
 	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.cfg.Shutdown.Timeout)
 	defer cancel()
@@ -105,28 +115,39 @@ func (c *core) seal() (*backplanev1.Manifest, error) {
 	return m, nil
 }
 
-// tail adds the nodes that follow the author's tree: internal API gate,
-// reactors, the Temporal worker, public ports, the drain pause, Consul
-// presence and the serving gate. They start in this order and stop in
-// reverse: traffic of every kind ends before the tree stops.
+// tail adds the nodes that follow the author's tree:
+//
+//	internal-api → reactors → worker → schedules → public:<addr> → drain → register → serving
+//
+// (the ones ahead of it — config, telemetry, health, platform, consul,
+// nats, temporal, hooks — are newCore's). They start in this order and
+// stop in reverse: traffic of every kind ends before the tree stops. The
+// public listeners and the internal gate share one Shutdown.Listeners
+// window that leaves Shutdown.Reserve of the budget to the tree.
 func (c *core) tail(m *backplanev1.Manifest) {
+	sd := c.cfg.Shutdown
+	listeners := &window{d: sd.Listeners, reserve: sd.Reserve}
+
 	gn := c.svc.Child("internal-api", node.System, false)
 	gn.OnStart(func(context.Context) error { c.gate.Open(); return nil })
 	gn.OnStop(c.gate.Close)
+	gn.Budget(listeners.derive)
 
 	c.work(m)
 
 	for _, p := range c.public {
-		c.listen("public"+p.addr, p.addr, p.grpc, p.handler())
+		c.listen("public"+p.addr, p.addr, p.grpc, c.publicHandler(p)).Budget(listeners.derive)
 	}
 
 	dn := c.svc.Child("drain", node.System, false)
-	dn.OnStop(func(ctx context.Context) error { return pause(ctx, c.cfg.Shutdown.Drain) })
+	dn.OnStop(func(ctx context.Context) error { return pause(ctx, c.drainFor(ctx)) })
 
-	if presence := c.presence(m); presence != nil {
-		pn := c.svc.Child("consul", node.System, false)
-		pn.OnStart(func(ctx context.Context) error { return presence.Start(ctx, pn) })
-		pn.OnStop(presence.Stop)
+	// The instance state is published from the consul node ahead of the
+	// tree; the catalog registration waits for here.
+	if c.consulPresence = c.presence(m); c.consulPresence != nil {
+		rn := c.svc.Child("register", node.System, false)
+		rn.OnStart(c.consulPresence.Register)
+		rn.OnStop(c.consulPresence.Deregister)
 	}
 
 	sn := c.svc.Child("serving", node.System, false)
@@ -148,10 +169,15 @@ func (c *core) work(m *backplanev1.Manifest) {
 		n.OnStop(c.broker.StopReactors)
 	}
 
+	if len(m.GetHooks()) > 0 && c.temporal == nil {
+		c.log.Warn("hooks declared but Temporal is not configured: calls fail as unavailable")
+	}
+
+	// Hook calls have their own worker (the hooks node ahead of the tree).
 	switch {
-	case len(m.GetActivities()) == 0 && len(m.GetHooks()) == 0 && len(c.env.WorkerRegistrations()) == 0:
+	case len(m.GetActivities()) == 0 && len(c.env.WorkerRegistrations()) == 0:
 	case c.temporal == nil:
-		c.log.Warn("activities, hooks or workflows declared but Temporal is not configured: they are unavailable")
+		c.log.Warn("activities or workflows declared but Temporal is not configured: they are unavailable")
 	case !c.cfg.Temporal.Worker.Enabled:
 		c.log.Info("temporal worker disabled on this replica: other replicas serve the task queue")
 	default:
@@ -213,10 +239,19 @@ func (c *core) presence(m *backplanev1.Manifest) *consul.Presence {
 			Address:      c.id.Advertise,
 			PlatformPort: port16(c.cfg.InternalPort),
 			PublicPort:   c.primaryPort(),
+			Commit:       build.Get().Commit,
 		},
 		Manifest: m,
 		Register: c.cfg.Consul.Register,
-		Config:   c.conf,
+		Tags:     c.cfg.Consul.Tags,
+		Check: consul.Check{
+			Interval: c.cfg.Consul.CheckInterval, Timeout: c.cfg.Consul.CheckTimeout,
+			DeregisterAfter: c.cfg.Consul.DeregisterAfter,
+		},
+		SessionTTL: c.cfg.Consul.SessionTTL,
+		Config:     c.conf,
+		Transports: c.transports,
+		Nodes:      c.nodes,
 	})
 	if err != nil {
 		c.log.Warn("consul presence", xlog.Err(err))

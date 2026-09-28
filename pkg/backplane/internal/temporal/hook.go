@@ -21,8 +21,11 @@ import (
 
 // Contract with backplane, the Nexus handler of hooks.
 const (
-	// CallHookWorkflow runs one hook call raised outside workflow code.
-	CallHookWorkflow = "backplane.CallHook"
+	// CallHookWorkflow runs one hook call raised outside workflow code, on
+	// the hooks queue. The version is in the name: a change of its code
+	// that is not replay-compatible is a new name (.v2), registered next
+	// to the old one until runs of the old one are gone.
+	CallHookWorkflow = "backplane.CallHook.v1"
 	// HooksSuffix: the Nexus service of <service>'s hooks is
 	// <service>.Hooks on endpoint <service>.
 	HooksSuffix = ".Hooks"
@@ -206,9 +209,11 @@ func WorkflowTrace(ctx workflow.Context) map[string]string {
 	return Inject(trace.ContextWithSpanContext(context.Background(), span.SpanContext()))
 }
 
-// WorkflowDeadline is what is left of the current run's timeout, nil when
-// the run has none.
-func WorkflowDeadline(ctx workflow.Context) *durationpb.Duration {
+// HookDeadline is the deadline of a hook call from workflow code: d, cut
+// to what is left of the current run's timeout when the run has one. d is
+// the call's timeout, the declared one or the platform default — never
+// zero, so the call is never unbounded.
+func HookDeadline(ctx workflow.Context, d time.Duration) *durationpb.Duration {
 	info := workflow.GetInfo(ctx)
 
 	limit := info.WorkflowRunTimeout
@@ -216,11 +221,10 @@ func WorkflowDeadline(ctx workflow.Context) *durationpb.Duration {
 		limit = info.WorkflowExecutionTimeout
 	}
 
-	if limit <= 0 {
-		return nil
+	if limit > 0 {
+		left := info.WorkflowStartTime.Add(limit).Sub(workflow.Now(ctx))
+		d = min(d, max(left, time.Millisecond))
 	}
 
-	left := info.WorkflowStartTime.Add(limit).Sub(workflow.Now(ctx))
-
-	return durationpb.New(max(left, time.Millisecond))
+	return durationpb.New(d)
 }

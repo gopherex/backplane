@@ -41,10 +41,10 @@ func TestDeclareRecordsHook(t *testing.T) {
 	t.Parallel()
 
 	h := backplanetest.New(t)
-	ref := hook.Declare[Quote, Price](h.Root(), "price", hook.Required())
-	hook.Declare[Quote, Price](h.Root(), "discount")
+	ref := hook.Declare[Quote, Price](h.Root(), "Price", hook.Required())
+	hook.Declare[Quote, Price](h.Root(), "Discount")
 
-	if ref.Name() != "test.price" {
+	if ref.Name() != "test.Price" {
 		t.Fatalf("name %q", ref.Name())
 	}
 
@@ -54,7 +54,7 @@ func TestDeclareRecordsHook(t *testing.T) {
 	}
 
 	price, discount := hooks[0], hooks[1]
-	if price.GetName() != "price" || !price.GetRequired() || discount.GetName() != "discount" || discount.GetRequired() {
+	if price.GetName() != "Price" || !price.GetRequired() || discount.GetName() != "Discount" || discount.GetRequired() {
 		t.Fatalf("hooks: %v", hooks)
 	}
 
@@ -67,8 +67,8 @@ func TestDuplicateHookFailsManifest(t *testing.T) {
 	t.Parallel()
 
 	root, e := bare(t)
-	hook.Declare[Quote, Price](root, "price")
-	hook.Declare[Quote, Price](deps.NewComponent(root, "other"), "price")
+	hook.Declare[Quote, Price](root, "Price")
+	hook.Declare[Quote, Price](deps.NewComponent(root, "other"), "Price")
 
 	if _, err := e.Manifest.Build(); !errors.Is(err, manifest.ErrDuplicate) {
 		t.Fatalf("want duplicate, got %v", err)
@@ -79,7 +79,7 @@ func TestCallWithoutTransport(t *testing.T) {
 	t.Parallel()
 
 	root, _ := bare(t)
-	ref := hook.Declare[Quote, Price](root, "price")
+	ref := hook.Declare[Quote, Price](root, "Price")
 
 	if _, err := ref.Call(t.Context(), Quote{Amount: 1}); !errors.Is(err, hook.ErrUnavailable) {
 		t.Fatalf("want ErrUnavailable, got %v", err)
@@ -90,7 +90,7 @@ func TestCallAnswered(t *testing.T) {
 	t.Parallel()
 
 	h := backplanetest.New(t)
-	ref := hook.Declare[Quote, Price](h.Root(), "price")
+	ref := hook.Declare[Quote, Price](h.Root(), "Price")
 	h.Start()
 
 	if _, err := ref.Call(t.Context(), Quote{Amount: 1}); !errors.Is(err, hook.ErrUnavailable) {
@@ -111,7 +111,7 @@ func TestCallAnswered(t *testing.T) {
 	}
 
 	if _, err := ref.Call(t.Context(), Quote{Amount: -1}); !errors.Is(err, errDeclined) ||
-		!strings.Contains(err.Error(), "test.price") {
+		!strings.Contains(err.Error(), "test.Price") {
 		t.Fatalf("declined: %v", err)
 	}
 }
@@ -133,10 +133,10 @@ func TestDeclareOnZeroScopePanics(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
-		if r, _ := recover().(string); !strings.Contains(r, "hook price declared on a zero scope") {
+		if r, _ := recover().(string); !strings.Contains(r, "hook Price declared on a zero scope") {
 			t.Fatalf("panic %q", r)
 		}
 	}()
 
-	hook.Declare[Quote, Price](deps.Component{}, "price")
+	hook.Declare[Quote, Price](deps.Component{}, "Price")
 }

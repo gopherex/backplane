@@ -214,7 +214,7 @@ func TestPublishIntoStream(t *testing.T) {
 	jet := admin(t, url, svc)
 	b := open(t, url, svc, emitter(t, svc))
 
-	if err := b.Publish(t.Context(), svc+".Greeted", "user-1", []byte(`{"name":"ann"}`)); err != nil {
+	if err := b.PublishRaw(t.Context(), svc+".Greeted", "user-1", []byte(`{"name":"ann"}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,7 +284,7 @@ func TestReactorReceives(t *testing.T) {
 	spanCtx := trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID: trace.TraceID{9, 9, 9}, SpanID: trace.SpanID{1}, TraceFlags: trace.FlagsSampled,
 	})
-	if err := pub.Publish(trace.ContextWithSpanContext(t.Context(), spanCtx), src+".Greeted", "", []byte(`{"n":1}`)); err != nil {
+	if err := pub.PublishRaw(trace.ContextWithSpanContext(t.Context(), spanCtx), src+".Greeted", "", []byte(`{"n":1}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,7 +328,7 @@ func TestDeadLetter(t *testing.T) {
 	recv := open(t, url, sub, e)
 	startReactors(t, jet, recv, src, broker.Durable(sub, consumer))
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "k", []byte(`{"n":2}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "k", []byte(`{"n":2}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -505,14 +505,14 @@ func TestUnreachableThenReachable(t *testing.T) {
 		t.Fatalf("connect blocked %v", took)
 	}
 
-	if err := b.Publish(t.Context(), svc+".Greeted", "", []byte(`{}`)); !errors.Is(err, env.ErrUnavailable) {
+	if err := b.PublishRaw(t.Context(), svc+".Greeted", "", []byte(`{}`)); !errors.Is(err, env.ErrUnavailable) {
 		t.Fatalf("want ErrUnavailable, got %v", err)
 	}
 
 	p.enabled.Store(true)
 
 	eventually(t, "publish after reconnect", func() bool {
-		return b.Publish(t.Context(), svc+".Greeted", "", []byte(`{"late":true}`)) == nil
+		return b.PublishRaw(t.Context(), svc+".Greeted", "", []byte(`{"late":true}`)) == nil
 	})
 
 	if m := lastMsg(t, jet, broker.StreamName(svc), broker.Subject(svc, "Greeted")); string(m.Data) != `{"late":true}` {
@@ -540,7 +540,7 @@ func TestStopWaitsForHandler(t *testing.T) {
 	durable := broker.Durable(sub, consumer)
 	startReactors(t, jet, recv, src, durable)
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -603,7 +603,7 @@ func TestStopBudgetCancelsHandler(t *testing.T) {
 	recv := open(t, url, sub, e)
 	startReactors(t, jet, recv, src, broker.Durable(sub, consumer))
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -650,7 +650,7 @@ func TestReactorAfterReconnect(t *testing.T) {
 			p.enabled.Store(true)
 		}
 
-		if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(payload)); err != nil {
+		if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(payload)); err != nil {
 			t.Fatal(err)
 		}
 
@@ -690,7 +690,7 @@ func TestReactorRecreatesDeletedConsumer(t *testing.T) {
 	expect := func(payload string) {
 		t.Helper()
 
-		if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(payload)); err != nil {
+		if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(payload)); err != nil {
 			t.Fatal(err)
 		}
 

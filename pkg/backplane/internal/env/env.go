@@ -30,10 +30,9 @@ func (e NonRetryableError) Error() string { return e.Err.Error() }
 
 func (e NonRetryableError) Unwrap() error { return e.Err }
 
-// Broker carries events (NATS JetStream; a recorder in tests). payload is
-// encoded JSON.
+// Broker carries events (NATS JetStream; a recorder in tests).
 type Broker interface {
-	Publish(ctx context.Context, event, key string, payload []byte) error
+	Publish(ctx context.Context, m Message) error
 }
 
 // Caller carries hook calls (Temporal Nexus; a stub in tests). Payloads are
@@ -61,6 +60,11 @@ type Delivery struct {
 	Timeout     time.Duration  // of one handler call
 	Redelivery  backoff.Policy // delay after a failed delivery
 	StartAll    bool           // a new consumer starts at the stream's first message
+	// Ordered: one message in flight across every instance (strict order).
+	Ordered bool
+	// InactiveThreshold: the server deletes the consumer after this long
+	// without an instance pulling; zero never.
+	InactiveThreshold time.Duration
 }
 
 // Env of one service.
@@ -76,6 +80,8 @@ type Env struct {
 	registers  []func(registry any)
 	workflows  func() (any, error)
 	schedules  []any
+
+	hookTimeout time.Duration // platform default of a hook call
 }
 
 // New creates the env of service.

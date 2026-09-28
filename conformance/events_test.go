@@ -165,7 +165,7 @@ func runWatcher(t *testing.T, url, watcher string, got chan<- received) {
 		"  nats:\n    url: " + url + "\n" +
 		"  internal_port: " + freePort(t) + "\n" +
 		"  public_port: " + freePort(t) + "\n" +
-		"  shutdown:\n    drain: 10ms\n    timeout: 5s\n"
+		"  shutdown:\n    drain: 10ms\n    listeners: 3s\n    reserve: 1s\n    timeout: 5s\n"
 
 	if err := os.WriteFile(file, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)

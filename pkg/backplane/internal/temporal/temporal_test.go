@@ -52,12 +52,17 @@ func service(t *testing.T, name string, declare func(e *env.Env)) *temporal.Clie
 		t.Fatal(err)
 	}
 
+	if err := c.StartHookWorker(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+
 	if err := c.StartWorker(t.Context(), g); err != nil {
 		t.Fatal(err)
 	}
 
 	t.Cleanup(func() {
 		_ = c.StopWorker(context.Background())
+		_ = c.StopHookWorker(context.Background())
 		_ = c.Close(context.Background())
 	})
 
@@ -298,6 +303,10 @@ func TestUnreachable(t *testing.T) {
 
 	if took := time.Since(start); took > 3*time.Second {
 		t.Fatalf("start blocked %v", took)
+	}
+
+	if c.Connected() {
+		t.Fatal("connected to nothing")
 	}
 
 	start = time.Now()

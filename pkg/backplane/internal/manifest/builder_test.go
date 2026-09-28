@@ -88,7 +88,7 @@ func TestSharedDescriptors(t *testing.T) {
 	b := manifest.New("svc", "1.0.0")
 	b.Route(&backplanev1.Route{
 		Kind:     backplanev1.RouteKind_ROUTE_KIND_GRPC,
-		Prefix: "/" + healthService + "/",
+		Prefix:   "/" + healthService + "/",
 		Port:     8080,
 		Services: []string{healthService},
 	})
@@ -102,7 +102,7 @@ func TestSharedDescriptors(t *testing.T) {
 	b = manifest.New("svc", "1.0.0")
 	b.Route(&backplanev1.Route{
 		Kind:     backplanev1.RouteKind_ROUTE_KIND_GRPC,
-		Prefix: "/" + healthService + "/",
+		Prefix:   "/" + healthService + "/",
 		Port:     8080,
 		Services: []string{healthService},
 	})
@@ -145,7 +145,7 @@ func TestDeclarativeRouteKeepsSchema(t *testing.T) {
 	b := manifest.New("svc", "1.0.0")
 	b.Route(&backplanev1.Route{
 		Kind:     backplanev1.RouteKind_ROUTE_KIND_GRPC,
-		Prefix: "/x.v1.X/",
+		Prefix:   "/x.v1.X/",
 		Services: []string{"x.v1.X"},
 		Schema:   &backplanev1.Route_Descriptors{Descriptors: []byte{1}},
 	})
@@ -197,6 +197,24 @@ func TestScheduleRecorded(t *testing.T) {
 	if len(got) != 1 || got[0].GetName() != "Nightly" || got[0].GetCron() != "0 3 * * *" ||
 		got[0].GetOverlap() != backplanev1.ScheduleOverlap_SCHEDULE_OVERLAP_BUFFER_ONE {
 		t.Fatalf("schedules: %v", got)
+	}
+}
+
+func TestWorkflowRecorded(t *testing.T) {
+	t.Parallel()
+
+	b := manifest.New("svc", "1.0.0")
+	b.Workflow(&backplanev1.Workflow{Name: "Ship", Description: "ships an order"})
+
+	got := build(t, b).GetWorkflows()
+	if len(got) != 1 || got[0].GetName() != "Ship" || got[0].GetDescription() != "ships an order" {
+		t.Fatalf("workflows: %v", got)
+	}
+
+	b.Workflow(&backplanev1.Workflow{Name: "Ship"})
+
+	if _, err := b.Build(); !errors.Is(err, manifest.ErrDuplicate) {
+		t.Fatalf("duplicate workflow: %v", err)
 	}
 }
 

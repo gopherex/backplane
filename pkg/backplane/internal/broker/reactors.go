@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
@@ -27,6 +29,14 @@ const (
 	// ackMargin: the server redelivers an unacknowledged message only after
 	// the handler timeout has surely passed.
 	ackMargin = 15 * time.Second
+	// stopDeliveries: the consumer's max_deliver is the reactor's plus
+	// these. A delivery the service's stop interrupted is nacked and
+	// counts on the server, but the SDK dead-letters only after a failed
+	// last delivery; without the spare deliveries a message interrupted on
+	// its last one would never come back.
+	stopDeliveries = 5
+	// where of backplane.panics.
+	panicWhere = "reactor"
 )
 
 // Errors of reactors.
@@ -69,12 +79,14 @@ type delivery struct {
 	timeout     time.Duration
 	nak         backoff.Policy
 	startAll    bool
+	ordered     bool
+	inactive    time.Duration
 }
 
 func (b *Broker) deliveryOf(d env.Delivery) delivery {
 	out := delivery{
 		maxDeliver: b.t.maxDeliver, concurrency: b.t.concurrency, timeout: b.t.handlerTimeout,
-		nak: b.t.nak, startAll: d.StartAll,
+		nak: b.t.nak, startAll: d.StartAll, ordered: d.Ordered, inactive: d.InactiveThreshold,
 	}
 
 	if d.MaxDeliver > 0 {
@@ -91,6 +103,10 @@ func (b *Broker) deliveryOf(d env.Delivery) delivery {
 
 	if d.Redelivery.Validate() == nil {
 		out.nak = d.Redelivery
+	}
+
+	if d.Ordered {
+		out.concurrency = 1
 	}
 
 	return out
@@ -316,17 +332,27 @@ func (b *Broker) startAt(
 // is redelivered after a delay growing with the delivery count (NakWithDelay,
 // see handle); a message never acknowledged (the process died) comes back
 // after AckWait. The consumer's own BackOff is not used: the server measures
-// a NAK delay against AckWait, so with BackOff the delays would drift.
+// a NAK delay against AckWait, so with BackOff the delays would drift. The
+// SDK decides the dead letter; the server's MaxDeliver leaves room for
+// deliveries a stop interrupted (stopDeliveries). An ordered reactor has
+// one message in flight across all instances (MaxAckPending 1).
 func (b *Broker) consumerConfig(re reactor) jetstream.ConsumerConfig {
+	pending := 0 // the server's default
+	if re.delivery.ordered {
+		pending = 1
+	}
+
 	return jetstream.ConsumerConfig{
-		Durable:       re.durable,
-		Description:   "backplane reactor " + re.consumer + " of " + b.p.Service,
-		FilterSubject: re.subject,
-		DeliverPolicy: jetstream.DeliverNewPolicy,
-		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       re.delivery.timeout + ackMargin,
-		MaxDeliver:    re.delivery.maxDeliver,
-		Metadata:      map[string]string{metaService: b.p.Service, "bp.consumer": re.consumer, "bp.event": re.event},
+		Durable:           re.durable,
+		Description:       "backplane reactor " + re.consumer + " of " + b.p.Service,
+		FilterSubject:     re.subject,
+		DeliverPolicy:     jetstream.DeliverNewPolicy,
+		AckPolicy:         jetstream.AckExplicitPolicy,
+		AckWait:           re.delivery.timeout + ackMargin,
+		MaxDeliver:        re.delivery.maxDeliver + stopDeliveries,
+		MaxAckPending:     pending,
+		InactiveThreshold: re.delivery.inactive,
+		Metadata:          map[string]string{metaService: b.p.Service, "bp.consumer": re.consumer, "bp.event": re.event},
 	}
 }
 
@@ -399,7 +425,9 @@ func (b *Broker) dispatch(re reactor, sem chan struct{}, msg jetstream.Msg) {
 }
 
 // handle runs the handler in the trace of the event and settles the
-// message: ack, nak with a delay, or dead-letter after the last delivery.
+// message: ack; nak with a delay; dead-letter after the last delivery or
+// on a terminal error; a plain nak, never a dead letter, when the stop
+// cancelled the handler.
 func (b *Broker) handle(work context.Context, re reactor, msg jetstream.Msg) {
 	delivered, seq := uint64(1), uint64(0)
 	if md, err := msg.Metadata(); err == nil {
@@ -408,23 +436,18 @@ func (b *Broker) handle(work context.Context, re reactor, msg jetstream.Msg) {
 	}
 
 	ctx := otel.GetTextMapPropagator().Extract(work, carrier(msg.Headers()))
-
-	hctx, cancel := context.WithTimeout(ctx, re.delivery.timeout)
-	err := xtrace.Run(hctx, otel.Tracer(instrumentation), "process "+re.event,
-		func(ctx context.Context, _ trace.Span) error { return call(ctx, re.handler, msg.Data()) },
-		xtrace.WithSpanOptions(trace.WithSpanKind(trace.SpanKindConsumer)), xtrace.WithAttrs(
-			attribute.String("messaging.system", "nats"),
-			attribute.String("messaging.destination.name", msg.Subject()),
-			attribute.String("messaging.consumer.group.name", re.durable),
-			attribute.Int64("messaging.message.delivery_count", int64(delivered)),
-		))
-
-	cancel()
+	start := time.Now()
+	err := b.invoke(ctx, re, msg.Subject(), msg.Data(), msg.Headers(), delivered)
+	took := time.Since(start)
 
 	log := b.log.Ctx()
 
+	var terminal env.NonRetryableError
+
 	switch {
 	case err == nil:
+		metrics.ReactorHandled(ctx, re.consumer, metrics.Ack, took)
+
 		if err := msg.Ack(); err != nil {
 			log.Warn(ctx, "reactor ack", re.fields(xlog.Err(err))...)
 
@@ -432,20 +455,56 @@ func (b *Broker) handle(work context.Context, re reactor, msg jetstream.Msg) {
 		}
 
 		re.pos.settled(seq)
+	case work.Err() != nil:
+		// The stop cancelled the handler: not the message's failure.
+		metrics.ReactorHandled(ctx, re.consumer, metrics.Nak, took)
+		log.Info(ctx, "reactor stopped mid-handler, message returned",
+			re.fields(xlog.Err(err), xlog.Uint64("delivered", delivered))...)
+
+		if err := msg.Nak(); err != nil {
+			log.Warn(ctx, "reactor nak", re.fields(xlog.Err(err))...)
+		}
+	case errors.As(err, &terminal):
+		metrics.ReactorHandled(ctx, re.consumer, metrics.Terminal, took)
+		b.deadLetter(ctx, re, msg, err, delivered)
+		re.pos.settled(seq)
 	case delivered < uint64(re.delivery.maxDeliver): //nolint:gosec // positive
+		metrics.ReactorHandled(ctx, re.consumer, metrics.Nak, took)
 		log.Warn(ctx, "reactor failed, redelivering", re.fields(xlog.Err(err), xlog.Uint64("delivered", delivered))...)
 
 		if err := msg.NakWithDelay(nakDelay(re.delivery.nak, delivered)); err != nil {
 			log.Warn(ctx, "reactor nak", re.fields(xlog.Err(err))...)
 		}
 	default:
+		metrics.ReactorHandled(ctx, re.consumer, metrics.Dead, took)
 		b.deadLetter(ctx, re, msg, err, delivered)
 		re.pos.settled(seq)
 	}
 }
 
+// invoke runs the reactor's handler on one event: in a consumer span, with
+// the reactor's timeout and the event's metadata (env.Incoming) on ctx.
+func (b *Broker) invoke(
+	ctx context.Context, re reactor, subject string, data []byte, h nats.Header, attempt uint64,
+) error {
+	ctx = env.WithIncoming(ctx, incoming(h, re.consumer, attempt))
+
+	hctx, cancel := context.WithTimeout(ctx, re.delivery.timeout)
+	defer cancel()
+
+	//nolint:wrapcheck // the handler's error as it is
+	return xtrace.Run(hctx, otel.Tracer(instrumentation), "process "+re.event,
+		func(ctx context.Context, _ trace.Span) error { return call(ctx, re.handler, data) },
+		xtrace.WithSpanOptions(trace.WithSpanKind(trace.SpanKindConsumer)), xtrace.WithAttrs(
+			attribute.String("messaging.system", "nats"),
+			attribute.String("messaging.destination.name", subject),
+			attribute.String("messaging.consumer.group.name", re.durable),
+			attribute.Int64("messaging.message.delivery_count", int64(min(attempt, math.MaxInt64))), //nolint:gosec // bounded
+		))
+}
+
 // deadLetter publishes the message to the reactor's dead-letter subject and
-// terminates it.
+// terminates it. It publishes even when the stop cancelled ctx.
 func (b *Broker) deadLetter(ctx context.Context, re reactor, msg jetstream.Msg, cause error, n uint64) {
 	id := re.durable + ":" + msg.Subject()
 	if md, err := msg.Metadata(); err == nil {
@@ -456,7 +515,7 @@ func (b *Broker) deadLetter(ctx context.Context, re reactor, msg jetstream.Msg, 
 		Subject: re.dead, Data: msg.Data(), Header: deadHeaders(msg.Headers(), id, re.consumer, cause.Error(), n),
 	}
 
-	pctx, cancel := context.WithTimeout(ctx, b.t.publishTimeout)
+	pctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), b.t.publishTimeout)
 	defer cancel()
 
 	jet, err := b.connected()
@@ -481,10 +540,12 @@ func (b *Broker) deadLetter(ctx context.Context, re reactor, msg jetstream.Msg, 
 	}
 }
 
-// call runs h; a panic is an error.
+// call runs h; a panic is an error, counted in backplane.panics.
 func call(ctx context.Context, h env.Handler, in []byte) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			metrics.Panic(ctx, panicWhere)
+
 			err = fmt.Errorf("%w: %v\n%s", ErrHandlerPanic, r, debug.Stack())
 		}
 	}()

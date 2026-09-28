@@ -19,23 +19,42 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
-const readHeaderTimeout = 10 * time.Second
+const defaultReadHeaderTimeout = 10 * time.Second
+
+// Limits of the HTTP side; zero fields take net/http's defaults, except
+// ReadHeaderTimeout (10s). ReadHeaderTimeout also bounds how long a new
+// connection may stay silent before cmux classifies it.
+type Limits struct {
+	ReadHeaderTimeout time.Duration
+	IdleTimeout       time.Duration
+	MaxHeaderBytes    int
+}
 
 // Listener serves one address. Either server may be nil.
 type Listener struct {
-	name string
-	addr string
-	grpc *grpc.Server
-	http *http.Server
-	log  *xlog.Logger
-	ln   *tracking
+	name   string
+	addr   string
+	grpc   *grpc.Server
+	http   *http.Server
+	log    *xlog.Logger
+	ln     *tracking
+	silent time.Duration // cmux read timeout
 }
 
 // New creates a listener; nothing is bound until Start.
-func New(name, addr string, g *grpc.Server, h http.Handler, log *xlog.Logger) *Listener {
-	l := &Listener{name: name, addr: addr, grpc: g, log: log}
+func New(name, addr string, g *grpc.Server, h http.Handler, log *xlog.Logger, lim Limits) *Listener {
+	if lim.ReadHeaderTimeout <= 0 {
+		lim.ReadHeaderTimeout = defaultReadHeaderTimeout
+	}
+
+	l := &Listener{name: name, addr: addr, grpc: g, log: log, silent: lim.ReadHeaderTimeout}
 	if h != nil {
-		l.http = &http.Server{Handler: h, ReadHeaderTimeout: readHeaderTimeout}
+		l.http = &http.Server{
+			Handler:           h,
+			ReadHeaderTimeout: lim.ReadHeaderTimeout,
+			IdleTimeout:       lim.IdleTimeout,
+			MaxHeaderBytes:    lim.MaxHeaderBytes,
+		}
 	}
 
 	return l
@@ -53,7 +72,7 @@ func (l *Listener) Start(ctx context.Context, g node.Group) error {
 	m := cmux.New(l.ln)
 	// A connection that never sends a byte is dropped after the timeout;
 	// Stop closes those still being classified so m.Serve returns at once.
-	m.SetReadTimeout(readHeaderTimeout)
+	m.SetReadTimeout(l.silent)
 
 	if l.grpc != nil {
 		gl := m.MatchWithWriters(cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
@@ -87,11 +106,12 @@ func (l *Listener) Addr() string {
 // Stop drains gRPC and HTTP together within ctx, then closes the socket and
 // every connection still open: ones cmux is still classifying (an idle
 // client would otherwise hold m.Serve for the read timeout), hijacked ones
-// and ones that outlived the drain budget.
+// and ones that outlived the drain budget. When ctx ends first, open gRPC
+// streams are cut (Stop instead of GracefulStop) and the error says so.
 func (l *Listener) Stop(ctx context.Context) error {
 	var (
-		drain sync.WaitGroup
-		herr  error
+		drain      sync.WaitGroup
+		herr, gerr error
 	)
 
 	if l.grpc != nil {
@@ -104,6 +124,9 @@ func (l *Listener) Stop(ctx context.Context) error {
 			case <-done:
 			case <-ctx.Done():
 				l.grpc.Stop()
+				<-done
+
+				gerr = fmt.Errorf("%s: gRPC calls cut: %w", l.name, ctx.Err())
 			}
 		})
 	}
@@ -116,7 +139,7 @@ func (l *Listener) Stop(ctx context.Context) error {
 
 	drain.Wait()
 
-	errs := []error{herr}
+	errs := []error{herr, gerr}
 	if l.ln != nil {
 		errs = append(errs, ignoreClosed(l.ln.Close()))
 		l.ln.closeAll()

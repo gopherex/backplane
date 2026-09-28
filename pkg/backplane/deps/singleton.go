@@ -40,6 +40,13 @@ func NewSingleton[T any](parent Scope, f Factory[T], opts ...SingletonOption) Si
 
 // Get builds the value once; a failed build is retried by the next Get.
 // After stop it returns ErrClosed.
+//
+// Get holds the singleton's lock while the factory runs: concurrent Gets
+// wait for that one build and get its value (or, if it failed, try their
+// own in turn), so a factory runs at most once at a time. A waiting Get
+// does not watch its own ctx — a slow factory delays every caller, and the
+// stop waits for a build under way before it closes the value; bound the
+// factory with the ctx it is given.
 func (s Singleton[T]) Get(ctx context.Context) (T, error) {
 	var zero T
 	if s.c == nil {

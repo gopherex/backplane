@@ -242,6 +242,16 @@ func bindGreet(ctx workflow.Context, call *backplanev1.HookCall) (*backplanev1.H
 		return nil, temporal.NewNonRetryableApplicationError("no binding for "+call.GetHook(), noBindingType, nil)
 	}
 
+	// A binding without steps: answers without the service's worker.
+	if direct, isDirect := strings.CutPrefix(in.Name, "direct:"); isDirect {
+		result, err := json.Marshal(greetOut{Text: "Hello, " + direct})
+		if err != nil {
+			return nil, fmt.Errorf("result: %w", err)
+		}
+
+		return &backplanev1.HookResult{Payload: result}, nil
+	}
+
 	payload, err := json.Marshal(echoIn{Text: "Hello, " + in.Name})
 	if err != nil {
 		return nil, fmt.Errorf("step echo: %w", err)
@@ -291,4 +301,112 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 
 	return b.buf.String()
+}
+
+// TestHookFromLifecycle: a component raises its hook from OnStart — before
+// the service's worker starts — and from OnStop — after it stopped: the
+// hooks worker carries both. The same key twice runs the binding once.
+func TestHookFromLifecycle(t *testing.T) {
+	addr := os.Getenv("BACKPLANE_TEST_TEMPORAL")
+	if addr == "" {
+		t.Skip("BACKPLANE_TEST_TEMPORAL not set (make up)")
+	}
+
+	name := uniqueName("life")
+	playBackplane(t, addr, name)
+
+	t.Setenv("BACKPLANE_TEMPORAL_ADDR", addr)
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
+	t.Setenv("BACKPLANE_INTERNAL_PORT", freePort(t))
+	t.Setenv("BACKPLANE_PUBLIC_PORT", freePort(t))
+	t.Setenv("BACKPLANE_SHUTDOWN_DRAIN", "0s")
+
+	var (
+		seenMu sync.Mutex
+		seen   = map[string]string{}
+	)
+
+	record := func(what string, out greetOut, err error) {
+		seenMu.Lock()
+		defer seenMu.Unlock()
+
+		if err != nil {
+			seen[what] = "error: " + err.Error()
+		} else {
+			seen[what] = out.Text
+		}
+	}
+
+	logs := &syncBuffer{}
+
+	svc, err := backplane.Open(t.Context(), func(root backplane.Root[hooksConfig]) (*hooksState, error) {
+		greet := hook.Declare[greetIn, greetOut](root, "Greet", hook.DefaultTimeout(15*time.Second))
+		activity.Handle(root, "Echo", func(_ context.Context, in echoIn) (echoOut, error) { return echoOut(in), nil })
+
+		root.OnStart(func(ctx context.Context) error {
+			out, err := greet.Call(ctx, greetIn{Name: "direct:start"})
+			record("start", out, err)
+
+			out, err = greet.Call(ctx, greetIn{Name: "direct:keyed"}, hook.Key("once"))
+			record("keyed", out, err)
+
+			out, err = greet.Call(ctx, greetIn{Name: "direct:ignored"}, hook.Key("once"))
+			record("keyed again", out, err)
+
+			return nil
+		})
+		root.OnStop(func(ctx context.Context) error {
+			out, err := greet.Call(ctx, greetIn{Name: "direct:stop"})
+			record("stop", out, err)
+
+			return nil
+		})
+
+		return &hooksState{Greet: greet}, nil
+	},
+		backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
+		backplane.Logger(xlog.NewJSON(xlog.WithWriter(logs))), backplane.ConfigOptions(config.WithoutFile()),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+
+	go func() { done <- svc.Run(ctx) }()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		seenMu.Lock()
+		_, started := seen["keyed again"]
+		seenMu.Unlock()
+
+		if started {
+			break
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cancel()
+
+	if err := <-done; err != nil {
+		t.Errorf("run: %v", err)
+	}
+
+	seenMu.Lock()
+	defer seenMu.Unlock()
+
+	for what, want := range map[string]string{
+		"start": "Hello, start", "keyed": "Hello, keyed", "keyed again": "Hello, keyed", "stop": "Hello, stop",
+	} {
+		if seen[what] != want {
+			t.Errorf("%s: %q, want %q", what, seen[what], want)
+		}
+	}
+
+	if t.Failed() {
+		t.Logf("service logs:\n%s", logs)
+	}
 }

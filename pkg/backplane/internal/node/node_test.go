@@ -305,3 +305,73 @@ func TestPathsUniqueWithinRoot(t *testing.T) {
 		t.Fatalf("paths %q %q", a.Path(), b.Path())
 	}
 }
+
+// Budget narrows one node's stop (hooks and goroutine wait) without
+// touching the nodes stopped after it.
+func TestBudget(t *testing.T) {
+	t.Parallel()
+
+	svc := node.New("svc", testlog.Discard(), nil)
+	later := svc.Child("later", node.System, false)
+	narrow := svc.Child("narrow", node.System, false)
+
+	var laterLeft, narrowLeft time.Duration
+
+	later.OnStop(func(ctx context.Context) error {
+		dl, _ := ctx.Deadline()
+		laterLeft = time.Until(dl)
+
+		return nil
+	})
+	narrow.OnStop(func(ctx context.Context) error {
+		dl, _ := ctx.Deadline()
+		narrowLeft = time.Until(dl)
+
+		return nil
+	})
+	narrow.Budget(func(ctx context.Context) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(ctx, 50*time.Millisecond)
+	})
+
+	// A goroutine that ignores cancellation holds the narrowed node only
+	// for its budget.
+	release := make(chan struct{})
+
+	narrow.Go(func(context.Context) error { <-release; return nil })
+
+	if err := svc.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	err := svc.Stop(ctx)
+
+	close(release)
+
+	if !errors.Is(err, node.ErrStopTimeout) {
+		t.Fatalf("want the narrowed node's timeout, got %v", err)
+	}
+
+	if narrowLeft > 50*time.Millisecond || laterLeft < 5*time.Second {
+		t.Fatalf("budgets: narrow %v, later %v", narrowLeft, laterLeft)
+	}
+}
+
+func TestProbeInterval(t *testing.T) {
+	t.Parallel()
+
+	svc := node.New("svc", testlog.Discard(), nil)
+	child := svc.Child("c", node.System, false)
+
+	if child.ProbeInterval() != node.DefaultProbeInterval {
+		t.Fatalf("default: %v", child.ProbeInterval())
+	}
+
+	svc.SetProbeInterval(time.Second)
+
+	if child.ProbeInterval() != time.Second {
+		t.Fatalf("set: %v", child.ProbeInterval())
+	}
+}

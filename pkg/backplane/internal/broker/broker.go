@@ -6,15 +6,18 @@
 // missing, with the platform defaults, so it exists before the emitter
 // first runs. Events are
 // CloudEvents in NATS binary mode: ce-* headers, JSON data, Nats-Msg-Id =
-// ce-id for deduplication and the W3C trace context.
+// ce-id for deduplication and the W3C trace context. The publisher may set
+// ce-id itself (an outbox's id), ce-time and extension attributes.
 //
 // A reactor is a durable pull consumer <subscriber>__<consumer> filtered on
 // one event, delivered as its env.Delivery says over the broker's defaults.
 // A handler that fails is redelivered with a growing delay; when
-// the last delivery fails the message goes to the dead-letter subject
-// bp.dlq.<subscriber>.<consumer> (stream bp_dlq_<subscriber>) and is
-// terminated. A consumer deleted on the server while the service runs is
-// recreated at the reactor's position (the oldest unsettled message, else
+// the last delivery fails, or the handler marks its error terminal, the
+// message goes to the dead-letter subject bp.dlq.<subscriber>.<consumer>
+// (stream bp_dlq_<subscriber>) and is terminated. A handler cancelled by
+// the service's stop is nacked without a delay and never dead-lettered.
+// A consumer deleted on the server while the service runs is recreated at
+// the reactor's position (the oldest unsettled message, else
 // after the newest one seen) and consumption resumes.
 //
 // NATS is optional and may be down: Connect does not wait for it, streams
@@ -42,23 +45,32 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
-const instrumentation = "github.com/gopherex/backplane/pkg/backplane/internal/broker"
+const (
+	instrumentation = "github.com/gopherex/backplane/pkg/backplane/internal/broker"
+	// transport is the attribute of backplane.transport.connected.
+	transport = "nats"
+)
 
 // ErrNoService: the broker has no service name to derive NATS names from.
 var ErrNoService = errors.New("broker: service name is empty")
 
 // Params of New.
 type Params struct {
-	URL      string
-	Creds    string // NATS credentials file content; empty for none
-	Service  string
-	Instance string
-	Version  string
-	Log      *xlog.Logger
-	Env      *env.Env
+	URL   string
+	Creds string // NATS credentials file content; empty for none
+	TLS   TLS
+	// PublishTimeout bounds a Publish whose ctx has no deadline; zero is
+	// the default (5s).
+	PublishTimeout time.Duration
+	Service        string
+	Instance       string
+	Version        string
+	Log            *xlog.Logger
+	Env            *env.Env
 	// Streams the service owns; the zero value takes the platform
 	// defaults.
 	Streams Streams
@@ -150,7 +162,12 @@ func New(p Params) *Broker {
 		p.Streams = DefaultStreams()
 	}
 
-	return &Broker{p: p, t: defaults(), log: log, closed: make(chan struct{})}
+	t := defaults()
+	if p.PublishTimeout > 0 {
+		t.publishTimeout = p.PublishTimeout
+	}
+
+	return &Broker{p: p, t: t, log: log, closed: make(chan struct{})}
 }
 
 // Connect connects without blocking on an unreachable NATS and ensures the
@@ -184,6 +201,8 @@ func (b *Broker) Connect(ctx context.Context, g node.Group) error {
 	b.mu.Lock()
 	b.conn, b.jet = conn, jet
 	b.mu.Unlock()
+
+	metrics.TransportConnected(ctx, transport, conn.IsConnected())
 
 	if !conn.IsConnected() {
 		b.log.Warn("nats unreachable, connecting in the background")
@@ -238,7 +257,18 @@ func (b *Broker) options() ([]nats.Option, error) {
 		opts = append(opts, creds)
 	}
 
+	tc, err := tlsConfig(b.p.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	if tc != nil {
+		opts = append(opts, nats.Secure(tc))
+	}
+
 	var once sync.Once
+
+	report := func(connected bool) { metrics.TransportConnected(context.Background(), transport, connected) }
 
 	return append(opts,
 		nats.Name(name),
@@ -249,12 +279,16 @@ func (b *Broker) options() ([]nats.Option, error) {
 		// No buffering while disconnected: Publish fails instead of waiting.
 		nats.ReconnectBufSize(-1),
 		nats.ConnectHandler(func(conn *nats.Conn) {
+			report(true)
 			b.log.Info("nats connected", xlog.String("url", conn.ConnectedUrlRedacted()))
 		}),
 		nats.ReconnectHandler(func(conn *nats.Conn) {
+			report(true)
 			b.log.Info("nats reconnected", xlog.String("url", conn.ConnectedUrlRedacted()))
 		}),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			report(false)
+
 			if err != nil {
 				b.log.Warn("nats disconnected", xlog.Err(err))
 			}
@@ -267,7 +301,10 @@ func (b *Broker) options() ([]nats.Option, error) {
 
 			b.log.Warn("nats error", xlog.Err(err), xlog.String("subject", subject))
 		}),
-		nats.ClosedHandler(func(*nats.Conn) { once.Do(func() { close(b.closed) }) }),
+		nats.ClosedHandler(func(*nats.Conn) {
+			report(false)
+			once.Do(func() { close(b.closed) })
+		}),
 	), nil
 }
 
@@ -336,17 +373,17 @@ func (b *Broker) Close(ctx context.Context) error {
 	}
 }
 
-// Publish implements env.Broker: event is the full name
-// "<service>.<Event>" of one of the service's events, payload its JSON. It
-// returns once JetStream acknowledged the event, and fails fast while NATS
-// is unreachable.
-func (b *Broker) Publish(ctx context.Context, event, key string, payload []byte) error {
+// Publish implements env.Broker: m.Event is the full name
+// "<service>.<Event>" of one of the service's events, m.Payload its JSON.
+// It returns once JetStream acknowledged the event, and fails fast while
+// NATS is unreachable.
+func (b *Broker) Publish(ctx context.Context, m env.Message) error {
 	jet, err := b.connected()
 	if err != nil {
 		return err
 	}
 
-	service, name, err := SplitEvent(event)
+	service, name, err := SplitEvent(m.Event)
 	if err != nil {
 		return err
 	}
@@ -364,15 +401,27 @@ func (b *Broker) Publish(ctx context.Context, event, key string, payload []byte)
 		attribute.String("messaging.destination.name", subject),
 	)
 
-	//nolint:wrapcheck // publish wraps
-	return xtrace.Run(ctx, otel.Tracer(instrumentation), "publish "+event, func(ctx context.Context, _ trace.Span) error {
-		msg := &nats.Msg{Subject: subject, Data: payload, Header: headers(ctx, cloudEvent{
-			ID: uuid.NewString(), Service: service, Instance: b.p.Instance, Version: b.p.Version,
-			Type: event, Key: key, Time: time.Now(),
-		})}
+	event := cloudEvent{
+		ID: m.ID, Service: service, Instance: b.p.Instance, Version: b.p.Version,
+		Type: m.Event, Key: m.Key, Time: m.Time, Extensions: m.Extensions,
+	}
+	if event.ID == "" {
+		event.ID = uuid.NewString()
+	}
+
+	if event.Time.IsZero() {
+		event.Time = time.Now()
+	}
+
+	send := func(ctx context.Context, _ trace.Span) error {
+		msg := &nats.Msg{Subject: subject, Data: m.Payload, Header: headers(ctx, event)}
 
 		return b.publish(ctx, jet, msg, service == b.p.Service)
-	}, xtrace.WithSpanOptions(trace.WithSpanKind(trace.SpanKindProducer)), attrs)
+	}
+
+	//nolint:wrapcheck // publish wraps
+	return xtrace.Run(ctx, otel.Tracer(instrumentation), "publish "+m.Event, send,
+		xtrace.WithSpanOptions(trace.WithSpanKind(trace.SpanKindProducer)), attrs)
 }
 
 // publish sends msg and waits for its PubAck. When no stream answers and

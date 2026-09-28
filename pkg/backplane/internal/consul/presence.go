@@ -1,17 +1,23 @@
 // Package consul keeps a service present in Consul: manifest per version,
 // instance state under a TTL session (it disappears with the instance) and
-// the catalog registration. Consul being absent never fails the service.
+// the catalog registration. The state is published from before the author's
+// tree starts (phase starting) so a service waiting for its dependencies is
+// visible; the catalog registration follows only once it serves. Consul
+// being absent never fails the service.
 package consul
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/consul/api"
@@ -23,6 +29,7 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
+	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
@@ -38,8 +45,13 @@ var (
 
 const (
 	servicesPrefix = "backplane/services/"
-	checkInterval  = "10s"
-	deregisterIn   = "1m"
+	// Defaults of the catalog health check and the session.
+	defaultCheckInterval   = 10 * time.Second
+	defaultCheckTimeout    = 5 * time.Second
+	defaultDeregisterAfter = time.Minute
+	// Consul accepts session TTLs from 10s to 24h.
+	minSessionTTL = 10 * time.Second
+	maxSessionTTL = 24 * time.Hour
 	// lockDelay: Consul's default 15s would block a restarted instance with
 	// the same id from publishing its state.
 	lockDelay = time.Millisecond
@@ -48,7 +60,7 @@ const (
 	incarnationSep = "#"
 	incarnationLen = 10
 
-	sessionTTL = 30 * time.Second
+	defaultSessionTTL = 30 * time.Second
 	// Renew three times per TTL; after TTL/2 of failed renews the session is
 	// at risk and presence is re-established instead.
 	renewsPerTTL   = 3
@@ -72,11 +84,20 @@ type timing struct {
 	renew       backoff.Policy // between renew attempts
 }
 
-func defaultTiming() timing {
+func defaultTiming(ttl time.Duration) timing {
+	switch {
+	case ttl == 0:
+		ttl = defaultSessionTTL
+	case ttl < minSessionTTL:
+		ttl = minSessionTTL
+	case ttl > maxSessionTTL:
+		ttl = maxSessionTTL
+	}
+
 	return timing{
-		ttl:         sessionTTL,
-		renewEvery:  sessionTTL / renewsPerTTL,
-		renewGiveUp: sessionTTL / renewGiveUpDiv,
+		ttl:         ttl,
+		renewEvery:  ttl / renewsPerTTL,
+		renewGiveUp: ttl / renewGiveUpDiv,
 		attempt:     attemptTimeout,
 		call:        callTimeout,
 		establish:   backoff.Policy{Min: establishFloor, Max: establishCeil},
@@ -92,12 +113,21 @@ type Identity struct {
 	Address      string
 	PlatformPort uint16
 	PublicPort   uint16 // 0 when the service has no managed public routes
+	Commit       string
 }
 
 // ConfigState is the dynamic configuration seen by the presence.
 type ConfigState interface {
 	Effective() configrt.Effective
 	OnChange(fn func())
+}
+
+// Check is the catalog registration's health check; zero fields take the
+// defaults (10s, 5s, 1m).
+type Check struct {
+	Interval        time.Duration
+	Timeout         time.Duration
+	DeregisterAfter time.Duration
 }
 
 // Params of New.
@@ -108,8 +138,22 @@ type Params struct {
 	Manifest *backplanev1.Manifest
 	// Register in the catalog; false when the deployment registers.
 	Register bool
+	// Tags of the catalog registration.
+	Tags  []string
+	Check Check
+	// SessionTTL of the session holding the instance state; 0 is 30s,
+	// clamped to Consul's 10s..24h. Renewed every TTL/3; renewals failing
+	// for TTL/2 re-establish the presence.
+	SessionTTL time.Duration
 	// Config may be nil.
 	Config ConfigState
+	// Nodes reports the author's dependencies; may be nil. Read on every
+	// state write and renew tick: a change is published within a renew
+	// interval, or at once after Changed.
+	Nodes func() []*backplanev1.NodeStatus
+	// Transports reports NATS, Temporal and OTLP; may be nil. Consul is
+	// added by the presence itself. Read like Nodes.
+	Transports func() []*backplanev1.TransportStatus
 }
 
 // Presence is a lifecycle component.
@@ -119,38 +163,75 @@ type Presence struct {
 	id     Identity
 	// name of this process's sessions: instance id and a random incarnation,
 	// so a live duplicate is told apart from a crashed predecessor.
-	name     string
-	manifest []byte
-	register bool
-	config   ConfigState
-	timing   timing
-	changed  chan struct{}
-	done     chan struct{}
-	started  time.Time // set by Start before the loop runs
+	name       string
+	manifest   *backplanev1.Manifest
+	raw        []byte // manifest, deterministic
+	register   bool
+	tags       []string
+	check      Check
+	config     ConfigState
+	nodes      func() []*backplanev1.NodeStatus
+	transports func() []*backplanev1.TransportStatus
+	timing     timing
+	changed    chan struct{}
+	done       chan struct{}
+	started    time.Time // set by Start before the loop runs
+	phase      atomic.Int32
 
-	mu      sync.Mutex
-	session string
-	running bool
-	stopped bool
+	mu        sync.Mutex
+	session   string
+	running   bool
+	stopped   bool
+	connected bool   // a session is established
+	refused   bool   // the manifest overwrite refusal was logged
+	written   []byte // last instance state written
+
+	// writeMu serializes instance state writes: the loop and Deregister.
+	writeMu sync.Mutex
+
+	// regMu guards the catalog registration; held across register calls so
+	// Deregister never races a registration in flight.
+	regMu      sync.Mutex
+	serving    bool
+	registered bool
 }
 
 // New creates the presence; nothing is sent until Start.
 func New(p Params) (*Presence, error) {
-	raw, err := proto.Marshal(p.Manifest)
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(p.Manifest)
 	if err != nil {
 		return nil, fmt.Errorf("consul: marshal manifest: %w", err)
 	}
 
-	return &Presence{
-		client: p.Client, log: p.Log, id: p.Identity, manifest: raw, register: p.Register, config: p.Config,
+	check := p.Check
+	check.Interval = or(check.Interval, defaultCheckInterval)
+	check.Timeout = or(check.Timeout, defaultCheckTimeout)
+	check.DeregisterAfter = or(check.DeregisterAfter, defaultDeregisterAfter)
+
+	presence := &Presence{
+		client: p.Client, log: p.Log, id: p.Identity, manifest: p.Manifest, raw: raw,
+		register: p.Register, tags: slices.Clone(p.Tags), check: check,
+		config: p.Config, nodes: p.Nodes, transports: p.Transports,
 		name:    p.Identity.Instance + incarnationSep + rand.Text()[:incarnationLen],
-		timing:  defaultTiming(),
+		timing:  defaultTiming(p.SessionTTL),
 		changed: make(chan struct{}, 1), done: make(chan struct{}),
-	}, nil
+	}
+	presence.phase.Store(int32(backplanev1.InstancePhase_INSTANCE_PHASE_STARTING))
+
+	return presence, nil
 }
 
-// Start runs presence in the background: registration retries never block
-// or fail the service.
+func or(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+
+	return def
+}
+
+// Start publishes the manifest and the instance state (phase starting) in
+// the background, ahead of the author's tree; the catalog registration
+// waits for Register. Retries never block or fail the service.
 func (p *Presence) Start(_ context.Context, g node.Group) error {
 	p.started = time.Now()
 	if p.config != nil {
@@ -186,19 +267,92 @@ func (p *Presence) Stop(ctx context.Context) error {
 		return fmt.Errorf("consul: waiting for presence loop: %w", ctx.Err())
 	}
 
-	var errs []error
-
-	// The catalog entry is keyed by instance id: a live duplicate holding
-	// the state key owns it too, so only its holder deregisters.
-	if p.register && p.holdsState(ctx) {
-		errs = append(errs, p.client.Agent().ServiceDeregisterOpts(p.id.Instance, query(ctx)))
-	}
-
-	errs = append(errs, p.dropSession(ctx))
+	errs := []error{p.deregister(ctx), p.dropSession(ctx)}
 
 	if err := errors.Join(errs...); err != nil {
 		p.log.Warn("consul leave", xlog.Err(err))
 	}
+
+	p.setConnected(context.WithoutCancel(ctx), false)
+
+	return nil
+}
+
+// Register marks the instance serving: the state says so and the loop
+// registers in the catalog (when the SDK registers), retrying in the
+// background. Call it when the instance takes traffic.
+func (p *Presence) Register(context.Context) error {
+	p.regMu.Lock()
+	p.serving = true
+	p.phase.Store(int32(backplanev1.InstancePhase_INSTANCE_PHASE_SERVING))
+	p.regMu.Unlock()
+
+	p.notify()
+
+	return nil
+}
+
+// Deregister marks the instance stopping: it leaves the catalog at once and
+// the state says so, while the session and the state live on until Stop.
+// Call it when the instance stops taking traffic. Best effort: Consul
+// errors are logged.
+func (p *Presence) Deregister(ctx context.Context) error {
+	p.phase.Store(int32(backplanev1.InstancePhase_INSTANCE_PHASE_STOPPING))
+
+	if err := p.deregister(ctx); err != nil {
+		p.log.Warn("consul deregister", xlog.Err(err))
+	}
+
+	if p.currentSession() != "" {
+		p.publish(ctx)
+	}
+
+	return nil
+}
+
+// Changed republishes the state now: nodes or transports changed.
+func (p *Presence) Changed() { p.notify() }
+
+// deregister leaves the catalog if this process registered. The entry is
+// keyed by instance id: a live duplicate holding the state key owns it too,
+// so only the holder deregisters.
+func (p *Presence) deregister(ctx context.Context) error {
+	p.regMu.Lock()
+	defer p.regMu.Unlock()
+
+	was := p.registered
+	p.serving, p.registered = false, false
+
+	if !was || !p.holdsState(ctx) {
+		return nil
+	}
+
+	if err := p.client.Agent().ServiceDeregisterOpts(p.id.Instance, query(ctx)); err != nil {
+		return fmt.Errorf("deregister: %w", err)
+	}
+
+	return nil
+}
+
+// ensureRegistered registers in the catalog while serving; force
+// re-registers (after a new session: the agent may have lost the entry).
+func (p *Presence) ensureRegistered(ctx context.Context, force bool) error {
+	p.regMu.Lock()
+	defer p.regMu.Unlock()
+
+	if !p.register || !p.serving || (p.registered && !force) {
+		return nil
+	}
+
+	if err := p.registerService(ctx); err != nil {
+		return err
+	}
+
+	if !p.registered {
+		p.log.Info("registered in consul catalog")
+	}
+
+	p.registered = true
 
 	return nil
 }
@@ -257,6 +411,17 @@ func (p *Presence) setSession(id string) {
 	p.session = id
 }
 
+func (p *Presence) setConnected(ctx context.Context, connected bool) {
+	p.mu.Lock()
+	changed := p.connected != connected
+	p.connected = connected
+	p.mu.Unlock()
+
+	if changed {
+		metrics.TransportConnected(ctx, "consul", connected)
+	}
+}
+
 func (p *Presence) notify() {
 	select {
 	case p.changed <- struct{}{}:
@@ -277,8 +442,10 @@ func (p *Presence) run(ctx context.Context) {
 			return // ctx ended
 		}
 
-		p.log.Info("registered in consul", xlog.String("session", p.currentSession()))
+		p.setConnected(ctx, true)
+		p.log.Info("instance state published in consul", xlog.String("session", p.currentSession()))
 		p.maintain(ctx)
+		p.setConnected(ctx, false)
 	}
 }
 
@@ -304,9 +471,8 @@ func (p *Presence) establish(ctx context.Context, first bool) error {
 		return err
 	}
 
-	manifest := &api.KVPair{Key: p.key("manifests/" + p.id.Version), Value: p.manifest}
-	if _, err := p.client.KV().Put(manifest, write(ctx)); err != nil {
-		return fmt.Errorf("manifest: %w", err)
+	if err := p.putManifest(ctx); err != nil {
+		return err
 	}
 
 	session, _, err := p.client.Session().Create(&api.SessionEntry{
@@ -322,11 +488,95 @@ func (p *Presence) establish(ctx context.Context, first bool) error {
 		return p.abandon(ctx, err)
 	}
 
-	if err := p.registerService(ctx); err != nil {
+	if err := p.ensureRegistered(ctx, true); err != nil {
 		return p.abandon(ctx, err)
 	}
 
 	return nil
+}
+
+// putManifest writes manifests/<version> unless it is there. A different
+// manifest under a released version is kept and reported: a version names
+// one set of declarations, and the console reads it for every instance of
+// that version. A dev version (with +build metadata) is overwritten.
+func (p *Presence) putManifest(ctx context.Context) error {
+	key := p.key("manifests/" + p.id.Version)
+
+	existing, _, err := p.client.KV().Get(key, query(ctx))
+	if err != nil {
+		return fmt.Errorf("manifest: %w", err)
+	}
+
+	if existing != nil {
+		if p.sameManifest(existing.Value) {
+			return nil
+		}
+
+		if !strings.Contains(p.id.Version, "+") {
+			p.refuseManifest(key)
+
+			return nil
+		}
+	}
+
+	kv := &api.KVPair{Key: key, Value: p.raw}
+	if existing == nil {
+		// Created only if still absent: a concurrent instance of the same
+		// version may have written it meanwhile.
+		ok, _, err := p.client.KV().CAS(kv, write(ctx))
+		if err != nil {
+			return fmt.Errorf("manifest: %w", err)
+		}
+
+		if !ok {
+			return p.recheckManifest(ctx, key)
+		}
+
+		return nil
+	}
+
+	if _, err := p.client.KV().Put(kv, write(ctx)); err != nil {
+		return fmt.Errorf("manifest: %w", err)
+	}
+
+	return nil
+}
+
+func (p *Presence) recheckManifest(ctx context.Context, key string) error {
+	existing, _, err := p.client.KV().Get(key, query(ctx))
+	if err != nil {
+		return fmt.Errorf("manifest: %w", err)
+	}
+
+	if existing != nil && !p.sameManifest(existing.Value) {
+		p.refuseManifest(key)
+	}
+
+	return nil
+}
+
+func (p *Presence) sameManifest(raw []byte) bool {
+	if bytes.Equal(raw, p.raw) {
+		return true
+	}
+
+	var m backplanev1.Manifest
+
+	return proto.Unmarshal(raw, &m) == nil && proto.Equal(&m, p.manifest)
+}
+
+// refuseManifest reports, once per process, a manifest kept in place.
+func (p *Presence) refuseManifest(key string) {
+	p.mu.Lock()
+	logged := p.refused
+	p.refused = true
+	p.mu.Unlock()
+
+	if !logged {
+		p.log.Error("a different manifest is already published for this version: keeping it; "+
+			"the console shows its declarations, not this build's — release under a new version",
+			xlog.String("key", key), xlog.String("version", p.id.Version))
+	}
 }
 
 // abandon destroys the session of a failed establish so it does not linger
@@ -364,10 +614,12 @@ func (p *Presence) registerService(ctx context.Context) error {
 		Name:    p.id.Service,
 		Address: p.id.Address,
 		Port:    int(p.id.PublicPort),
+		Tags:    p.tags,
 		Check: &api.AgentServiceCheck{
 			GRPC:                           net.JoinHostPort(p.id.Address, strconv.Itoa(int(p.id.PlatformPort))),
-			Interval:                       checkInterval,
-			DeregisterCriticalServiceAfter: deregisterIn,
+			Interval:                       p.check.Interval.String(),
+			Timeout:                        p.check.Timeout.String(),
+			DeregisterCriticalServiceAfter: p.check.DeregisterAfter.String(),
 		},
 	}
 	if err := p.client.Agent().ServiceRegisterOpts(reg, api.ServiceRegisterOpts{}.WithContext(ctx)); err != nil {
@@ -377,9 +629,11 @@ func (p *Presence) registerService(ctx context.Context) error {
 	return nil
 }
 
-// maintain renews the session and republishes state on change; returns when
-// ctx ends or the session is lost. A state write that fails stays pending
-// and is retried on every renew tick until it succeeds.
+// maintain renews the session, republishes state on change and keeps the
+// catalog registration while serving; returns when ctx ends or the session
+// is lost. A state write or registration that fails stays pending and is
+// retried on every renew tick until it succeeds. Every tick also compares
+// the state with the last written one: nodes and transports are polled.
 func (p *Presence) maintain(ctx context.Context) {
 	ticker := time.NewTicker(p.timing.renewEvery)
 	defer ticker.Stop()
@@ -398,6 +652,8 @@ func (p *Presence) maintain(ctx context.Context) {
 
 				return
 			}
+
+			dirty = dirty || p.stale()
 		case <-p.changed:
 			dirty = true
 		}
@@ -405,6 +661,30 @@ func (p *Presence) maintain(ctx context.Context) {
 		if dirty {
 			dirty = !p.publish(ctx)
 		}
+
+		p.syncRegistration(ctx)
+	}
+}
+
+// stale reports whether the state differs from the last one written.
+func (p *Presence) stale() bool {
+	raw, err := p.state()
+	if err != nil {
+		return false
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return !bytes.Equal(raw, p.written)
+}
+
+func (p *Presence) syncRegistration(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, p.timing.call)
+	defer cancel()
+
+	if err := p.ensureRegistered(ctx, false); err != nil && ctx.Err() == nil {
+		p.log.Warn("consul catalog registration, retrying on next renew", xlog.Err(err))
 	}
 }
 
@@ -461,24 +741,10 @@ func (p *Presence) publish(ctx context.Context) bool {
 	return true
 }
 
-// revision is the console's config revision next to the values
-// (config/<service>/_revision), read right after a change was applied; 0
-// when absent or unreadable.
-func (p *Presence) revision(ctx context.Context) uint64 {
-	kv, _, err := p.client.KV().Get("config/"+p.id.Service+"/_revision", query(ctx))
-	if err != nil || kv == nil {
-		return 0
-	}
-
-	n, err := strconv.ParseUint(strings.TrimSpace(string(kv.Value)), 10, 64)
-	if err != nil {
-		return 0
-	}
-
-	return n
-}
-
-func (p *Presence) state(ctx context.Context) ([]byte, error) {
+// state is the instance state: identity, phase, the applied configuration
+// with the revision it came from and the last rejected one, dependencies
+// and transports.
+func (p *Presence) state() ([]byte, error) {
 	state := &backplanev1.InstanceState{
 		Id:           p.id.Instance,
 		Service:      p.id.Service,
@@ -486,20 +752,36 @@ func (p *Presence) state(ctx context.Context) ([]byte, error) {
 		Address:      p.id.Address,
 		PlatformPort: uint32(p.id.PlatformPort),
 		StartedAt:    timestamppb.New(p.started),
+		Phase:        backplanev1.InstancePhase(p.phase.Load()),
+		SdkVersion:   p.manifest.GetSdkVersion(),
+		Commit:       p.id.Commit,
+		Transports:   []*backplanev1.TransportStatus{{Name: "consul", Connected: true}},
 	}
 
 	if p.config != nil {
-		state.ConfigRevision = p.revision(ctx)
-
 		eff := p.config.Effective()
 		state.Config, state.Sources = eff.Values, eff.Sources
+		state.ConfigRevision = eff.Revision
 
 		if eff.Err != nil {
 			state.ConfigError = eff.Err.Error()
+			state.ConfigRejectedRevision = eff.RejectedRevision
 		}
 	}
 
-	raw, err := proto.Marshal(state)
+	if p.nodes != nil {
+		state.Nodes = p.nodes()
+	}
+
+	if p.transports != nil {
+		for _, t := range p.transports() {
+			if t.GetName() != "consul" {
+				state.Transports = append(state.Transports, t)
+			}
+		}
+	}
+
+	raw, err := proto.MarshalOptions{Deterministic: true}.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("instance state: marshal: %w", err)
 	}
@@ -510,7 +792,10 @@ func (p *Presence) state(ctx context.Context) ([]byte, error) {
 // writeState publishes the instance state under the current session. first
 // allows evicting another incarnation of this instance (see run).
 func (p *Presence) writeState(ctx context.Context, first bool) error {
-	raw, err := p.state(ctx)
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+
+	raw, err := p.state()
 	if err != nil {
 		return err
 	}
@@ -530,6 +815,10 @@ func (p *Presence) writeState(ctx context.Context, first bool) error {
 	case !ok:
 		return fmt.Errorf("%w: %s", ErrStateHeld, key)
 	}
+
+	p.mu.Lock()
+	p.written = raw
+	p.mu.Unlock()
 
 	return nil
 }

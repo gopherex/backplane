@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func start(t *testing.T, h http.Handler) (*listener.Listener, *group) {
 	srv := grpc.NewServer()
 	hv1.RegisterHealthServer(srv, health.NewServer())
 
-	l := listener.New("test", "127.0.0.1:0", srv, h, testlog.Discard())
+	l := listener.New("test", "127.0.0.1:0", srv, h, testlog.Discard(), listener.Limits{})
 	g := newGroup(t)
 
 	if err := l.Start(t.Context(), g); err != nil {
@@ -223,4 +224,79 @@ func TestIdleConnectionDoesNotDelayStop(t *testing.T) {
 	if took > time.Second {
 		t.Fatalf("stop took %v with an idle connection open", took)
 	}
+}
+
+// The HTTP limits apply: headers above MaxHeaderBytes get 431.
+func TestLimits(t *testing.T) {
+	t.Parallel()
+
+	srv := grpc.NewServer()
+	l := listener.New("limits", "127.0.0.1:0", srv, http.NotFoundHandler(), testlog.Discard(),
+		listener.Limits{ReadHeaderTimeout: time.Second, IdleTimeout: time.Second, MaxHeaderBytes: 1024})
+	g := newGroup(t)
+
+	if err := l.Start(t.Context(), g); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+l.Addr()+"/", http.NoBody)
+	req.Header.Set("X-Big", strings.Repeat("x", 8<<10))
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = res.Body.Close()
+
+	if res.StatusCode != http.StatusRequestHeaderFieldsTooLarge {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+
+	if _, err := g.stop(l); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+}
+
+// A stream open past the stop budget is cut and the stop says so.
+func TestStopCutsStreamsAfterBudget(t *testing.T) {
+	t.Parallel()
+
+	l, g := start(t, nil)
+
+	conn, err := grpc.NewClient(l.Addr(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	watch, err := hv1.NewHealthClient(conn).Watch(t.Context(), &hv1.HealthCheckRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := watch.Recv(); err != nil {
+		t.Fatal(err)
+	}
+
+	g.cancel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	begin := time.Now()
+
+	if err := l.Stop(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("stop: want deadline exceeded, got %v", err)
+	}
+
+	if took := time.Since(begin); took > 2*time.Second {
+		t.Fatalf("stop took %v", took)
+	}
+
+	if _, err := watch.Recv(); err == nil {
+		t.Fatal("stream still open after a hard stop")
+	}
+
+	g.wg.Wait()
 }

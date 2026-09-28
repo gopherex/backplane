@@ -32,10 +32,10 @@ type outcome struct {
 	Err       string `json:"err"`
 }
 
-// price plays backplane's binding of <svc>.price: doubles the amount,
+// price plays backplane's binding of <svc>.Price: doubles the amount,
 // declines negatives, has no binding for zero.
 func price() nexus.Operation[*backplanev1.HookCall, *backplanev1.HookResult] {
-	return nexus.NewSyncOperation("price", func(
+	return nexus.NewSyncOperation("Price", func(
 		_ context.Context, call *backplanev1.HookCall, _ nexus.StartOperationOptions,
 	) (*backplanev1.HookResult, error) {
 		var in Quote
@@ -63,7 +63,7 @@ func TestWorkflowCall(t *testing.T) {
 	e := env.New(svc, manifest.New(svc, "0.0.0"))
 	app := node.New(svc, testlog.Discard(), e).Child(svc, node.Root, false)
 	root := link.Scope(app).(deps.Component)
-	ref := hook.Declare[Quote, Price](root, "price")
+	ref := hook.Declare[Quote, Price](root, "Price")
 
 	tc := temporaltest.Dial(t)
 	temporaltest.Hooks(t, tc, svc, price())
@@ -88,8 +88,8 @@ func TestWorkflowCall(t *testing.T) {
 		want   outcome
 	}{
 		{21, outcome{Total: 42}},
-		{0, outcome{NoBinding: true, Err: "hook " + svc + ".price: no binding"}},
-		{-1, outcome{Err: "hook " + svc + ".price: declined"}},
+		{0, outcome{NoBinding: true, Err: "hook " + svc + ".Price: no binding"}},
+		{-1, outcome{Err: "hook " + svc + ".Price: declined"}},
 	} {
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 
@@ -121,5 +121,89 @@ func TestWorkflowCallZeroRef(t *testing.T) {
 	// Undeclared: fails before touching the workflow context.
 	if _, err := ref.WorkflowCall(nil, Quote{}); !errors.Is(err, hook.ErrUnavailable) {
 		t.Fatalf("zero ref: %v", err)
+	}
+}
+
+// deadlines plays the binding of <svc>.<name>: it answers with the
+// deadline the call brought, in milliseconds.
+func deadlines(name string) nexus.Operation[*backplanev1.HookCall, *backplanev1.HookResult] {
+	return nexus.NewSyncOperation(name, func(
+		_ context.Context, call *backplanev1.HookCall, _ nexus.StartOperationOptions,
+	) (*backplanev1.HookResult, error) {
+		out, _ := json.Marshal(Price{Total: int(call.GetDeadline().AsDuration().Milliseconds())})
+
+		return &backplanev1.HookResult{Payload: out}, nil
+	})
+}
+
+// WorkflowCall is never unbounded: the call's Timeout, else the declared
+// default, else the platform default — cut to what is left of the run.
+func TestWorkflowCallDeadline(t *testing.T) {
+	t.Parallel()
+
+	svc := temporaltest.Name("wfdl")
+	e := env.New(svc, manifest.New(svc, "0.0.0"))
+	e.SetHookTimeout(9 * time.Second)
+
+	app := node.New(svc, testlog.Discard(), e).Child(svc, node.Root, false)
+	root := link.Scope(app).(deps.Component)
+	declared := hook.Declare[Quote, Price](root, "Probe", hook.DefaultTimeout(7*time.Second))
+	platform := hook.Declare[Quote, Price](root, "Bare")
+
+	tc := temporaltest.Dial(t)
+	temporaltest.Hooks(t, tc, svc, deadlines("Probe"), deadlines("Bare"))
+
+	probe := func(ctx workflow.Context, which string) (int, error) {
+		var (
+			out Price
+			err error
+		)
+
+		switch which {
+		case "platform":
+			out, err = platform.WorkflowCall(ctx, Quote{})
+		case "declared":
+			out, err = declared.WorkflowCall(ctx, Quote{})
+		default:
+			out, err = declared.WorkflowCall(ctx, Quote{}, hook.Timeout(3*time.Second))
+		}
+
+		return out.Total, err
+	}
+
+	queue := "wf-" + svc
+	temporaltest.Serve(t, tc, queue, func(w worker.Worker) {
+		w.RegisterWorkflowWithOptions(probe, workflow.RegisterOptions{Name: "probe"})
+	})
+
+	for _, step := range []struct {
+		which    string
+		run      time.Duration // workflow run timeout, 0 none
+		min, max time.Duration
+	}{
+		{"platform", 0, 9 * time.Second, 9 * time.Second},
+		{"declared", 0, 7 * time.Second, 7 * time.Second},
+		{"call", 0, 3 * time.Second, 3 * time.Second},
+		{"declared", 5 * time.Second, 4 * time.Second, 5 * time.Second},
+	} {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+
+		run, err := tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: queue, WorkflowRunTimeout: step.run},
+			"probe", step.which)
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+
+		var millis int
+
+		err = run.Get(ctx, &millis)
+
+		cancel()
+
+		got := time.Duration(millis) * time.Millisecond
+		if err != nil || got < step.min || got > step.max {
+			t.Errorf("%s (run %v): deadline %v %v, want %v..%v", step.which, step.run, got, err, step.min, step.max)
+		}
 	}
 }

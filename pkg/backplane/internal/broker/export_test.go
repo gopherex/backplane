@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"crypto/tls"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -71,3 +72,22 @@ func (b *Broker) ReactorSettings(r env.Reactor) (Settings, error) {
 func (b *Broker) OwnStreams() (jetstream.StreamConfig, jetstream.StreamConfig) {
 	return eventStream(b.p.Service, byEmitter, b.p.Streams), deadStream(b.p.Service, b.p.Streams)
 }
+
+// PublishRaw publishes payload as event with key.
+func (b *Broker) PublishRaw(ctx context.Context, event, key string, payload []byte) error {
+	return b.Publish(ctx, env.Message{Event: event, Key: key, Payload: payload})
+}
+
+// TLSConfig exposes tlsConfig.
+func TLSConfig(t TLS) (*tls.Config, error) { return tlsConfig(t) }
+
+// Incoming exposes incoming.
+func Incoming(h nats.Header, consumer string, attempt uint64) env.Incoming {
+	return incoming(h, consumer, attempt)
+}
+
+// PublishTimeout is the bound of a Publish without a deadline.
+func (b *Broker) PublishTimeout() time.Duration { return b.t.publishTimeout }
+
+// StopDeliveries exposes stopDeliveries.
+const StopDeliveries = stopDeliveries

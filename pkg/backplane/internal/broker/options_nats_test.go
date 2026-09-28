@@ -87,11 +87,11 @@ func TestMaxDeliverAndRedelivery(t *testing.T) {
 	durable := broker.Durable(sub, consumer)
 	startReactors(t, jet, recv, src, durable)
 
-	if cfg := consumerConfig(t, jet, src, durable); cfg.MaxDeliver != 2 {
+	if cfg := consumerConfig(t, jet, src, durable); cfg.MaxDeliver != 2+broker.StopDeliveries {
 		t.Fatalf("consumer max_deliver %d", cfg.MaxDeliver)
 	}
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func peak(t *testing.T, concurrency, n int) int32 {
 	startReactors(t, jet, recv, src, broker.Durable(sub, consumer))
 
 	for range n {
-		if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
+		if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -218,13 +218,13 @@ func TestTimeoutCancelsHandler(t *testing.T) {
 	durable := broker.Durable(sub, consumer)
 	startReactors(t, jet, recv, src, durable)
 
-	if cfg := consumerConfig(t, jet, src, durable); cfg.AckWait != timeout+15*time.Second || cfg.MaxDeliver != 1 {
+	if cfg := consumerConfig(t, jet, src, durable); cfg.AckWait != timeout+15*time.Second || cfg.MaxDeliver != 1+broker.StopDeliveries {
 		t.Fatalf("consumer ack_wait %v max_deliver %d", cfg.AckWait, cfg.MaxDeliver)
 	}
 
 	start := time.Now()
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -258,7 +258,7 @@ func TestStartAll(t *testing.T) {
 	pub := open(t, url, src, emitter(t, src))
 
 	for _, v := range []string{`{"n":1}`, `{"n":2}`} {
-		if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(v)); err != nil {
+		if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(v)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -309,7 +309,7 @@ func TestStartAll(t *testing.T) {
 	e2, _ := reacting(sub, src, env.Delivery{StartAll: true}, handler)
 	startReactors(t, jet, open(t, url, sub, e2), src, durable)
 
-	if err := pub.Publish(t.Context(), src+".Greeted", "", []byte(`{"n":3}`)); err != nil {
+	if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{"n":3}`)); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,7 +1,7 @@
 // Package wsproto serves gRPC services over ws-proto (protobuf RPC over
 // WebSocket) as a managed public route. It takes the same register function
-// as Service.GRPC, so one implementation serves both, and traces every call
-// like the gRPC server does.
+// as Service.GRPC, so one implementation serves both, recovers a panicking
+// call into codes.Internal and traces every call like the gRPC server does.
 package wsproto
 
 import (
@@ -19,6 +19,8 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
+	"github.com/gopherex/backplane/pkg/backplane/internal/recovery"
+	"github.com/gopherex/backplane/pkg/backplane/internal/routes"
 	"github.com/gopherex/backplane/pkg/backplane/route"
 )
 
@@ -27,14 +29,21 @@ const instrumentation = "github.com/gopherex/backplane/pkg/backplane/wsproto"
 // Serve mounts a ws-proto endpoint at prefix on a public port of svc and
 // announces it with the registered services' descriptors. origins is the
 // browser origin policy: the zero value admits same-origin browsers and
-// non-browser clients only.
+// non-browser clients only. route.Interceptors and
+// route.StreamInterceptors wrap this endpoint's calls only;
+// route.Middleware wraps its upgrade handler.
 func Serve[St any](
 	svc *backplane.Service[St], prefix string, origins route.Origins,
-	register func(grpc.ServiceRegistrar), opts ...route.HTTPOption,
+	register func(grpc.ServiceRegistrar), opts ...route.WSProtoOption,
 ) {
+	spec := link.Routes.WS(opts)
 	srv := wsrpc.NewServer(originOption(origins))
 
-	reg := wsrpc.GRPCRegistrar(srv, wsrpc.WithUnaryInterceptor(unary), wsrpc.WithStreamInterceptor(stream))
+	u := append([]grpc.UnaryServerInterceptor{recovery.Unary(svc.Log(), recovery.WSProto), unary}, spec.Unary...)
+	st := append([]grpc.StreamServerInterceptor{recovery.Stream(svc.Log(), recovery.WSProto), stream}, spec.Stream...)
+
+	reg := wsrpc.GRPCRegistrar(srv,
+		wsrpc.WithUnaryInterceptor(routes.ChainUnary(u)), wsrpc.WithStreamInterceptor(routes.ChainStream(st)))
 	register(reg)
 
 	var services []string
@@ -44,7 +53,7 @@ func Serve[St any](
 		services = slices.Sorted(maps.Keys(si.GetServiceInfo()))
 	}
 
-	link.MountWS(svc, prefix, srv, services, opts)
+	link.MountWS(svc, prefix, srv, services, spec)
 }
 
 // originOption maps the policy onto wsrpc.
