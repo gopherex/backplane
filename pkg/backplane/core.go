@@ -2,27 +2,30 @@ package backplane
 
 import (
 	"context"
-	"log/slog"
+	"errors"
+	"fmt"
 	"net/http"
-	"strings"
+	"strconv"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"google.golang.org/grpc"
 	hv1 "google.golang.org/grpc/health/grpc_health_v1"
 
-	sp "github.com/gopherex/schemapb/go/schemapb"
-	"github.com/gopherex/xconf"
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
-	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
+	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
+	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/gate"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/health"
-	"github.com/gopherex/backplane/pkg/backplane/internal/lifecycle"
+	"github.com/gopherex/backplane/pkg/backplane/internal/listener"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
-	"github.com/gopherex/backplane/pkg/backplane/internal/tree"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
+	"github.com/gopherex/backplane/pkg/backplane/internal/telemetry"
 )
 
 const (
@@ -31,63 +34,88 @@ const (
 	probesPath     = "/healthz/"
 )
 
-// configState is what the core needs from *config.Runtime[C].
-type configState interface {
-	Schema() *sp.Schema
-	Live() []xconf.Path
-	Effective() config.Effective
-	OnChange(fn func())
-	Degraded() error
-	Close() error
-}
+// ErrClosed is returned by Run after Close or a previous Run.
+var ErrClosed = errors.New("backplane: service already ran or was closed")
+
+type phase int
+
+const (
+	declaring phase = iota
+	running
+	closed
+)
 
 // core is the untyped engine behind Service[St]: identity, configuration,
-// the node tree, declarations and the lifecycle that runs them.
+// the node tree and the declarations.
 type core struct {
 	id   Identity
 	cfg  config.Backplane
 	log  *xlog.Logger
-	conf configState
-	lc   *lifecycle.Lifecycle
-	tree *tree.Tree
-	root *tree.Node
+	conf configrt.State
+	env  *env.Env
+	opts options
 
-	manifest *manifest.Builder
+	svc *node.Node // service root: the SDK's nodes and the author's tree
+	app *node.Node // the author's tree
+
 	health   *health.Health
 	guard    guard.Guard
+	gate     *gate.Gate
 	internal *grpc.Server   // platform port, gRPC: internal API + health
 	platform *http.ServeMux // platform port, HTTP behind the guard: UI bundle
 	public   []*publicPort
 
-	mu      sync.Mutex
-	owners  []any
-	running bool
+	mu    sync.Mutex
+	phase phase
 }
 
-func newCore(ctx context.Context, o options, conf configState, cfg config.Backplane) *core {
+// newCore builds the SDK's leading nodes; the author's tree hangs under app.
+func newCore(ctx context.Context, o options, conf configrt.State, cfg config.Backplane) *core {
 	id := o.id.resolve(ctx, cfg)
 	log := id.logger(o.log, cfg)
-	// Libraries logging through log/slog (the OTel SDK among them) land in
-	// the same stream, with identity and trace fields.
-	slog.SetDefault(slog.New(xlog.NewSlogHandler(log)))
-
-	t, root := tree.New(id.Service, log)
+	m := manifest.New(id.Service, id.Version)
+	m.Config(conf.Schema(), conf.LivePaths())
 
 	c := &core{
-		id: id, cfg: cfg, log: log, conf: conf,
-		lc:       lifecycle.New(ctx, log, cfg.Shutdown.Timeout),
-		tree:     t,
-		root:     root,
-		manifest: manifest.New(id.Service, id.Version),
+		id: id, cfg: cfg, log: log, conf: conf, opts: o,
+		env:      env.New(id.Service, m),
 		health:   health.New(log, healthInterval),
 		guard:    guard.New(cfg.InternalSecret.Reveal()),
+		gate:     gate.New(),
 		platform: http.NewServeMux(),
 	}
-	c.internal = grpc.NewServer(serverOptions(c.guard.ServerOptions()...)...)
+	c.internal = grpc.NewServer(serverOptions(append(c.guard.ServerOptions(), c.gate.ServerOptions()...)...)...)
 	hv1.RegisterHealthServer(c.internal, c.health.GRPC())
-	c.manifest.Config(conf.Schema(), livePaths(conf.Live()))
+
+	c.svc = node.New(id.Service, log, c.env)
+
+	cn := c.svc.Child("config", node.System, false)
+	cn.OnStop(func(context.Context) error { return conf.Close() })
+
+	tel := telemetry.New(telemetry.Identity{
+		Service: id.Service, Version: id.Version, Instance: id.Instance, Environment: id.Environment,
+	}, log)
+	tn := c.svc.Child("telemetry", node.System, false)
+	tn.OnStart(tel.Start)
+	tn.OnStop(tel.Stop)
+
+	hn := c.svc.Child("health", node.System, false)
+	hn.OnStart(func(ctx context.Context) error { return c.health.Start(ctx, hn) })
+
+	c.listen("platform", listenAddr(cfg.InternalPort), c.internal, c.platformHandler())
+
+	c.app = c.svc.Child(id.Service, node.Root, false)
+	c.health.Add(health.Ready, c.app.Readiness())
 
 	return c
+}
+
+// listen adds a listener node.
+func (c *core) listen(name, addr string, g *grpc.Server, h http.Handler) {
+	l := listener.New(name, addr, g, h, c.log)
+	n := c.svc.Child(name, node.System, false)
+	n.OnStart(func(ctx context.Context) error { return l.Start(ctx, n) })
+	n.OnStop(l.Stop)
 }
 
 // Name of the service.
@@ -99,54 +127,45 @@ func (c *core) Identity() Identity { return c.id }
 // Log is the service logger; context-aware calls carry trace and span ids.
 func (c *core) Log() *xlog.Logger { return c.log }
 
-func (c *core) attach(owner any) {
-	c.mu.Lock()
-	c.owners = append(c.owners, owner)
-	c.mu.Unlock()
-
-	decl.Attach(owner, sink{c})
-}
-
-func (c *core) detach() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, o := range c.owners {
-		decl.Detach(o)
-	}
-}
-
-// declare runs fn unless the service is already running.
+// declare runs fn while the service is still being declared; after Run it
+// is a programming error.
 func (c *core) declare(what string, fn func()) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	ph := c.phase
+	c.mu.Unlock()
 
-	if c.running {
-		c.log.Warn("declaration after Run ignored", xlog.String("what", what))
-
-		return
+	if ph != declaring {
+		panic("backplane: " + what + " declared after Run")
 	}
 
 	fn()
 }
 
-// start marks the service running; false when it already was.
-func (c *core) start() bool {
+// Close releases what Open acquired when Run will not be called. Safe to
+// call more than once; Run closes by itself.
+func (c *core) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.running {
-		return false
+	if c.phase != declaring {
+		return nil
 	}
 
-	c.running = true
+	c.phase = closed
+	c.env.Manifest.Seal()
 
-	return true
+	if err := c.conf.Close(); err != nil {
+		return fmt.Errorf("backplane: %w", err)
+	}
+
+	return nil
 }
 
-// serverOptions: telemetry, then extra.
+// serverOptions: telemetry without health-check noise, then extra.
 func serverOptions(extra ...grpc.ServerOption) []grpc.ServerOption {
-	return append([]grpc.ServerOption{grpc.StatsHandler(otelgrpc.NewServerHandler())}, extra...)
+	stats := otelgrpc.NewServerHandler(otelgrpc.WithFilter(filters.Not(filters.HealthCheck())))
+
+	return append([]grpc.ServerOption{grpc.StatsHandler(stats)}, extra...)
 }
 
 // platformHandler: probes open, everything else behind the guard.
@@ -158,11 +177,4 @@ func (c *core) platformHandler() http.Handler {
 	return mux
 }
 
-func livePaths(paths []xconf.Path) []string {
-	out := make([]string, len(paths))
-	for i, p := range paths {
-		out[i] = strings.Join(p, ".")
-	}
-
-	return out
-}
+func listenAddr(port int64) string { return ":" + strconv.FormatInt(port, 10) }

@@ -5,22 +5,24 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gopherex/backplane/pkg/backplane/internal/tree"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
 // Singleton is built on first Get and closed at stop if it was built. It is
-// not part of readiness.
+// not part of readiness. Its factory must not create child nodes: it runs
+// after the service started.
 type Singleton[T any] struct {
 	c *singletonCell[T]
 }
 
 type singletonCell[T any] struct {
-	node    *tree.Node
+	node    *node.Node
 	factory Factory[T]
 
-	mu    sync.Mutex
-	value T
-	built bool
+	mu     sync.Mutex
+	value  T
+	built  bool
+	closed bool
 }
 
 // NewSingleton adds a singleton under parent.
@@ -30,13 +32,14 @@ func NewSingleton[T any](parent Scope, f Factory[T], opts ...SingletonOption) Si
 		opt.applySingleton(&o)
 	}
 
-	c := &singletonCell[T]{node: parent.node().Child(o.name, tree.Singleton, false), factory: f}
+	c := &singletonCell[T]{node: nodeOf(parent).Child(o.name, node.Singleton, false), factory: f}
 	c.node.OnStop(c.close)
 
 	return Singleton[T]{c: c}
 }
 
 // Get builds the value once; a failed build is retried by the next Get.
+// After stop it returns ErrClosed.
 func (s Singleton[T]) Get(ctx context.Context) (T, error) {
 	var zero T
 	if s.c == nil {
@@ -46,11 +49,14 @@ func (s Singleton[T]) Get(ctx context.Context) (T, error) {
 	s.c.mu.Lock()
 	defer s.c.mu.Unlock()
 
-	if s.c.built {
+	switch {
+	case s.c.closed:
+		return zero, ErrClosed
+	case s.c.built:
 		return s.c.value, nil
 	}
 
-	value, err := s.c.factory.Provide(ctx, Adopt(s.c.node))
+	value, err := s.c.factory.Provide(ctx, Component{n: s.c.node})
 	if err != nil {
 		return zero, fmt.Errorf("provide %s: %w", s.c.node.Path(), err)
 	}
@@ -60,10 +66,15 @@ func (s Singleton[T]) Get(ctx context.Context) (T, error) {
 	return value, nil
 }
 
+// IsZero reports whether s was not created by NewSingleton.
+func (s Singleton[T]) IsZero() bool { return s.c == nil }
+
 func (c *singletonCell[T]) close(ctx context.Context) error {
+	var zero T
+
 	c.mu.Lock()
 	value, built := c.value, c.built
-	c.built = false
+	c.value, c.built, c.closed = zero, false, true
 	c.mu.Unlock()
 
 	if !built {

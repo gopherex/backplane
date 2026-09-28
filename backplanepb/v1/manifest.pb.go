@@ -152,8 +152,15 @@ type Manifest struct {
 	Hooks            []*Hook     `protobuf:"bytes,9,rep,name=hooks,proto3" json:"hooks,omitempty"`
 	Activities       []*Activity `protobuf:"bytes,10,rep,name=activities,proto3" json:"activities,omitempty"`
 	Ui               *UI         `protobuf:"bytes,11,opt,name=ui,proto3" json:"ui,omitempty"`
-	// The node tree the author composed, in creation (= start) order.
-	Nodes         []*Node `protobuf:"bytes,12,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	// The node tree the author composed, depth-first in creation (= start)
+	// order.
+	Nodes []*Node `protobuf:"bytes,12,rep,name=nodes,proto3" json:"nodes,omitempty"`
+	// Serialized FileDescriptorSet covering every service named by a managed
+	// route (Route.services) and by internal_services, with transitive
+	// imports: stored once instead of per route.
+	Descriptors []byte `protobuf:"bytes,13,opt,name=descriptors,proto3" json:"descriptors,omitempty"`
+	// Events the service reacts to.
+	Subscriptions []*Subscription `protobuf:"bytes,14,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -261,6 +268,20 @@ func (x *Manifest) GetUi() *UI {
 func (x *Manifest) GetNodes() []*Node {
 	if x != nil {
 		return x.Nodes
+	}
+	return nil
+}
+
+func (x *Manifest) GetDescriptors() []byte {
+	if x != nil {
+		return x.Descriptors
+	}
+	return nil
+}
+
+func (x *Manifest) GetSubscriptions() []*Subscription {
+	if x != nil {
+		return x.Subscriptions
 	}
 	return nil
 }
@@ -403,6 +424,10 @@ type Route struct {
 	// Port of the external API this route leads to; 0 = the port registered
 	// in Consul.
 	Port uint32 `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	// gRPC, Connect and ws-proto: full names of the services behind the
+	// route; their descriptors are in Manifest.descriptors unless the route
+	// carries its own.
+	Services []string `protobuf:"bytes,8,rep,name=services,proto3" json:"services,omitempty"`
 	// Schema for transcoding and the console's API tab; optional.
 	//
 	// Types that are valid to be assigned to Schema:
@@ -482,6 +507,13 @@ func (x *Route) GetPort() uint32 {
 		return x.Port
 	}
 	return 0
+}
+
+func (x *Route) GetServices() []string {
+	if x != nil {
+		return x.Services
+	}
+	return nil
 }
 
 func (x *Route) GetSchema() isRoute_Schema {
@@ -611,6 +643,62 @@ func (x *Event) GetSchema() *schemapb.Schema {
 	return nil
 }
 
+// A reactor: a durable consumer of another service's event.
+type Subscription struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Full event name "<service>.<Event>".
+	Event string `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	// Durable consumer name, unique within the service: the node path of the
+	// reactor plus the event name.
+	Consumer      string `protobuf:"bytes,2,opt,name=consumer,proto3" json:"consumer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Subscription) Reset() {
+	*x = Subscription{}
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Subscription) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Subscription) ProtoMessage() {}
+
+func (x *Subscription) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Subscription.ProtoReflect.Descriptor instead.
+func (*Subscription) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *Subscription) GetEvent() string {
+	if x != nil {
+		return x.Event
+	}
+	return ""
+}
+
+func (x *Subscription) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
+	}
+	return ""
+}
+
 // An operation the service calls without implementing it.
 type Hook struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
@@ -625,7 +713,7 @@ type Hook struct {
 
 func (x *Hook) Reset() {
 	*x = Hook{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -637,7 +725,7 @@ func (x *Hook) String() string {
 func (*Hook) ProtoMessage() {}
 
 func (x *Hook) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -650,7 +738,7 @@ func (x *Hook) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hook.ProtoReflect.Descriptor instead.
 func (*Hook) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{5}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Hook) GetName() string {
@@ -693,7 +781,7 @@ type Activity struct {
 
 func (x *Activity) Reset() {
 	*x = Activity{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +793,7 @@ func (x *Activity) String() string {
 func (*Activity) ProtoMessage() {}
 
 func (x *Activity) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +806,7 @@ func (x *Activity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Activity.ProtoReflect.Descriptor instead.
 func (*Activity) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{6}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Activity) GetName() string {
@@ -753,7 +841,7 @@ type UI struct {
 
 func (x *UI) Reset() {
 	*x = UI{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -765,7 +853,7 @@ func (x *UI) String() string {
 func (*UI) ProtoMessage() {}
 
 func (x *UI) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -778,7 +866,7 @@ func (x *UI) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UI.ProtoReflect.Descriptor instead.
 func (*UI) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{7}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *UI) GetHash() string {
@@ -799,7 +887,7 @@ var File_backplanepb_v1_manifest_proto protoreflect.FileDescriptor
 
 const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x15schemapb/schema.proto\"\xe0\x03\n" +
+	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x15schemapb/schema.proto\"\xc4\x04\n" +
 	"\bManifest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1f\n" +
@@ -815,7 +903,9 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	" \x03(\v2\x16.backplane.v1.ActivityR\n" +
 	"activities\x12 \n" +
 	"\x02ui\x18\v \x01(\v2\x10.backplane.v1.UIR\x02ui\x12(\n" +
-	"\x05nodes\x18\f \x03(\v2\x12.backplane.v1.NodeR\x05nodesJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"a\n" +
+	"\x05nodes\x18\f \x03(\v2\x12.backplane.v1.NodeR\x05nodes\x12 \n" +
+	"\vdescriptors\x18\r \x01(\fR\vdescriptors\x12@\n" +
+	"\rsubscriptions\x18\x0e \x03(\v2\x1a.backplane.v1.SubscriptionR\rsubscriptionsJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"a\n" +
 	"\rConfigSection\x12\x12\n" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\x12(\n" +
 	"\x06schema\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x06schema\x12\x12\n" +
@@ -823,12 +913,13 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\x04Node\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12*\n" +
 	"\x04kind\x18\x02 \x01(\x0e2\x16.backplane.v1.NodeKindR\x04kind\x12\x1a\n" +
-	"\boptional\x18\x03 \x01(\bR\boptional\"\xe7\x01\n" +
+	"\boptional\x18\x03 \x01(\bR\boptional\"\x83\x02\n" +
 	"\x05Route\x12\x18\n" +
 	"\x06prefix\x18\x01 \x01(\tH\x00R\x06prefix\x12\x14\n" +
 	"\x04host\x18\x02 \x01(\tH\x00R\x04host\x12+\n" +
 	"\x04kind\x18\x03 \x01(\x0e2\x17.backplane.v1.RouteKindR\x04kind\x12\x12\n" +
 	"\x04port\x18\x04 \x01(\rR\x04port\x12\x1a\n" +
+	"\bservices\x18\b \x03(\tR\bservices\x12\x1a\n" +
 	"\aopenapi\x18\x05 \x01(\fH\x01R\aopenapi\x12\"\n" +
 	"\vdescriptors\x18\x06 \x01(\fH\x01R\vdescriptors\x12\x1a\n" +
 	"\agraphql\x18\a \x01(\fH\x01R\agraphqlB\a\n" +
@@ -836,7 +927,10 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\x06schema\"E\n" +
 	"\x05Event\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12(\n" +
-	"\x06schema\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x06schema\"\x88\x01\n" +
+	"\x06schema\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x06schema\"@\n" +
+	"\fSubscription\x12\x14\n" +
+	"\x05event\x18\x01 \x01(\tR\x05event\x12\x1a\n" +
+	"\bconsumer\x18\x02 \x01(\tR\bconsumer\"\x88\x01\n" +
 	"\x04Hook\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12&\n" +
 	"\x05input\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x05input\x12(\n" +
@@ -875,7 +969,7 @@ func file_backplanepb_v1_manifest_proto_rawDescGZIP() []byte {
 }
 
 var file_backplanepb_v1_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_backplanepb_v1_manifest_proto_goTypes = []any{
 	(NodeKind)(0),           // 0: backplane.v1.NodeKind
 	(RouteKind)(0),          // 1: backplane.v1.RouteKind
@@ -884,32 +978,34 @@ var file_backplanepb_v1_manifest_proto_goTypes = []any{
 	(*Node)(nil),            // 4: backplane.v1.Node
 	(*Route)(nil),           // 5: backplane.v1.Route
 	(*Event)(nil),           // 6: backplane.v1.Event
-	(*Hook)(nil),            // 7: backplane.v1.Hook
-	(*Activity)(nil),        // 8: backplane.v1.Activity
-	(*UI)(nil),              // 9: backplane.v1.UI
-	(*schemapb.Schema)(nil), // 10: schemapb.Schema
+	(*Subscription)(nil),    // 7: backplane.v1.Subscription
+	(*Hook)(nil),            // 8: backplane.v1.Hook
+	(*Activity)(nil),        // 9: backplane.v1.Activity
+	(*UI)(nil),              // 10: backplane.v1.UI
+	(*schemapb.Schema)(nil), // 11: schemapb.Schema
 }
 var file_backplanepb_v1_manifest_proto_depIdxs = []int32{
 	3,  // 0: backplane.v1.Manifest.config:type_name -> backplane.v1.ConfigSection
 	5,  // 1: backplane.v1.Manifest.routes:type_name -> backplane.v1.Route
 	6,  // 2: backplane.v1.Manifest.events:type_name -> backplane.v1.Event
-	7,  // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
-	8,  // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
-	9,  // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
+	8,  // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
+	9,  // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
+	10, // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
 	4,  // 6: backplane.v1.Manifest.nodes:type_name -> backplane.v1.Node
-	10, // 7: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
-	0,  // 8: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
-	1,  // 9: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
-	10, // 10: backplane.v1.Event.schema:type_name -> schemapb.Schema
-	10, // 11: backplane.v1.Hook.input:type_name -> schemapb.Schema
-	10, // 12: backplane.v1.Hook.output:type_name -> schemapb.Schema
-	10, // 13: backplane.v1.Activity.input:type_name -> schemapb.Schema
-	10, // 14: backplane.v1.Activity.output:type_name -> schemapb.Schema
-	15, // [15:15] is the sub-list for method output_type
-	15, // [15:15] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	7,  // 7: backplane.v1.Manifest.subscriptions:type_name -> backplane.v1.Subscription
+	11, // 8: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
+	0,  // 9: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
+	1,  // 10: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
+	11, // 11: backplane.v1.Event.schema:type_name -> schemapb.Schema
+	11, // 12: backplane.v1.Hook.input:type_name -> schemapb.Schema
+	11, // 13: backplane.v1.Hook.output:type_name -> schemapb.Schema
+	11, // 14: backplane.v1.Activity.input:type_name -> schemapb.Schema
+	11, // 15: backplane.v1.Activity.output:type_name -> schemapb.Schema
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_v1_manifest_proto_init() }
@@ -930,7 +1026,7 @@ func file_backplanepb_v1_manifest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_v1_manifest_proto_rawDesc), len(file_backplanepb_v1_manifest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

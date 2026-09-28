@@ -12,7 +12,7 @@ import (
 	"github.com/gopherex/xprobe/pkg/probe"
 
 	"github.com/gopherex/backplane/pkg/backplane/internal/health"
-	"github.com/gopherex/backplane/pkg/backplane/internal/lifecycle"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
 )
 
@@ -20,7 +20,7 @@ type group struct {
 	ctx context.Context
 }
 
-func (g group) Go(_ string, fn func(context.Context) error) { go func() { _ = fn(g.ctx) }() }
+func (g group) Go(fn func(context.Context) error) { go func() { _ = fn(g.ctx) }() }
 
 func code(t *testing.T, h *health.Health, path string) int {
 	t.Helper()
@@ -48,7 +48,7 @@ func start(t *testing.T, h *health.Health) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	var g lifecycle.Group = group{ctx}
+	var g node.Group = group{ctx}
 	if err := h.Start(ctx, g); err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +79,10 @@ func TestReadyOnlyWhenServing(t *testing.T) {
 		t.Fatalf("grpc: %v", s)
 	}
 
-	if err := h.Stop(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	h.Serving(context.Background(), false)
 
 	if s := grpcStatus(t, h); s == hv1.HealthCheckResponse_SERVING {
-		t.Fatal("still serving after stop")
+		t.Fatal("still serving after the gate closed")
 	}
 }
 

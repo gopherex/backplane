@@ -1,66 +1,36 @@
-// Package decl connects the hook, activity and event packages to the
-// service they declare into, without putting the declaration entry points on
-// the public Service API, and derives optional schemas for declarations.
+// Package decl is shared by the hook, activity and event packages: it
+// resolves the service a Scope belongs to, derives payload schemas and
+// encodes payloads.
 package decl
 
 import (
-	"sync"
+	"encoding/json"
+	"fmt"
+
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
 
-	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/link"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
-// Sink receives declarations.
-type Sink interface {
-	Hook(h *backplanev1.Hook)
-	Activity(a *backplanev1.Activity)
-	Event(e *backplanev1.Event)
-}
-
-// The registry is process-wide on purpose: it is how declaration packages
-// reach the service they declare into without a public entry point.
-//
-//nolint:gochecknoglobals // see above
-var (
-	registryMu sync.Mutex
-	sinks      = map[any]Sink{}
-)
-
-// Attach binds a service to its sink; the service calls it in New.
-func Attach(owner any, s Sink) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
-	sinks[owner] = s
-}
-
-// Detach removes the binding; the service calls it when Run returns.
-func Detach(owner any) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
-	delete(sinks, owner)
-}
-
-// To returns the sink of owner; a service created without New has none and
-// its declarations are dropped.
-func To(owner any) Sink {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-
-	if s, ok := sinks[owner]; ok {
-		return s
+// Env returns the service env and node of scope; a zero scope panics.
+func Env(scope any, what string) (*env.Env, *node.Node) {
+	n := link.NodeOf(scope)
+	if n == nil {
+		panic(fmt.Sprintf("backplane: %s declared on a zero scope: use the Root or a component", what))
 	}
 
-	return discard{}
+	e := env.Of(n)
+	if e == nil {
+		panic(fmt.Sprintf("backplane: %s declared on a scope without a service", what))
+	}
+
+	return e, n
 }
-
-type discard struct{}
-
-func (discard) Hook(*backplanev1.Hook)         {}
-func (discard) Activity(*backplanev1.Activity) {}
-func (discard) Event(*backplanev1.Event)       {}
 
 // Schema reflects T under <service>/<name>@1.0.0, or nil when T cannot be
 // described: the declaration stays, the payload is plain JSON.
@@ -71,4 +41,22 @@ func Schema[T any](service, name string) *sp.Schema {
 	}
 
 	return s
+}
+
+// Encode is protojson for proto messages, encoding/json otherwise.
+func Encode(v any) ([]byte, error) {
+	if m, ok := v.(proto.Message); ok {
+		return protojson.Marshal(m) //nolint:wrapcheck // one encoder per path
+	}
+
+	return json.Marshal(v) //nolint:wrapcheck // one encoder per path
+}
+
+// Decode is the inverse of Encode.
+func Decode(data []byte, v any) error {
+	if m, ok := v.(proto.Message); ok {
+		return protojson.Unmarshal(data, m) //nolint:wrapcheck // one decoder per path
+	}
+
+	return json.Unmarshal(data, v) //nolint:wrapcheck // one decoder per path
 }

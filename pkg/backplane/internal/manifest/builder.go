@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -26,34 +27,74 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 )
 
-const sdkModule = "github.com/gopherex/backplane"
+const (
+	sdkModule = "github.com/gopherex/backplane"
+	// MaxSize is Consul's KV value limit; the manifest is one value.
+	MaxSize = 512 * 1024
+)
 
-// Builder accumulates declarations.
+// Errors.
+var (
+	// ErrTooLarge: the manifest does not fit one Consul KV value.
+	ErrTooLarge = errors.New("manifest: larger than a Consul KV value (512 KiB)")
+	// ErrDuplicate: something declared or registered twice.
+	ErrDuplicate = errors.New("manifest: duplicate")
+)
+
+// Builder accumulates declarations until Seal; declaring after that is a
+// programming error and panics.
 type Builder struct {
-	mu  sync.Mutex
-	m   *backplanev1.Manifest
-	err error
+	mu     sync.Mutex
+	m      *backplanev1.Manifest
+	errs   []error
+	sealed bool
+	names  map[string]string // "<kind>:<name>" -> kind, for duplicates
 }
 
 // New starts a manifest for service@version.
 func New(service, version string) *Builder {
-	return &Builder{m: &backplanev1.Manifest{Service: service, Version: version, SdkVersion: sdkVersion()}}
+	return &Builder{
+		m:     &backplanev1.Manifest{Service: service, Version: version, SdkVersion: sdkVersion()},
+		names: map[string]string{},
+	}
 }
 
-func (b *Builder) with(fn func(m *backplanev1.Manifest) error) {
+func (b *Builder) with(what string, fn func(m *backplanev1.Manifest) error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.err != nil {
-		return
+	if b.sealed {
+		panic("backplane: " + what + " declared after the service started")
 	}
 
-	b.err = fn(b.m)
+	if err := fn(b.m); err != nil {
+		b.errs = append(b.errs, err)
+	}
+}
+
+// unique records name of kind; a second one is an error. b.mu is held.
+func (b *Builder) unique(kind, name string) error {
+	key := kind + ":" + name
+	if _, dup := b.names[key]; dup {
+		return fmt.Errorf("%w: %s %q declared twice", ErrDuplicate, kind, name)
+	}
+
+	b.names[key] = kind
+
+	return nil
+}
+
+// Seal ends the declaration phase.
+func (b *Builder) Seal() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.sealed = true
 }
 
 // Config records the configuration schema and its live paths.
 func (b *Builder) Config(schema *sp.Schema, live []string) {
-	b.with(func(m *backplanev1.Manifest) error {
+	b.with("config", func(m *backplanev1.Manifest) error {
 		m.Config = section(schema)
 		m.Config.Live = live
 
@@ -63,65 +104,88 @@ func (b *Builder) Config(schema *sp.Schema, live []string) {
 
 // Nodes records the node tree.
 func (b *Builder) Nodes(nodes []*backplanev1.Node) {
-	b.with(func(m *backplanev1.Manifest) error {
+	b.with("nodes", func(m *backplanev1.Manifest) error {
 		m.Nodes = nodes
 
 		return nil
 	})
 }
 
-// Route records a route.
+// Route records a route; two routes with the same match on the same port
+// are an error.
 func (b *Builder) Route(r *backplanev1.Route) {
-	b.with(func(m *backplanev1.Manifest) error { m.Routes = append(m.Routes, r); return nil })
-}
-
-// GRPC records one route per gRPC service with derived descriptors.
-func (b *Builder) GRPC(services []string, kind backplanev1.RouteKind, port uint32, host string) {
-	b.with(func(m *backplanev1.Manifest) error {
-		fds, err := Descriptors(services)
-		if err != nil {
+	b.with("route", func(m *backplanev1.Manifest) error {
+		if err := b.unique("route", matchOf(r)); err != nil {
 			return err
 		}
 
-		for _, name := range services {
-			r := &backplanev1.Route{Kind: kind, Port: port, Schema: &backplanev1.Route_Descriptors{Descriptors: fds}}
-			if host != "" {
-				r.Match = &backplanev1.Route_Host{Host: host}
-			} else {
-				r.Match = &backplanev1.Route_Prefix{Prefix: "/" + name + "/"}
-			}
-
-			m.Routes = append(m.Routes, r)
-		}
+		m.Routes = append(m.Routes, r)
 
 		return nil
 	})
+}
+
+func matchOf(r *backplanev1.Route) string {
+	match := "prefix " + r.GetPrefix()
+	if r.GetHost() != "" {
+		match = "host " + r.GetHost()
+	}
+
+	return fmt.Sprintf("%s on port %d", match, r.GetPort())
 }
 
 // Internal records internal API service names.
 func (b *Builder) Internal(services []string) {
-	b.with(func(m *backplanev1.Manifest) error {
+	b.with("internal API", func(m *backplanev1.Manifest) error {
 		m.InternalServices = append(m.InternalServices, services...)
+
 		return nil
 	})
 }
 
-// Hook, Activity and Event record the corresponding declarations.
+// Hook records a hook.
 func (b *Builder) Hook(h *backplanev1.Hook) {
-	b.with(func(m *backplanev1.Manifest) error { m.Hooks = append(m.Hooks, h); return nil })
+	b.with("hook", func(m *backplanev1.Manifest) error {
+		m.Hooks = append(m.Hooks, h)
+
+		return b.unique("hook", h.GetName())
+	})
 }
 
+// Activity records an activity.
 func (b *Builder) Activity(a *backplanev1.Activity) {
-	b.with(func(m *backplanev1.Manifest) error { m.Activities = append(m.Activities, a); return nil })
+	b.with("activity", func(m *backplanev1.Manifest) error {
+		m.Activities = append(m.Activities, a)
+
+		return b.unique("activity", a.GetName())
+	})
 }
 
+// Event records an event.
 func (b *Builder) Event(e *backplanev1.Event) {
-	b.with(func(m *backplanev1.Manifest) error { m.Events = append(m.Events, e); return nil })
+	b.with("event", func(m *backplanev1.Manifest) error {
+		m.Events = append(m.Events, e)
+
+		return b.unique("event", e.GetName())
+	})
+}
+
+// Subscription records a reactor.
+func (b *Builder) Subscription(s *backplanev1.Subscription) {
+	b.with("reactor", func(m *backplanev1.Manifest) error {
+		m.Subscriptions = append(m.Subscriptions, s)
+
+		return b.unique("reactor", s.GetConsumer())
+	})
 }
 
 // UI records the bundle hash and sdk_major from plugin.json.
 func (b *Builder) UI(bundle fs.FS) {
-	b.with(func(m *backplanev1.Manifest) error {
+	b.with("ui", func(m *backplanev1.Manifest) error {
+		if m.GetUi() != nil {
+			return fmt.Errorf("%w: ui declared twice", ErrDuplicate)
+		}
+
 		ui, err := uiOf(bundle)
 		m.Ui = ui
 
@@ -130,39 +194,80 @@ func (b *Builder) UI(bundle fs.FS) {
 }
 
 // Fail records an error found outside the builder.
-func (b *Builder) Fail(err error) { b.with(func(*backplanev1.Manifest) error { return err }) }
+func (b *Builder) Fail(err error) {
+	b.with("declaration", func(*backplanev1.Manifest) error { return err })
+}
 
-// Build returns a copy of the manifest or the first declaration error.
+// Build returns a copy of the manifest with the shared descriptor set, or
+// every declaration error.
 func (b *Builder) Build() (*backplanev1.Manifest, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.err != nil {
-		return nil, b.err
+	if len(b.errs) > 0 {
+		return nil, errors.Join(b.errs...)
 	}
 
-	sort.Strings(b.m.GetInternalServices())
+	m := proto.CloneOf(b.m)
+	sort.Strings(m.GetInternalServices()) // in place: the clone's own slice
 
-	return proto.CloneOf(b.m), nil
-}
-
-// Services returns the names srv registered as a side effect of register:
-// what register added, not what was there before.
-func Services(srv *grpc.Server, register func(grpc.ServiceRegistrar)) []string {
-	before := srv.GetServiceInfo()
-	register(srv)
-
-	var added []string
-
-	for name := range srv.GetServiceInfo() {
-		if _, had := before[name]; !had {
-			added = append(added, name)
+	services := append([]string(nil), m.GetInternalServices()...)
+	for _, r := range m.GetRoutes() {
+		if r.GetSchema() == nil {
+			services = append(services, r.GetServices()...)
 		}
 	}
 
-	sort.Strings(added)
+	if len(services) > 0 {
+		fds, err := Descriptors(services)
+		if err != nil {
+			return nil, err
+		}
 
-	return added
+		m.Descriptors = fds
+	}
+
+	if size := proto.Size(m); size > MaxSize {
+		return nil, fmt.Errorf("%w: %d bytes", ErrTooLarge, size)
+	}
+
+	return m, nil
+}
+
+// Registry is a gRPC registrar that can list what it holds: *grpc.Server
+// and the ws-proto registrar.
+type Registry interface {
+	grpc.ServiceRegistrar
+	GetServiceInfo() map[string]grpc.ServiceInfo
+}
+
+// Register runs register against dst and returns the services it added. A
+// service already on dst is an error instead of grpc's process exit.
+func Register(dst Registry, register func(grpc.ServiceRegistrar)) ([]string, error) {
+	r := &checked{dst: dst}
+	register(r)
+
+	sort.Strings(r.added)
+
+	return r.added, errors.Join(r.errs...)
+}
+
+type checked struct {
+	dst   Registry
+	added []string
+	errs  []error
+}
+
+func (c *checked) RegisterService(desc *grpc.ServiceDesc, impl any) {
+	if _, dup := c.dst.GetServiceInfo()[desc.ServiceName]; dup {
+		c.errs = append(c.errs, fmt.Errorf("%w: gRPC service %s registered twice on one server",
+			ErrDuplicate, desc.ServiceName))
+
+		return
+	}
+
+	c.dst.RegisterService(desc, impl)
+	c.added = append(c.added, desc.ServiceName)
 }
 
 func section(schema *sp.Schema) *backplanev1.ConfigSection {

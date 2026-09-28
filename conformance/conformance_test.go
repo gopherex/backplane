@@ -28,6 +28,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/gopherex/ws-proto/wsrpc"
 
@@ -36,8 +37,10 @@ import (
 	hellov1 "github.com/gopherex/backplane/examples/hello/proto/hello/v1"
 )
 
+// The service is named hello: its internal API lives in hello.console.v1,
+// and the SDK accepts internal services only from <service>.console.v1.
 const (
-	service  = "conformance-hello"
+	service  = "hello"
 	instance = "conformance-hello-1"
 	secret   = "conformance-secret"
 	version  = "9.9.9"
@@ -130,7 +133,8 @@ func start(t *testing.T) *env {
 		"BACKPLANE_INTERNAL_PORT="+platformPort,
 		"BACKPLANE_PUBLIC_PORT="+publicPort,
 		"BACKPLANE_INTERNAL_SECRET="+secret,
-		"CONFORMANCE_HELLO_GREETER_SUFFIX=?",
+		"BACKPLANE_SHUTDOWN_DRAIN=100ms",
+		"HELLO_GREETER_SUFFIX=?",
 	)
 
 	e.cmd.Stdout, e.cmd.Stderr = e.logs, e.logs
@@ -244,8 +248,16 @@ func (e *env) manifest(t *testing.T) {
 	kinds := map[backplanev1.RouteKind]bool{}
 	for _, r := range m.GetRoutes() {
 		kinds[r.GetKind()] = true
-		if r.GetKind() != backplanev1.RouteKind_ROUTE_KIND_HTTP && r.GetSchema() == nil {
-			t.Errorf("route %v without schema", r)
+		if r.GetKind() != backplanev1.RouteKind_ROUTE_KIND_HTTP && len(r.GetServices()) == 0 {
+			t.Errorf("route %v without services", r)
+		}
+	}
+
+	// gRPC, Connect, ws-proto and internal services share one descriptor set.
+	described := describedServices(t, m.GetDescriptors())
+	for _, name := range []string{"hello.v1.HelloService", "hello.console.v1.AdminService"} {
+		if !described[name] {
+			t.Errorf("descriptors lack %s", name)
 		}
 	}
 
@@ -273,11 +285,33 @@ func (e *env) manifest(t *testing.T) {
 	paths := make([]string, 0, len(m.GetNodes()))
 	for _, n := range m.GetNodes() {
 		paths = append(paths, n.GetPath())
+		if n.GetOptional() != (n.GetPath() == "cache") {
+			t.Errorf("node %s optional=%v", n.GetPath(), n.GetOptional())
+		}
 	}
 
 	if want := []string{"store", "cache", "greeter", "greeter/templates", "admin"}; !slices.Equal(paths, want) {
 		t.Errorf("nodes %v, want %v", paths, want)
 	}
+}
+
+func describedServices(t *testing.T, raw []byte) map[string]bool {
+	t.Helper()
+
+	var set descriptorpb.FileDescriptorSet
+	if err := proto.Unmarshal(raw, &set); err != nil {
+		t.Fatalf("descriptors: %v", err)
+	}
+
+	out := map[string]bool{}
+
+	for _, f := range set.GetFile() {
+		for _, svc := range f.GetService() {
+			out[f.GetPackage()+"."+svc.GetName()] = true
+		}
+	}
+
+	return out
 }
 
 func (e *env) state(t *testing.T) {

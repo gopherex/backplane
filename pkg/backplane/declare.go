@@ -1,11 +1,13 @@
 package backplane
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"google.golang.org/grpc"
@@ -14,81 +16,203 @@ import (
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/health"
+	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
+	"github.com/gopherex/backplane/pkg/backplane/internal/routes"
 	"github.com/gopherex/backplane/pkg/backplane/route"
 )
 
+//nolint:gochecknoinits // installs the private accessor for the wsproto package
+func init() {
+	link.MountWS = func(svc any, prefix string, h http.Handler, services []string, opts any) {
+		m, ok := svc.(interface {
+			mountWS(prefix string, h http.Handler, services []string, spec routes.Managed)
+		})
+		if !ok {
+			panic("backplane: wsproto.Serve needs a *backplane.Service")
+		}
+
+		m.mountWS(prefix, h, services, link.Routes.HTTP(opts))
+	}
+}
+
+// Declaration errors, reported by Run.
+var (
+	errPrefixTaken    = errors.New("prefix served twice")
+	errConsolePackage = errors.New("must be in proto package")
+)
+
 // Route announces a route the author serves themselves.
-func (c *core) Route(r route.Decl) {
-	c.declare("route", func() { c.manifest.Route(r.Proto()) })
+func (c *core) Route(d route.Decl) {
+	c.declare("route", func() {
+		r, err := link.Routes.Decl(d)
+		if err != nil {
+			c.env.Manifest.Fail(err)
+
+			return
+		}
+
+		c.env.Manifest.Route(r)
+	})
 }
 
-// GRPC serves gRPC services on a public port; one route per registered
-// service, descriptors derived from the registration.
+// GRPC serves gRPC services on a public port: one route per registered
+// service, descriptors derived from the registration. Registering the same
+// service twice on one port is a Run error.
 func (c *core) GRPC(register func(r grpc.ServiceRegistrar), opts ...route.GRPCOption) {
-	spec := route.NewGRPCSpec(opts...)
+	spec := link.Routes.GRPC(opts)
 
-	c.declare("grpc", func() {
+	c.declare("gRPC routes", func() {
 		p := c.port(spec.Listen)
-		c.manifest.GRPC(manifest.Services(p.grpcServer(), register), spec.Kind(), uint32(p.port), spec.Host)
+
+		services, err := manifest.Register(p.grpcServer(), register)
+		if err != nil {
+			c.env.Manifest.Fail(err)
+		}
+
+		kind := backplanev1.RouteKind_ROUTE_KIND_GRPC
+		if spec.Transcode {
+			kind = backplanev1.RouteKind_ROUTE_KIND_CONNECT
+		}
+
+		for _, name := range services {
+			r := &backplanev1.Route{Kind: kind, Port: uint32(p.port), Services: []string{name}}
+			setMatch(r, spec.Host, "/"+name+"/")
+			c.env.Manifest.Route(r)
+		}
 	})
 }
 
-// HTTP serves h under prefix on a public port.
+// HTTP serves h under prefix on a public port. The prefix is normalized to
+// end with "/" ("/api" serves "/api/..."); a duplicate is a Run error.
 func (c *core) HTTP(prefix string, h http.Handler, opts ...route.HTTPOption) {
-	spec := route.NewHTTPSpec(opts...)
+	c.mountHTTP("HTTP route", backplanev1.RouteKind_ROUTE_KIND_HTTP, prefix, h, link.Routes.HTTP(opts), nil)
+}
 
-	c.declare("http", func() {
-		p := c.port(spec.Listen)
-		p.mux().Handle(prefix, h)
-		c.manifest.Route(spec.Proto(prefix, uint32(p.port)))
+// GraphQL serves the author's GraphQL handler under prefix on a public
+// port, announced with its introspection result (JSON; nil when none).
+func (c *core) GraphQL(prefix string, h http.Handler, introspection []byte, opts ...route.HTTPOption) {
+	var schema *backplanev1.Route
+	if introspection != nil {
+		schema = &backplanev1.Route{Schema: &backplanev1.Route_Graphql{Graphql: introspection}}
+	}
+
+	c.mountHTTP("GraphQL route", backplanev1.RouteKind_ROUTE_KIND_GRAPHQL, prefix, h, link.Routes.HTTP(opts), schema)
+}
+
+func (c *core) mountWS(prefix string, h http.Handler, services []string, spec routes.Managed) {
+	c.mountHTTP("ws-proto route", backplanev1.RouteKind_ROUTE_KIND_WS_PROTO, prefix, h, spec,
+		&backplanev1.Route{Services: services})
+}
+
+// mountHTTP serves h and announces it; extra carries the kind's schema and
+// services.
+func (c *core) mountHTTP(
+	what string, kind backplanev1.RouteKind, prefix string, h http.Handler, spec routes.Managed,
+	extra *backplanev1.Route,
+) {
+	c.declare(what, func() {
+		p, err := routes.Prefix(prefix)
+		if err != nil {
+			c.env.Manifest.Fail(err)
+
+			return
+		}
+
+		port := c.port(spec.Listen)
+		if !port.handle(p) {
+			c.env.Manifest.Fail(fmt.Errorf("%s %s: %w on %s", what, p, errPrefixTaken, port.addr))
+
+			return
+		}
+
+		port.mux().Handle(p, h)
+
+		r := &backplanev1.Route{Kind: kind, Port: uint32(port.port)}
+		setMatch(r, spec.Host, p)
+
+		if spec.OpenAPI != nil {
+			r.Schema = &backplanev1.Route_Openapi{Openapi: spec.OpenAPI}
+		}
+
+		if extra != nil {
+			r.Services = extra.GetServices()
+			if extra.GetSchema() != nil {
+				r.Schema = extra.GetSchema()
+			}
+		}
+
+		c.env.Manifest.Route(r)
 	})
+}
+
+// setMatch matches r by host when given, else by path prefix.
+func setMatch(r *backplanev1.Route, host, prefix string) {
+	if host != "" {
+		r.Match = &backplanev1.Route_Host{Host: host}
+
+		return
+	}
+
+	r.Match = &backplanev1.Route_Prefix{Prefix: prefix}
 }
 
 // Internal registers the internal API: gRPC on the platform port for the
-// service's own console plugin, behind the internal secret.
+// service's own console plugin, behind the internal secret, served only
+// while the author's tree is up. Services must live in the proto package
+// <service>.console.v1.
 func (c *core) Internal(register func(r grpc.ServiceRegistrar)) {
-	c.declare("internal", func() { c.manifest.Internal(manifest.Services(c.internal, register)) })
+	c.declare("internal API", func() {
+		services, err := manifest.Register(c.internal, register)
+		if err != nil {
+			c.env.Manifest.Fail(err)
+		}
+
+		pkg := strings.ReplaceAll(c.id.Service, "-", "_") + ".console.v1."
+		for _, name := range services {
+			if !strings.HasPrefix(name, pkg) {
+				c.env.Manifest.Fail(fmt.Errorf("internal API %s: %w %s", name, errConsolePackage, strings.TrimSuffix(pkg, ".")))
+			}
+		}
+
+		c.env.Manifest.Internal(services)
+	})
 }
 
 // UI declares the console plugin bundle, served at /_backplane/ui/ behind the
 // internal secret.
 func (c *core) UI(bundle fs.FS) {
-	c.declare("ui", func() {
-		c.manifest.UI(bundle)
+	c.declare("UI", func() {
+		c.env.Manifest.UI(bundle)
 		c.platform.Handle(uiPath, http.StripPrefix(uiPath, http.FileServerFS(bundle)))
 	})
 }
 
-// Live adds a liveness probe.
-func (c *core) Live(p probe.Probe) { c.declare("live", func() { c.health.Add(health.Live, p) }) }
-
-// Ready adds a readiness probe; readiness drives grpc.health.v1 and so the
-// Consul check. Required dependencies are readiness probes already.
-func (c *core) Ready(p probe.Probe) { c.declare("ready", func() { c.health.Add(health.Ready, p) }) }
-
-// Startup adds a startup probe.
-func (c *core) Startup(p probe.Probe) {
-	c.declare("startup", func() { c.health.Add(health.Startup, p) })
+// LivenessProbe adds a liveness probe. Keep dependencies out of it: a dead
+// database is no reason to restart the process.
+func (c *core) LivenessProbe(p probe.Probe) {
+	c.declare("liveness probe", func() { c.health.Add(health.Live, p) })
 }
 
-// sink receives declarations of the hook, activity and event packages.
-type sink struct{ c *core }
-
-func (k sink) Hook(h *backplanev1.Hook) { k.c.declare("hook", func() { k.c.manifest.Hook(h) }) }
-
-func (k sink) Activity(a *backplanev1.Activity) {
-	k.c.declare("activity", func() { k.c.manifest.Activity(a) })
+// ReadinessProbe adds a readiness probe; readiness drives grpc.health.v1
+// and so the Consul check. Required dependencies are readiness probes
+// already.
+func (c *core) ReadinessProbe(p probe.Probe) {
+	c.declare("readiness probe", func() { c.health.Add(health.Ready, p) })
 }
 
-func (k sink) Event(e *backplanev1.Event) { k.c.declare("event", func() { k.c.manifest.Event(e) }) }
+// StartupProbe adds a startup probe.
+func (c *core) StartupProbe(p probe.Probe) {
+	c.declare("startup probe", func() { c.health.Add(health.Startup, p) })
+}
 
 // publicPort is one managed public listener: gRPC and HTTP share it.
 type publicPort struct {
-	addr string
-	port uint16
-	grpc *grpc.Server
-	http *http.ServeMux
+	addr     string
+	port     uint16
+	grpc     *grpc.Server
+	http     *http.ServeMux
+	prefixes map[string]bool
 }
 
 // port returns the public port for listen ("" = the default public port).
@@ -103,11 +227,11 @@ func (c *core) port(listen string) *publicPort {
 		}
 	}
 
-	p := &publicPort{addr: listen}
+	p := &publicPort{addr: listen, prefixes: map[string]bool{}}
 
 	n, err := portOf(listen)
 	if err != nil {
-		c.manifest.Fail(err)
+		c.env.Manifest.Fail(err)
 	}
 
 	p.port = n
@@ -148,6 +272,17 @@ func (p *publicPort) mux() *http.ServeMux {
 	return p.http
 }
 
+// handle claims prefix; false when it is taken.
+func (p *publicPort) handle(prefix string) bool {
+	if p.prefixes[prefix] {
+		return false
+	}
+
+	p.prefixes[prefix] = true
+
+	return true
+}
+
 // handler is the traced HTTP side of the port, or nil without HTTP routes.
 func (p *publicPort) handler() http.Handler {
 	if p.http == nil {
@@ -156,8 +291,6 @@ func (p *publicPort) handler() http.Handler {
 
 	return otelhttp.NewHandler(p.http, "public"+p.addr)
 }
-
-func listenAddr(port int64) string { return ":" + strconv.FormatInt(port, 10) }
 
 func portOf(listen string) (uint16, error) {
 	_, port, err := net.SplitHostPort(listen)

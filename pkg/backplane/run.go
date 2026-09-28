@@ -2,93 +2,163 @@ package backplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
-	"github.com/gopherex/backplane/pkg/backplane/internal/health"
-	"github.com/gopherex/backplane/pkg/backplane/internal/lifecycle"
-	"github.com/gopherex/backplane/pkg/backplane/internal/listener"
-	"github.com/gopherex/backplane/pkg/backplane/internal/telemetry"
-	"github.com/gopherex/backplane/pkg/backplane/internal/tree"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
-// ErrRunning is returned by a second Run.
-var ErrRunning = errors.New("backplane: service already running")
+const devVersion = "0.0.0"
 
-// Run assembles the components and blocks until ctx ends, a signal arrives
-// or a goroutine fails.
+// Run brings the service up and blocks until ctx ends, SIGINT/SIGTERM
+// arrives or a node's goroutine fails; then stops everything within the
+// shutdown budget. A stop requested during start is not an error.
 func (c *core) Run(ctx context.Context) error {
-	if !c.start() {
-		return ErrRunning
-	}
-	defer c.detach()
+	c.mu.Lock()
+	if c.phase != declaring {
+		c.mu.Unlock()
 
-	c.manifest.Nodes(nodes(c.tree.Nodes()))
-
-	for _, p := range c.tree.Probes() {
-		c.health.Add(health.Ready, p)
+		return ErrClosed
 	}
 
-	m, err := c.manifest.Build()
+	c.phase = running
+	c.mu.Unlock()
+
+	if c.opts.slog {
+		prev := slog.Default()
+
+		slog.SetDefault(slog.New(xlog.NewSlogHandler(c.log)))
+
+		defer slog.SetDefault(prev)
+	}
+
+	m, err := c.seal()
 	if err != nil {
 		return errors.Join(fmt.Errorf("backplane: manifest: %w", err), c.conf.Close())
 	}
 
-	for _, comp := range c.components(m) {
-		c.lc.Add(comp)
+	c.tail(m)
+
+	if c.cfg.InternalSecret.Reveal() == "" {
+		c.log.Warn("internal secret not set: the internal API and UI on the platform port are open to anyone who reaches it")
 	}
 
-	if err := c.lc.Run(ctx); err != nil {
-		return fmt.Errorf("backplane: %w", err)
+	runCtx, stopSignals := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignals()
+
+	var cause error
+
+	if err := c.svc.Start(runCtx); err != nil {
+		if runCtx.Err() == nil {
+			cause = fmt.Errorf("backplane: start: %w", err)
+		} else {
+			c.log.Info("stopped during start")
+		}
+	} else {
+		select {
+		case <-runCtx.Done():
+			c.log.Info("stopping")
+		case err := <-c.svc.Failed():
+			cause = fmt.Errorf("backplane: %w", err)
+		}
 	}
 
-	return nil
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.cfg.Shutdown.Timeout)
+	defer cancel()
+
+	if err := c.svc.Stop(stopCtx); err != nil {
+		return errors.Join(cause, fmt.Errorf("backplane: stop: %w", err))
+	}
+
+	return cause
 }
 
-// components in start order; they stop in reverse.
-func (c *core) components(m *backplanev1.Manifest) []lifecycle.Component {
-	id := telemetry.Identity{
-		Service: c.id.Service, Version: c.id.Version, Instance: c.id.Instance, Environment: c.id.Environment,
+// seal ends declarations and builds the manifest; an unstamped version gets
+// the manifest's content hash so dev builds do not overwrite each other.
+func (c *core) seal() (*backplanev1.Manifest, error) {
+	c.env.Manifest.Nodes(nodes(c.app))
+	c.env.Manifest.Seal()
+
+	m, err := c.env.Manifest.Build()
+	if err != nil {
+		return nil, fmt.Errorf("build: %w", err)
 	}
-	comps := []lifecycle.Component{
-		configCloser{c.conf},
-		telemetry.New(id, c.log),
-		c.health,
-		listener.New("platform", listenAddr(c.cfg.InternalPort), c.internal, c.platformHandler(), c.log),
-		c.tree,
+
+	if m.GetVersion() == devVersion {
+		raw, _ := proto.MarshalOptions{Deterministic: true}.Marshal(m)
+		sum := sha256.Sum256(raw)
+		m.Version = devVersion + "+" + hex.EncodeToString(sum[:6])
 	}
+
+	return m, nil
+}
+
+// tail adds the nodes that follow the author's tree: internal API gate,
+// public ports, the drain pause, Consul presence and the serving gate. They
+// start in this order and stop in reverse.
+func (c *core) tail(m *backplanev1.Manifest) {
+	gn := c.svc.Child("internal-api", node.System, false)
+	gn.OnStart(func(context.Context) error { c.gate.Open(); return nil })
+	gn.OnStop(c.gate.Close)
 
 	for _, p := range c.public {
-		comps = append(comps, listener.New("public"+p.addr, p.addr, p.grpc, p.handler(), c.log))
+		c.listen("public"+p.addr, p.addr, p.grpc, p.handler())
 	}
+
+	dn := c.svc.Child("drain", node.System, false)
+	dn.OnStop(func(ctx context.Context) error { return pause(ctx, c.cfg.Shutdown.Drain) })
 
 	if presence := c.presence(m); presence != nil {
-		comps = append(comps, presence)
+		pn := c.svc.Child("consul", node.System, false)
+		pn.OnStart(func(ctx context.Context) error { return presence.Start(ctx, pn) })
+		pn.OnStop(presence.Stop)
 	}
 
-	return append(comps, servingGate{c.health})
+	sn := c.svc.Child("serving", node.System, false)
+	sn.OnStart(func(ctx context.Context) error { c.health.Serving(ctx, true); return nil })
+	sn.OnStop(func(ctx context.Context) error { c.health.Serving(ctx, false); return nil })
 }
 
-// presence is the Consul component, or nil when Consul is not configured or
-// unusable — a warning, not an error, for a service.
+// pause waits d or until ctx ends: load balancers catch up with the
+// deregistration before listeners close.
+func pause(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+
+	t := time.NewTimer(d)
+	defer t.Stop()
+
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("drain: %w", ctx.Err())
+	}
+}
+
+// presence is the Consul component, or nil when Consul is not configured —
+// a warning, not an error, for a service.
 func (c *core) presence(m *backplanev1.Manifest) *consul.Presence {
 	if err := c.conf.Degraded(); err != nil {
 		c.log.Warn("config without consul layer, retrying", xlog.Err(err))
 	}
 
-	if !c.cfg.Consul.Enabled() {
+	client := c.conf.Consul()
+	if client == nil {
 		c.log.Warn("consul not configured: unregistered, config from env/file only")
-
-		return nil
-	}
-
-	client, err := c.cfg.Consul.Client()
-	if err != nil {
-		c.log.Warn("consul client", xlog.Err(err))
 
 		return nil
 	}
@@ -98,7 +168,7 @@ func (c *core) presence(m *backplanev1.Manifest) *consul.Presence {
 		Log:    c.log,
 		Identity: consul.Identity{
 			Service:      c.id.Service,
-			Version:      c.id.Version,
+			Version:      m.GetVersion(),
 			Instance:     c.id.Instance,
 			Address:      c.id.Advertise,
 			PlatformPort: port16(c.cfg.InternalPort),
@@ -117,53 +187,24 @@ func (c *core) presence(m *backplanev1.Manifest) *consul.Presence {
 	return presence
 }
 
-func nodes(infos []tree.Info) []*backplanev1.Node {
-	kinds := map[tree.Kind]backplanev1.NodeKind{
-		tree.Component:  backplanev1.NodeKind_NODE_KIND_COMPONENT,
-		tree.Dependency: backplanev1.NodeKind_NODE_KIND_DEPENDENCY,
-		tree.Singleton:  backplanev1.NodeKind_NODE_KIND_SINGLETON,
+// nodes describes the author's tree for the manifest.
+func nodes(app *node.Node) []*backplanev1.Node {
+	kinds := map[node.Kind]backplanev1.NodeKind{
+		node.Component:  backplanev1.NodeKind_NODE_KIND_COMPONENT,
+		node.Dependency: backplanev1.NodeKind_NODE_KIND_DEPENDENCY,
+		node.Singleton:  backplanev1.NodeKind_NODE_KIND_SINGLETON,
 	}
 
-	out := make([]*backplanev1.Node, len(infos))
-	for i, n := range infos {
-		out[i] = &backplanev1.Node{Path: n.Path, Kind: kinds[n.Kind], Optional: n.Optional}
-	}
+	var out []*backplanev1.Node
+
+	app.Walk(func(n *node.Node) {
+		if k, ok := kinds[n.Kind()]; ok {
+			out = append(out, &backplanev1.Node{Path: n.Path(), Kind: k, Optional: n.Optional()})
+		}
+	})
 
 	return out
 }
 
 // port16 narrows a schema-validated port (1..65535).
 func port16(p int64) uint16 { return uint16(p) } //nolint:gosec // validated by the config schema
-
-// servingGate opens readiness last and closes it first.
-type servingGate struct{ h *health.Health }
-
-func (servingGate) Name() string { return "serving" }
-
-func (g servingGate) Start(ctx context.Context, _ lifecycle.Group) error {
-	g.h.Serving(ctx, true)
-
-	return nil
-}
-
-func (g servingGate) Stop(ctx context.Context) error {
-	g.h.Serving(ctx, false)
-
-	return nil
-}
-
-// configCloser closes the configuration after everything that reads it has
-// stopped.
-type configCloser struct{ conf configState }
-
-func (configCloser) Name() string { return "config" }
-
-func (configCloser) Start(context.Context, lifecycle.Group) error { return nil }
-
-func (c configCloser) Stop(context.Context) error {
-	if err := c.conf.Close(); err != nil {
-		return fmt.Errorf("close config: %w", err)
-	}
-
-	return nil
-}

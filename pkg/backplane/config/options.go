@@ -21,8 +21,8 @@ type settings struct {
 	noConsul   bool
 	extra      []xconf.Source
 	consulOpts []consulsrc.Option
-	retryMin   time.Duration
-	retryMax   time.Duration
+	backoffMin time.Duration
+	backoffMax time.Duration
 }
 
 // Service names the service when build.Service is not stamped.
@@ -43,7 +43,8 @@ func EnvPrefix(prefix string) Option {
 // WithoutEnv disables the environment layer.
 func WithoutEnv() Option { return func(s *settings) { s.noEnv = true } }
 
-// Source appends layers above the standard ones, in order.
+// Source appends layers above file and environment, below Consul KV, in
+// order.
 func Source(sources ...xconf.Source) Option {
 	return func(s *settings) { s.extra = append(s.extra, sources...) }
 }
@@ -56,8 +57,8 @@ func ConsulOptions(opts ...consulsrc.Option) Option {
 	return func(s *settings) { s.consulOpts = append(s.consulOpts, opts...) }
 }
 
-// RetryBackoff bounds the exponential backoff between retries of an
-// unreachable Consul (default 1s..30s).
-func RetryBackoff(minDelay, maxDelay time.Duration) Option {
-	return func(s *settings) { s.retryMin, s.retryMax = minDelay, maxDelay }
+// ConsulBackoff bounds the backoff between retries of an unreachable Consul
+// (default 1s..30s).
+func ConsulBackoff(minDelay, maxDelay time.Duration) Option {
+	return func(s *settings) { s.backoffMin, s.backoffMax = minDelay, maxDelay }
 }

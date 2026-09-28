@@ -1,11 +1,6 @@
 package config
 
-import (
-	"fmt"
-	"time"
-
-	"github.com/hashicorp/consul/api"
-)
+import "time"
 
 // Backplane is the SDK's own block, part of the service configuration:
 //
@@ -55,16 +50,6 @@ type Consul struct {
 // Enabled reports whether Consul is configured.
 func (c Consul) Enabled() bool { return c.Addr != "" }
 
-// Client builds a Consul API client.
-func (c Consul) Client() (*api.Client, error) {
-	client, err := api.NewClient(&api.Config{Address: c.Addr, Token: c.Token.Reveal()})
-	if err != nil {
-		return nil, fmt.Errorf("consul client %s: %w", c.Addr, err)
-	}
-
-	return client, nil
-}
-
 // NATS connection.
 type NATS struct {
 	URL   string `json:"url,omitempty"`
@@ -83,7 +68,12 @@ type Temporal struct {
 // Enabled reports whether Temporal is configured.
 func (t Temporal) Enabled() bool { return t.Addr != "" }
 
-// Shutdown budget.
+// Shutdown of the instance: readiness drops, Consul deregisters, then after
+// Drain the listeners stop accepting and in-flight work finishes; everything
+// within Timeout. Keep terminationGracePeriodSeconds above Timeout.
 type Shutdown struct {
 	Timeout time.Duration `json:"timeout" schemapb:"default=25s"`
+	// Time for load balancers to notice the instance left before its
+	// listeners close.
+	Drain time.Duration `json:"drain" schemapb:"default=3s"`
 }

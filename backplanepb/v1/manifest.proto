@@ -27,8 +27,15 @@ message Manifest {
   repeated Hook hooks = 9;
   repeated Activity activities = 10;
   UI ui = 11;
-  // The node tree the author composed, in creation (= start) order.
+  // The node tree the author composed, depth-first in creation (= start)
+  // order.
   repeated Node nodes = 12;
+  // Serialized FileDescriptorSet covering every service named by a managed
+  // route (Route.services) and by internal_services, with transitive
+  // imports: stored once instead of per route.
+  bytes descriptors = 13;
+  // Events the service reacts to.
+  repeated Subscription subscriptions = 14;
 }
 
 // The configuration. `keys` is the declaration; `schema` is optional and,
@@ -66,6 +73,10 @@ message Route {
   // Port of the external API this route leads to; 0 = the port registered
   // in Consul.
   uint32 port = 4;
+  // gRPC, Connect and ws-proto: full names of the services behind the
+  // route; their descriptors are in Manifest.descriptors unless the route
+  // carries its own.
+  repeated string services = 8;
   // Schema for transcoding and the console's API tab; optional.
   oneof schema {
     // OpenAPI document (HTTP).
@@ -89,6 +100,15 @@ enum RouteKind {
 message Event {
   string name = 1;
   schemapb.Schema schema = 2;
+}
+
+// A reactor: a durable consumer of another service's event.
+message Subscription {
+  // Full event name "<service>.<Event>".
+  string event = 1;
+  // Durable consumer name, unique within the service: the node path of the
+  // reactor plus the event name.
+  string consumer = 2;
 }
 
 // An operation the service calls without implementing it.

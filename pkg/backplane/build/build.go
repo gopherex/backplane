@@ -6,16 +6,18 @@
 //	-X github.com/gopherex/backplane/pkg/backplane/build.Commit=$(git rev-parse HEAD)
 //	-X github.com/gopherex/backplane/pkg/backplane/build.Date=$(date -u +%FT%TZ)
 //
-// Version, Commit and Date fall back to debug.ReadBuildInfo; Service has no
-// fallback and must be stamped (or given explicitly to the SDK).
+// Everything falls back to debug.ReadBuildInfo: Service to the last element
+// of the main package path (".../cmd/hello" -> "hello"), so `go run` works;
+// stamp it for anything deployed.
 package build
 
 import (
 	"errors"
+	"path"
 	"runtime/debug"
 )
 
-// ErrUnnamed: build.Service was not stamped and no name was given.
+// ErrUnnamed: no name was stamped, given, or derivable from build info.
 var ErrUnnamed = errors.New("service name unknown: stamp build.Service with -ldflags -X")
 
 const shortRevision = 12
@@ -45,6 +47,10 @@ func Get() Info {
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		return info
+	}
+
+	if info.Service == "" && bi.Path != "" {
+		info.Service = path.Base(bi.Path)
 	}
 
 	if info.Version == "" && bi.Main.Version != "" && bi.Main.Version != "(devel)" {

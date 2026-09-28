@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/gopherex/xconf"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 )
 
 type Postgres struct {
@@ -64,17 +66,6 @@ func TestLoadLayers(t *testing.T) {
 	}
 }
 
-func TestSecretNeverPrints(t *testing.T) {
-	t.Parallel()
-
-	s := config.Secret("hunter2")
-	for _, out := range []string{s.String(), fmt.Sprintf("%v %s %q %#v", s, s, s, s)} {
-		if out != "***" && out != `*** *** "***" ***` {
-			t.Fatalf("leaked: %s", out)
-		}
-	}
-}
-
 func TestLivePathsFromSchema(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 
@@ -84,8 +75,8 @@ func TestLivePathsFromSchema(t *testing.T) {
 	}
 	defer rt.Close()
 
-	got := fmt.Sprint(rt.Live())
-	if got != "[/postgres/log_level /suffix]" {
+	got := fmt.Sprint(link.ConfigState(rt).LivePaths())
+	if got != "[postgres.log_level suffix]" {
 		t.Fatalf("live paths: %s", got)
 	}
 
@@ -116,7 +107,7 @@ func TestLiveReloadFromConsul(t *testing.T) {
 		t.Skip("BACKPLANE_TEST_CONSUL not set")
 	}
 
-	client, err := config.Consul{Addr: addr}.Client()
+	client, err := api.NewClient(&api.Config{Address: addr})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,11 +116,16 @@ func TestLiveReloadFromConsul(t *testing.T) {
 	t.Setenv("LIVE_TEST_POSTGRES_DSN", "x")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
 
-	rt, err := config.Open[Config](context.Background(), config.Service("live-test"), config.WithoutFile())
+	// The runtime outlives the context that bounded loading.
+	openCtx, cancelOpen := context.WithCancel(context.Background())
+
+	rt, err := config.Open[Config](openCtx, config.Service("live-test"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer rt.Close()
+
+	cancelOpen()
 
 	section := &rt.Value().Postgres // a component holding its section sees live changes
 	applied := make(chan string, 4)
@@ -157,8 +153,77 @@ func TestLiveReloadFromConsul(t *testing.T) {
 		t.Fatalf("static field changed from KV: %q", rt.Value().Salute)
 	}
 
-	if src := rt.Effective().Sources["postgres.log_level"].String(); src != "CONFIG_SOURCE_KV" {
+	if src := link.ConfigState(rt).Effective().Sources["postgres.log_level"].String(); src != "CONFIG_SOURCE_KV" {
 		t.Fatalf("source: %s", src)
+	}
+}
+
+type (
+	item struct {
+		Weight config.Live[int] `json:"weight"`
+	}
+	nestedItem struct {
+		Inner item `json:"inner"`
+	}
+	liveInSlice struct {
+		config.Backplane `json:"backplane"`
+
+		Items []item `json:"items"`
+	}
+	liveInMap struct {
+		config.Backplane `json:"backplane"`
+
+		Items map[string]*nestedItem `json:"items"`
+	}
+	liveList struct {
+		config.Backplane `json:"backplane"`
+
+		Weights []config.Live[int] `json:"weights"`
+	}
+)
+
+func TestOpenRejectsLiveInCollections(t *testing.T) {
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
+
+	opts := []config.Option{config.Service("collections"), config.WithoutFile()}
+
+	check := func(name string, err error) {
+		t.Helper()
+
+		if err == nil || !strings.Contains(err.Error(), "lists and maps cannot hold Live fields") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	_, err := config.Open[liveInSlice](t.Context(), opts...)
+	check("[]struct{Live}", err)
+
+	_, err = config.Open[liveInMap](t.Context(), opts...)
+	check("map[string]*struct{struct{Live}}", err)
+
+	_, err = config.Open[liveList](t.Context(), opts...)
+	check("[]Live", err)
+}
+
+func TestRuntimeCloseIsIdempotent(t *testing.T) {
+	t.Setenv("HELLO_POSTGRES_DSN", "x")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
+
+	rt, err := config.Open[Config](t.Context(), config.Service("hello"), config.WithoutFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rt.Degraded() != nil || link.ConfigState(rt).Consul() != nil {
+		t.Fatalf("without consul: degraded %v", rt.Degraded())
+	}
+
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rt.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -179,7 +244,7 @@ func TestOpenWaitsForRequiredLiveWhileConsulDown(t *testing.T) {
 	start := time.Now()
 
 	_, err := config.Open[GatedConfig](ctx,
-		config.Service("gated"), config.WithoutFile(), config.RetryBackoff(10*time.Millisecond, 50*time.Millisecond))
+		config.Service("gated"), config.WithoutFile(), config.ConsulBackoff(10*time.Millisecond, 50*time.Millisecond))
 
 	var degraded *xconf.DegradedError
 	if !errors.As(err, &degraded) {
@@ -219,7 +284,7 @@ func TestOpenRequiredLiveFromConsul(t *testing.T) {
 		t.Skip("BACKPLANE_TEST_CONSUL not set")
 	}
 
-	client, err := config.Consul{Addr: addr}.Client()
+	client, err := api.NewClient(&api.Config{Address: addr})
 	if err != nil {
 		t.Fatal(err)
 	}

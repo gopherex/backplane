@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5
-	github.com/gopherex/ws-proto v1.6.0
+	github.com/gopherex/ws-proto v1.7.0
 	github.com/gopherex/xconf v1.4.0
 	github.com/gopherex/xconf/contrib/decoders/json v1.4.0
 	github.com/gopherex/xconf/contrib/decoders/yaml v1.4.0
@@ -14,7 +14,6 @@ require (
 	github.com/gopherex/xlog v1.2.0
 	github.com/gopherex/xprobe v1.1.0
 	github.com/gopherex/xprobe/pkg/transport/grpc v1.1.0
-	github.com/gopherex/xshutdown v1.0.0
 	github.com/gopherex/xtrace v1.1.0
 	github.com/gopherex/xtrace/contrib/libs/xlog v1.1.0
 	github.com/gopherex/xtrace/contrib/sdk v1.1.0
@@ -23,6 +22,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
 	go.opentelemetry.io/otel v1.45.0
+	go.opentelemetry.io/otel/log v0.21.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0
 	google.golang.org/grpc v1.84.0
@@ -75,7 +75,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.45.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0 // indirect
-	go.opentelemetry.io/otel/log v0.21.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.21.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect

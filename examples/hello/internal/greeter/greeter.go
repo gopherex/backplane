@@ -47,14 +47,16 @@ type Greeter struct {
 
 	cfg       *Config
 	db        deps.Dependency[*store.DB]
-	greeted   *event.Ref[Greeted]
+	greeted   event.Ref[Greeted]
 	templates deps.Singleton[*template.Template]
 	greetings metric.Int64Counter
 }
 
-// New creates the greeter under parent; everything it needs is passed in.
-func New(parent deps.Scope, cfg *Config, db deps.Dependency[*store.DB], greeted *event.Ref[Greeted]) (*Greeter, error) {
-	g := &Greeter{Component: deps.NewComponent(parent, "greeter"), cfg: cfg, db: db, greeted: greeted}
+// New creates the greeter under parent; everything it needs is passed in,
+// the events it raises it declares itself.
+func New(parent deps.Scope, cfg *Config, db deps.Dependency[*store.DB]) (*Greeter, error) {
+	g := &Greeter{Component: deps.NewComponent(parent, "greeter"), cfg: cfg, db: db}
+	g.greeted = event.Declare[Greeted](g, "Greeted")
 
 	greetings, err := g.Meter().Int64Counter("hello.greetings", metric.WithDescription("Greetings served"))
 	if err != nil {
@@ -78,22 +80,18 @@ func (g *Greeter) Register(r grpc.ServiceRegistrar) { hellov1.RegisterHelloServi
 
 // Text greets name.
 func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
-	var text string
-
-	err := g.Span(ctx, "greet", func(ctx context.Context) error {
+	text, err := deps.SpanValue(ctx, g, "greet", func(ctx context.Context) (string, error) {
 		tmpl, err := g.templates.Get(ctx)
 		if err != nil {
-			return fmt.Errorf("templates: %w", err)
+			return "", fmt.Errorf("templates: %w", err)
 		}
 
 		count := g.db.Get().Inc(ctx, name)
 
 		var b strings.Builder
 		if err := tmpl.Execute(&b, g.view(name)); err != nil {
-			return fmt.Errorf("render: %w", err)
+			return "", fmt.Errorf("render: %w", err)
 		}
-
-		text = b.String()
 
 		g.greetings.Add(ctx, 1)
 
@@ -101,7 +99,7 @@ func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 			g.Log().Ctx().Debug(ctx, "greeted not published", xlog.Err(err))
 		}
 
-		return nil
+		return b.String(), nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("greeter: %w", err)

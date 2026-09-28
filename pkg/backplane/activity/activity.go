@@ -1,27 +1,36 @@
 // Package activity declares operations a service implements ("умею"): the
 // targets of bindings and rules. They run as Temporal activities on the
-// service's task queue (M2); declaring records them in the manifest now.
+// service's task queue (M2); the handler is registered with the service now.
 package activity
 
 import (
 	"context"
+	"fmt"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
-	"github.com/gopherex/backplane/pkg/backplane"
+	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 )
 
 // Handle declares an activity and its implementation.
-//
-// Only the declaration is recorded until M2, when fn is registered with the
-// service's Temporal worker.
-func Handle[Req, Res any](svc backplane.Owner, name string, fn func(context.Context, Req) (Res, error)) {
-	a := &backplanev1.Activity{
+func Handle[Req, Res any](scope deps.Scope, name string, fn func(ctx context.Context, in Req) (Res, error)) {
+	e, _ := decl.Env(scope, "activity "+name)
+	e.Manifest.Activity(&backplanev1.Activity{
 		Name:   name,
-		Input:  decl.Schema[Req](svc.Name(), "activity_"+name+"_in"),
-		Output: decl.Schema[Res](svc.Name(), "activity_"+name+"_out"),
-	}
-	decl.To(svc).Activity(a)
+		Input:  decl.Schema[Req](e.Service, "activity_"+name+"_in"),
+		Output: decl.Schema[Res](e.Service, "activity_"+name+"_out"),
+	})
+	e.Activity(name, func(ctx context.Context, in []byte) ([]byte, error) {
+		var req Req
+		if err := decl.Decode(in, &req); err != nil {
+			return nil, fmt.Errorf("activity %s: decode: %w", name, err)
+		}
 
-	_ = fn
+		res, err := fn(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+
+		return decl.Encode(res)
+	})
 }

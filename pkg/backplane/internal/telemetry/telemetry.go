@@ -12,8 +12,6 @@ import (
 
 	"github.com/gopherex/xlog"
 	xsdk "github.com/gopherex/xtrace/contrib/sdk"
-
-	"github.com/gopherex/backplane/pkg/backplane/internal/lifecycle"
 )
 
 // Identity stamped into the resource.
@@ -31,11 +29,8 @@ type Telemetry struct {
 // New creates the component.
 func New(id Identity, log *xlog.Logger) *Telemetry { return &Telemetry{id: id, log: log} }
 
-// Name implements lifecycle.Component.
-func (t *Telemetry) Name() string { return "telemetry" }
-
 // Start installs global providers and the propagator.
-func (t *Telemetry) Start(ctx context.Context, _ lifecycle.Group) error {
+func (t *Telemetry) Start(ctx context.Context) error {
 	opts := []xsdk.Option{
 		xsdk.WithService(t.id.Service),
 		xsdk.WithVersion(t.id.Version),

@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 
+	"go.opentelemetry.io/otel/log/global"
+
 	"github.com/gopherex/xlog"
 	xlogtrace "github.com/gopherex/xtrace/contrib/libs/xlog"
 
@@ -42,17 +44,22 @@ func (id Identity) resolve(ctx context.Context, cfg config.Backplane) Identity {
 	return id
 }
 
-// logger is the given one or JSON with trace fields and span observation;
-// every record carries the identity.
+// logger is the given one or JSON to stdout teed into the OpenTelemetry
+// logs pipeline (a no-op until telemetry exports logs), with trace fields
+// and span observation; every record carries the identity.
 func (id Identity) logger(given *xlog.Logger, cfg config.Backplane) *xlog.Logger {
 	log := given
 	if log == nil {
 		level, err := xlog.ParseLevel(cfg.LogLevel)
-		if err != nil {
-			level = xlog.InfoLevel
-		}
 
-		log = xlog.NewJSON(append(xlogtrace.Options(), xlog.WithLevel(level))...)
+		stdout := xlog.NewJSON(xlog.WithLevel(level)).Core()
+		otlp := xlogtrace.Core(global.GetLoggerProvider().Logger(id.Service))
+		log = xlog.NewJSON(append(xlogtrace.Options(),
+			xlog.WithLevel(level), xlog.WithCore(xlog.NewTeeCore(stdout, otlp)))...)
+
+		if err != nil {
+			log.Warn("log level", xlog.Err(err), xlog.String("using", level.String()))
+		}
 	}
 
 	return log.With(

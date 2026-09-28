@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"runtime"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/fstest"
@@ -14,14 +18,26 @@ import (
 
 	"github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	hv1 "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
+	"github.com/gopherex/xlog"
+
+	helloconsolev1 "github.com/gopherex/backplane/examples/hello/proto/hello/console/v1"
+	hellov1 "github.com/gopherex/backplane/examples/hello/proto/hello/v1"
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
+)
+
+const (
+	secret   = "s3cret"
+	runLimit = 10 * time.Second
 )
 
 var errDown = errors.New("down")
@@ -33,9 +49,37 @@ type testConfig struct {
 }
 
 type testState struct {
-	backplane.Root[testConfig]
-
+	Cfg  testConfig
 	Conn deps.Dependency[string]
+}
+
+// ports are the platform and public ports of a service under test.
+type ports struct{ platform, public string }
+
+func (p ports) platformURL() string { return "http://127.0.0.1:" + p.platform }
+func (p ports) publicURL() string   { return "http://127.0.0.1:" + p.public }
+
+// setup points the SDK block at free ports, no drain, the internal secret and
+// the given Consul ("" = none).
+func setup(t *testing.T, consul string) ports {
+	t.Helper()
+
+	p := ports{platform: freePort(t), public: freePort(t)}
+
+	t.Setenv("BACKPLANE_INTERNAL_PORT", p.platform)
+	t.Setenv("BACKPLANE_PUBLIC_PORT", p.public)
+	t.Setenv("BACKPLANE_INTERNAL_SECRET", secret)
+	t.Setenv("BACKPLANE_SHUTDOWN_DRAIN", "0s")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", consul)
+
+	return p
+}
+
+func baseOptions(name string, extra ...backplane.Option) []backplane.Option {
+	return append([]backplane.Option{
+		backplane.Name(name), backplane.Instance(name + "-1"), backplane.Advertise("127.0.0.1"),
+		backplane.Logger(testlog.Discard()), backplane.ConfigOptions(config.WithoutFile()),
+	}, extra...)
 }
 
 func freePort(t *testing.T) string {
@@ -74,7 +118,7 @@ func get(url string, header ...string) (int, string) {
 func eventually(t *testing.T, what string, ok func() bool) {
 	t.Helper()
 
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(runLimit); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		if ok() {
 			return
 		}
@@ -83,16 +127,59 @@ func eventually(t *testing.T, what string, ok func() bool) {
 	t.Fatalf("%s: timed out", what)
 }
 
-// TestServiceEndToEnd: a required dependency holds readiness until it comes
-// up; public route, guarded UI, gRPC health, Consul state and a clean stop.
-func TestServiceEndToEnd(t *testing.T) {
-	platformPort, publicPort := freePort(t), freePort(t)
-	consul := os.Getenv("BACKPLANE_TEST_CONSUL")
+func ready(p ports) func() bool {
+	return func() bool { code, _ := get(p.platformURL() + "/healthz/readiness"); return code == http.StatusOK }
+}
 
-	t.Setenv("BACKPLANE_INTERNAL_PORT", platformPort)
-	t.Setenv("BACKPLANE_PUBLIC_PORT", publicPort)
-	t.Setenv("BACKPLANE_INTERNAL_SECRET", "s3cret")
-	t.Setenv("BACKPLANE_CONSUL_ADDR", consul)
+type runner interface {
+	Run(ctx context.Context) error
+}
+
+// run starts Run in the background.
+func run(ctx context.Context, svc runner) <-chan error {
+	done := make(chan error, 1)
+
+	go func() { done <- svc.Run(ctx) }()
+
+	return done
+}
+
+func wait(t *testing.T, done <-chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(runLimit):
+		t.Fatal("Run did not return")
+
+		return nil
+	}
+}
+
+func dial(t *testing.T, port string) *grpc.ClientConn {
+	t.Helper()
+
+	cc, err := grpc.NewClient("127.0.0.1:"+port, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = cc.Close() })
+
+	return cc
+}
+
+// TestRunServes: a required dependency holds readiness until it comes up;
+// the public route, the guarded UI, gRPC health and Consul follow. Open's
+// context is cancelled right after Open: it bounds loading only.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestRunServes(t *testing.T) {
+	const name = "svc-e2e"
+
+	consul := os.Getenv("BACKPLANE_TEST_CONSUL")
+	p := setup(t, consul)
 
 	var connUp atomic.Bool
 
@@ -102,95 +189,76 @@ func TestServiceEndToEnd(t *testing.T) {
 		}
 
 		return "conn", nil
-	}, deps.WithName[string]("conn"))
+	})
+
+	openCtx, cancelOpen := context.WithCancel(t.Context())
+
+	svc, err := backplane.Open(openCtx, func(root backplane.Root[testConfig]) (*testState, error) {
+		return &testState{
+			Cfg:  root.Config(),
+			Conn: deps.NewDependency(root, conn, deps.Name("conn"), deps.Backoff(10*time.Millisecond, 20*time.Millisecond)),
+		}, nil
+	}, baseOptions(name)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cancelOpen()
+
+	svc.HTTP("/hi", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, svc.State().Cfg.Greeting.Get()+" "+svc.State().Conn.Get())
+	}))
+	svc.UI(fstest.MapFS{"plugin.json": {Data: []byte(`{"sdk_major":1}`)}})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	svc, err := backplane.Open(ctx, func(root backplane.Root[testConfig]) (*testState, error) {
-		return &testState{Root: root, Conn: deps.NewDependency(root, conn, deps.Retry(10*time.Millisecond, 20*time.Millisecond))}, nil
-	}, backplane.Name("e2e"), backplane.Version("1.0.0"), backplane.Instance("e2e-1"),
-		backplane.Advertise("127.0.0.1"), backplane.Logger(testlog.Discard()),
-		backplane.WithConfig(config.WithoutFile()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	done := run(ctx, svc)
 
-	svc.HTTP("/hi/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, svc.State().Config().Greeting.Get()+" "+svc.State().Conn.Get())
-	}))
-	svc.UI(fstest.MapFS{"plugin.json": {Data: []byte(`{"sdk_major":1}`)}})
+	eventually(t, "platform port", func() bool { code, _ := get(p.platformURL() + "/healthz/liveness"); return code != 0 })
 
-	done := make(chan error, 1)
-
-	go func() { done <- svc.Run(ctx) }()
-
-	platform := "http://127.0.0.1:" + platformPort
-
-	time.Sleep(100 * time.Millisecond)
-
-	if code, _ := get(platform + "/healthz/readiness"); code == http.StatusOK {
+	if ready(p)() {
 		t.Fatal("ready before the required dependency")
 	}
 
 	connUp.Store(true)
-	eventually(t, "ready", func() bool { code, _ := get(platform + "/healthz/readiness"); return code == http.StatusOK })
+	eventually(t, "ready", ready(p))
 
-	if code, body := get("http://127.0.0.1:" + publicPort + "/hi/"); code != http.StatusOK || body != "hi conn" {
+	if code, body := get(p.publicURL() + "/hi/"); code != http.StatusOK || body != "hi conn" {
 		t.Fatalf("public route: %d %q", code, body)
 	}
 
-	if code, _ := get(platform + "/_backplane/ui/plugin.json"); code != http.StatusForbidden {
+	if code, _ := get(p.platformURL() + "/_backplane/ui/plugin.json"); code != http.StatusForbidden {
 		t.Fatalf("ui without secret: %d", code)
 	}
 
-	if code, _ := get(platform+"/_backplane/ui/plugin.json", guard.HTTPHeader, "s3cret"); code != http.StatusOK {
+	if code, _ := get(p.platformURL()+"/_backplane/ui/plugin.json", guard.HTTPHeader, secret); code != http.StatusOK {
 		t.Fatalf("ui with secret: %d", code)
 	}
 
-	cc, err := grpc.NewClient("127.0.0.1:"+platformPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cc.Close()
-
-	if res, err := hv1.NewHealthClient(cc).Check(ctx, &hv1.HealthCheckRequest{}); err != nil ||
-		res.GetStatus() != hv1.HealthCheckResponse_SERVING {
+	res, err := hv1.NewHealthClient(dial(t, p.platform)).Check(ctx, &hv1.HealthCheckRequest{})
+	if err != nil || res.GetStatus() != hv1.HealthCheckResponse_SERVING {
 		t.Fatalf("grpc health: %v %v", res, err)
 	}
 
 	if consul != "" {
-		assertRegistered(t, consul)
+		checkConsul(t, consul, name, p)
 	}
 
 	cancel()
 
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("run: %v", err)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("Run did not return")
+	if err := wait(t, done); err != nil {
+		t.Fatalf("run: %v", err)
 	}
 
-	if code, _ := get(platform + "/healthz/readiness"); code != 0 {
+	if code, _ := get(p.platformURL() + "/healthz/readiness"); code != 0 {
 		t.Fatalf("platform port still open: %d", code)
 	}
 }
 
-func TestOpenFailsOnConstructorError(t *testing.T) {
-	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
-
-	_, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
-		return nil, errDown
-	}, backplane.Name("e2e-fail"), backplane.Logger(testlog.Discard()), backplane.WithConfig(config.WithoutFile()))
-	if !errors.Is(err, errDown) {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func assertRegistered(t *testing.T, addr string) {
+// checkConsul: instance state, an unstamped version made unique by the
+// manifest hash, and a Live value from KV served in place.
+func checkConsul(t *testing.T, addr, name string, p ports) {
 	t.Helper()
 
 	c, err := api.NewClient(&api.Config{Address: addr})
@@ -198,10 +266,403 @@ func assertRegistered(t *testing.T, addr string) {
 		t.Fatal(err)
 	}
 
-	t.Cleanup(func() { _, _ = c.KV().DeleteTree("backplane/services/e2e/", nil) })
+	t.Cleanup(func() {
+		_, _ = c.KV().DeleteTree("backplane/services/"+name+"/", nil)
+		_, _ = c.KV().DeleteTree("config/"+name+"/", nil)
+	})
+
 	eventually(t, "instance state", func() bool {
-		kv, _, _ := c.KV().Get("backplane/services/e2e/instances/e2e-1", nil)
+		kv, _, _ := c.KV().Get("backplane/services/"+name+"/instances/"+name+"-1", nil)
 
 		return kv != nil
 	})
+
+	keys, _, err := c.KV().Keys("backplane/services/"+name+"/manifests/", "", nil)
+	if err != nil || len(keys) != 1 || !strings.HasPrefix(keys[0], "backplane/services/"+name+"/manifests/0.0.0+") {
+		t.Fatalf("manifest keys: %v %v", keys, err)
+	}
+
+	if _, err := c.KV().Put(&api.KVPair{Key: "config/" + name + "/greeting", Value: []byte("hey")}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	eventually(t, "live greeting", func() bool { _, body := get(p.publicURL() + "/hi/"); return body == "hey conn" })
+}
+
+type admin struct {
+	helloconsolev1.UnimplementedAdminServiceServer
+}
+
+func (admin) GetStats(context.Context, *helloconsolev1.GetStatsRequest) (*helloconsolev1.GetStatsResponse, error) {
+	return &helloconsolev1.GetStatsResponse{Greetings: 1}, nil
+}
+
+// TestInternalAPIGate: the internal API answers Unavailable while the
+// author's tree is still starting, and serves behind the secret once it is
+// up.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestInternalAPIGate(t *testing.T) {
+	p := setup(t, "")
+
+	var connUp atomic.Bool
+
+	svc, err := backplane.Open(t.Context(), func(root backplane.Root[testConfig]) (*testState, error) {
+		conn := deps.Func(func(context.Context) (string, error) {
+			if !connUp.Load() {
+				return "", errDown
+			}
+
+			return "conn", nil
+		})
+
+		return &testState{Conn: deps.NewDependency(root, conn, deps.Backoff(10*time.Millisecond, 20*time.Millisecond))}, nil
+	}, baseOptions("hello")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	svc.Internal(func(r grpc.ServiceRegistrar) { helloconsolev1.RegisterAdminServiceServer(r, admin{}) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := run(ctx, svc)
+	client := helloconsolev1.NewAdminServiceClient(dial(t, p.platform))
+	withSecret := metadata.AppendToOutgoingContext(ctx, guard.Header, secret)
+	call := func(ctx context.Context) error {
+		ctx, stop := context.WithTimeout(ctx, time.Second)
+		defer stop()
+
+		_, err := client.GetStats(ctx, &helloconsolev1.GetStatsRequest{}, grpc.WaitForReady(true))
+
+		return err
+	}
+
+	// The platform port is up before the author's tree: calls reach the gate.
+	eventually(t, "platform port", func() bool { code, _ := get(p.platformURL() + "/healthz/liveness"); return code != 0 })
+
+	if err := call(withSecret); status.Code(err) != codes.Unavailable ||
+		!strings.Contains(status.Convert(err).Message(), "internal API") {
+		t.Fatalf("while a dependency retries: %v", err)
+	}
+
+	connUp.Store(true)
+
+	eventually(t, "ready", ready(p))
+
+	if err := call(withSecret); err != nil {
+		t.Fatalf("with secret once up: %v", err)
+	}
+
+	if err := call(ctx); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("without secret: %v", err)
+	}
+
+	cancel()
+
+	if err := wait(t, done); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+// TestStopWhileDependencyRetries: a stop requested while a required
+// dependency is still retrying is not an error, and what was already
+// provided is closed.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestStopWhileDependencyRetries(t *testing.T) {
+	setup(t, "")
+
+	var provided, closed atomic.Bool
+
+	svc, err := backplane.Open(t.Context(), func(root backplane.Root[testConfig]) (*testState, error) {
+		first := deps.Func(func(context.Context) (string, error) { provided.Store(true); return "a", nil },
+			deps.WithClose(func(context.Context, string) error { closed.Store(true); return nil }))
+		never := deps.Func(func(context.Context) (string, error) { return "", errDown })
+
+		deps.NewDependency(root, first, deps.Name("first"))
+
+		return &testState{
+			Conn: deps.NewDependency(root, never, deps.Name("never"), deps.Backoff(10*time.Millisecond, 20*time.Millisecond)),
+		}, nil
+	}, baseOptions("svc-stop")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := run(ctx, svc)
+
+	eventually(t, "first provided", provided.Load)
+	time.Sleep(50 * time.Millisecond) // a few failed attempts of "never"
+	cancel()
+
+	if err := wait(t, done); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if !closed.Load() {
+		t.Fatal("provided dependency not closed")
+	}
+}
+
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestDeclareAfterRunPanics(t *testing.T) {
+	p := setup(t, "")
+
+	svc, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+		return &testState{}, nil
+	}, baseOptions("svc-sealed")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := run(ctx, svc)
+
+	eventually(t, "ready", ready(p))
+
+	mustPanic(t, "HTTP after Run", func() { svc.HTTP("/late/", http.NotFoundHandler()) })
+	mustPanic(t, "probe after Run", func() { svc.ReadinessProbe(nil) })
+
+	cancel()
+
+	if err := wait(t, done); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if err := svc.Run(t.Context()); !errors.Is(err, backplane.ErrClosed) {
+		t.Fatalf("second Run: %v", err)
+	}
+}
+
+func mustPanic(t *testing.T, what string, fn func()) {
+	t.Helper()
+
+	defer func() {
+		if recover() == nil {
+			t.Errorf("%s: no panic", what)
+		}
+	}()
+
+	fn()
+}
+
+// TestCloseWithoutRun: Close releases the configuration (its Consul watch
+// goroutines stop), is idempotent, and Run afterwards is ErrClosed.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestCloseWithoutRun(t *testing.T) {
+	setup(t, "127.0.0.1:1") // unreachable: the Consul layer keeps retrying in the background
+
+	before := runtime.NumGoroutine()
+
+	svc, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+		return &testState{}, nil
+	}, baseOptions("svc-close", backplane.ConfigOptions(config.ConsulBackoff(time.Millisecond, 5*time.Millisecond)))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if runtime.NumGoroutine() <= before {
+		t.Fatal("no configuration goroutines after Open: the test proves nothing")
+	}
+
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	eventually(t, "goroutines released", func() bool { return runtime.NumGoroutine() <= before })
+
+	if err := svc.Run(t.Context()); !errors.Is(err, backplane.ErrClosed) {
+		t.Fatalf("Run after Close: %v", err)
+	}
+
+	mustPanic(t, "HTTP after Close", func() { svc.HTTP("/late/", http.NotFoundHandler()) })
+}
+
+type greeter struct {
+	hellov1.UnimplementedHelloServiceServer
+}
+
+// TestDeclarationErrorsFailRun: declaration mistakes surface as Run errors,
+// before anything listens.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestDeclarationErrorsFailRun(t *testing.T) {
+	registerHello := func(r grpc.ServiceRegistrar) { hellov1.RegisterHelloServiceServer(r, greeter{}) }
+
+	for _, tc := range []struct {
+		name    string
+		service string
+		declare func(svc *backplane.Service[testState])
+		want    string
+	}{
+		{
+			name: "duplicate HTTP prefix", service: "svc-dup-http",
+			declare: func(svc *backplane.Service[testState]) {
+				svc.HTTP("/a", http.NotFoundHandler())
+				svc.HTTP("/a/", http.NotFoundHandler())
+			},
+			want: "prefix served twice",
+		},
+		{
+			name: "duplicate gRPC service", service: "svc-dup-grpc",
+			declare: func(svc *backplane.Service[testState]) {
+				svc.GRPC(registerHello)
+				svc.GRPC(registerHello)
+			},
+			want: "registered twice",
+		},
+		{
+			name: "internal API outside the console package", service: "svc-internal",
+			declare: func(svc *backplane.Service[testState]) {
+				svc.Internal(func(r grpc.ServiceRegistrar) { helloconsolev1.RegisterAdminServiceServer(r, admin{}) })
+			},
+			want: "must be in proto package svc_internal.console.v1",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := setup(t, "")
+
+			svc, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+				return &testState{}, nil
+			}, baseOptions(tc.service)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			tc.declare(svc)
+
+			err = wait(t, run(t.Context(), svc))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("run: %v, want %q", err, tc.want)
+			}
+
+			if code, _ := get(p.platformURL() + "/healthz/liveness"); code != 0 {
+				t.Fatalf("platform port open after a declaration error: %d", code)
+			}
+		})
+	}
+}
+
+// syncBuffer is a log sink safe for concurrent writers.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.buf.String()
+}
+
+// TestSlogRouting: by default Run routes log/slog into the service logger
+// and restores the previous default; KeepSlog leaves it alone.
+//
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestSlogRouting(t *testing.T) {
+	for _, keep := range []bool{false, true} {
+		name := map[bool]string{false: "routed", true: "kept"}[keep]
+
+		t.Run(name, func(t *testing.T) {
+			setup(t, "")
+
+			own := slog.New(slog.DiscardHandler)
+			prev := slog.Default()
+
+			slog.SetDefault(own)
+			t.Cleanup(func() { slog.SetDefault(prev) })
+
+			var sink syncBuffer
+
+			opts := baseOptions("svc-slog-"+name, backplane.Logger(xlog.NewJSON(xlog.WithWriter(&sink))))
+			if keep {
+				opts = append(opts, backplane.KeepSlog())
+			}
+
+			var during *slog.Logger
+
+			started := make(chan struct{})
+
+			svc, err := backplane.Open(t.Context(), func(root backplane.Root[testConfig]) (*testState, error) {
+				root.OnStart(func(context.Context) error {
+					during = slog.Default()
+
+					slog.Info("through slog")
+					close(started)
+
+					return nil
+				})
+
+				return &testState{}, nil
+			}, opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctx, cancel := context.WithCancel(t.Context())
+			done := run(ctx, svc)
+
+			<-started
+			cancel()
+
+			if err := wait(t, done); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			if routed := strings.Contains(sink.String(), "through slog"); routed == keep || (during == own) != keep {
+				t.Fatalf("keep=%v: routed=%v, default during Run was ours=%v", keep, routed, during == own)
+			}
+
+			if slog.Default() != own {
+				t.Fatal("slog default not restored")
+			}
+		})
+	}
+}
+
+func TestOpenRejectsInvalidShutdown(t *testing.T) {
+	setup(t, "")
+	t.Setenv("BACKPLANE_SHUTDOWN_TIMEOUT", "1s")
+	t.Setenv("BACKPLANE_SHUTDOWN_DRAIN", "2s")
+
+	_, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+		t.Fatal("constructor called with an invalid configuration")
+
+		return nil, errDown
+	}, baseOptions("svc-invalid")...)
+	if !errors.Is(err, backplane.ErrConfig) {
+		t.Fatalf("drain above timeout: %v", err)
+	}
+}
+
+//nolint:paralleltest // t.Setenv: the SDK block reads the process environment
+func TestOpenFailsOnConstructorError(t *testing.T) {
+	setup(t, "")
+
+	_, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+		return nil, errDown
+	}, baseOptions("svc-fail")...)
+	if !errors.Is(err, errDown) {
+		t.Fatalf("err = %v", err)
+	}
 }

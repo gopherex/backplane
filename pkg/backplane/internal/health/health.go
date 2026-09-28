@@ -10,7 +10,6 @@ package health
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -25,7 +24,7 @@ import (
 	grpcprobe "github.com/gopherex/xprobe/pkg/transport/grpc"
 	httpprobe "github.com/gopherex/xprobe/pkg/transport/http"
 
-	"github.com/gopherex/backplane/pkg/backplane/internal/lifecycle"
+	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
 // Kind of probe.
@@ -96,12 +95,9 @@ func (h *Health) HTTP() http.Handler {
 	)
 }
 
-// Name implements lifecycle.Component.
-func (h *Health) Name() string { return "health" }
-
 // Start builds the composites and re-evaluates each kind every interval; a
 // check may take up to one interval.
-func (h *Health) Start(ctx context.Context, g lifecycle.Group) error {
+func (h *Health) Start(ctx context.Context, g node.Group) error {
 	h.mu.Lock()
 	combined := [kinds]probe.Probe{
 		Live:    probe.All(h.probes[Live]...),
@@ -120,21 +116,14 @@ func (h *Health) Start(ctx context.Context, g lifecycle.Group) error {
 	runners := h.runners
 	h.mu.Unlock()
 
-	for k, r := range runners {
+	for _, r := range runners {
 		r.Check(ctx)
-		g.Go(fmt.Sprintf("health.%s", Kind(k)), func(ctx context.Context) error {
+		g.Go(func(ctx context.Context) error {
 			r.Run(ctx)
 
 			return nil
 		})
 	}
-
-	return nil
-}
-
-// Stop reports not ready.
-func (h *Health) Stop(ctx context.Context) error {
-	h.Serving(ctx, false)
 
 	return nil
 }

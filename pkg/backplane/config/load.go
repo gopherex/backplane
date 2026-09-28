@@ -9,13 +9,12 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
-
-	"google.golang.org/protobuf/proto"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
 	"github.com/gopherex/xconf"
@@ -25,17 +24,11 @@ import (
 	"github.com/gopherex/xconf/contrib/sources/file"
 
 	"github.com/gopherex/backplane/pkg/backplane/build"
+	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
 )
 
 // EnvFile names the default configuration file.
 const EnvFile = "BACKPLANE_CONFIG_FILE"
-
-// Source names carry their kind as a prefix; provenance maps back from it.
-const (
-	sourceFile   = "file:"
-	sourceEnv    = "env:"
-	sourceConsul = "consul:"
-)
 
 // Load reads the configuration once: defaults, file and environment. For
 // tools and tests; services use Open through backplane.Open.
@@ -72,7 +65,7 @@ func newSettings(opts []Option) (*settings, error) {
 	}
 
 	if st.service == "" {
-		st.service = build.Service
+		st.service = build.Get().Service
 	}
 
 	if st.service == "" {
@@ -115,7 +108,7 @@ func (st *settings) baseSources(t reflect.Type) ([]xconf.Source, error) {
 }
 
 func (st *settings) env(prefix string) xconf.Source {
-	return env.New(env.Prefix(prefix), env.Name(sourceEnv+prefix))
+	return env.New(env.Prefix(prefix), env.Name(configrt.SourceEnv+prefix))
 }
 
 func (st *settings) fileSource() xconf.Source {
@@ -128,7 +121,7 @@ func (st *settings) fileSource() xconf.Source {
 		decode = yamldec.Decode
 	}
 
-	return file.New(st.file, decode, file.Name(sourceFile+st.file))
+	return file.New(st.file, decode, file.Name(configrt.SourceFile+st.file))
 }
 
 // blockKey is the JSON name of the field of type Backplane in t; empty when
@@ -178,52 +171,71 @@ func reflectSchema[T any](service string) (*sp.Schema, error) {
 	return schema, nil
 }
 
-// LivePaths lists the paths of Live fields in schema.
-func LivePaths(schema *sp.Schema) []xconf.Path {
-	var paths []xconf.Path
+// errLiveInCollection: a Live value could never be published in place there.
+var errLiveInCollection = errors.New("lists and maps cannot hold Live fields")
 
-	var walk func(s *sp.Schema, prefix xconf.Path)
+// checkLive rejects Live fields inside slices, maps and arrays: they could
+// never be published in place.
+func checkLive(t reflect.Type, in string, seen map[reflect.Type]bool) error {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 
-	walk = func(s *sp.Schema, prefix xconf.Path) {
-		for _, f := range s.GetFields() {
-			path := append(append(xconf.Path{}, prefix...), f.GetName())
-			if f.GetAnnotations()[LiveAnnotation].GetBoolValue() {
-				paths = append(paths, path)
+	if seen[t] {
+		return nil
+	}
 
-				continue
-			}
+	seen[t] = true
 
-			if obj := f.GetObject(); obj != nil {
-				walk(obj.GetSchema(), path)
+	switch t.Kind() {
+	case reflect.Slice, reflect.Array, reflect.Map:
+		elem := t.Elem()
+		for elem.Kind() == reflect.Pointer {
+			elem = elem.Elem()
+		}
+
+		if isLiveType(elem) || (elem.Kind() == reflect.Struct && containsLive(elem, map[reflect.Type]bool{})) {
+			return fmt.Errorf("config: %s: %w", in, errLiveInCollection)
+		}
+	case reflect.Struct:
+		if isLiveType(t) {
+			return nil
+		}
+
+		for i := range t.NumField() {
+			if f := t.Field(i); f.IsExported() {
+				if err := checkLive(f.Type, in+"."+f.Name, seen); err != nil {
+					return err
+				}
 			}
 		}
+	default:
 	}
-	walk(schema, nil)
 
-	return paths
+	return nil
 }
 
-// withoutLiveRequired copies schema with every Live field optional: the
-// layers below Consul need not supply what only Consul may.
-func withoutLiveRequired(schema *sp.Schema) *sp.Schema {
-	out, _ := proto.Clone(schema).(*sp.Schema)
+func containsLive(t reflect.Type, seen map[reflect.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
 
-	var walk func(s *sp.Schema)
+	seen[t] = true
 
-	walk = func(s *sp.Schema) {
-		for _, f := range s.GetFields() {
-			if f.GetAnnotations()[LiveAnnotation].GetBoolValue() {
-				f.Required = false
+	for i := range t.NumField() {
+		ft := t.Field(i).Type
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
 
-				continue
-			}
-
-			if obj := f.GetObject(); obj != nil {
-				walk(obj.GetSchema())
-			}
+		if isLiveType(ft) || (ft.Kind() == reflect.Struct && containsLive(ft, seen)) {
+			return true
 		}
 	}
-	walk(out)
 
-	return out
+	return false
+}
+
+func isLiveType(t reflect.Type) bool {
+	return reflect.PointerTo(t).Implements(reflect.TypeFor[liveField]())
 }

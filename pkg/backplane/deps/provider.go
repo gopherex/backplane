@@ -28,10 +28,6 @@ type Factory[T any] interface {
 // FuncOption configures Func.
 type FuncOption[T any] func(*funcProvider[T])
 
-// WithName names the node; default is T's type name ("pool" for
-// *pgxpool.Pool).
-func WithName[T any](name string) FuncOption[T] { return func(f *funcProvider[T]) { f.name = name } }
-
 // WithProbe sets the readiness probe.
 func WithProbe[T any](probe func(ctx context.Context, v T) error) FuncOption[T] {
 	return func(f *funcProvider[T]) { f.probe = probe }
@@ -42,11 +38,12 @@ func WithClose[T any](closeFn func(ctx context.Context, v T) error) FuncOption[T
 	return func(f *funcProvider[T]) { f.close = closeFn }
 }
 
-// Func adapts plain functions into a Provider (and so a Factory).
+// Func adapts plain functions into a Provider (and so a Factory). The node
+// is named after T ("pool" for *pgxpool.Pool); rename it with deps.Name.
 func Func[T any](provide func(ctx context.Context) (T, error), opts ...FuncOption[T]) Provider[T] {
-	f := &funcProvider[T]{name: typeName[T](), provide: provide}
+	f := funcProvider[T]{name: typeName[T](), provide: provide}
 	for _, o := range opts {
-		o(f)
+		o(&f)
 	}
 
 	return f
@@ -59,11 +56,11 @@ type funcProvider[T any] struct {
 	close   func(ctx context.Context, v T) error
 }
 
-func (f *funcProvider[T]) Name() string { return f.name }
+func (f funcProvider[T]) Name() string { return f.name }
 
-func (f *funcProvider[T]) Provide(ctx context.Context, _ Scope) (T, error) { return f.provide(ctx) }
+func (f funcProvider[T]) Provide(ctx context.Context, _ Scope) (T, error) { return f.provide(ctx) }
 
-func (f *funcProvider[T]) Probe(ctx context.Context, v T) error {
+func (f funcProvider[T]) Probe(ctx context.Context, v T) error {
 	if f.probe == nil {
 		return nil
 	}
@@ -71,7 +68,7 @@ func (f *funcProvider[T]) Probe(ctx context.Context, v T) error {
 	return f.probe(ctx, v)
 }
 
-func (f *funcProvider[T]) Close(ctx context.Context, v T) error {
+func (f funcProvider[T]) Close(ctx context.Context, v T) error {
 	if f.close == nil {
 		return nil
 	}
