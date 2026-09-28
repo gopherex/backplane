@@ -1,0 +1,27 @@
+# Proto lint/generate for backplanepb. Run through `make gen` / `make lint`:
+# plugins are pinned in ./bin.
+lint:
+  use:
+    - DEFAULT
+  service_suffix: Service
+  allow_comment_ignores: false
+  except:
+    # Sources live in backplanepb/v1, package is backplane.v1.
+    - PACKAGE_DIRECTORY_MATCH
+deps:
+  # schemapb has no release yet; pinned by commit.
+  - github.com/gopherex/schemapb@04fd8b1
+generate:
+  inputs:
+    - directory: backplanepb
+  plugins:
+    - name: go
+      out: .
+      opts:
+        paths: source_relative
+    - name: go-grpc
+      out: .
+      opts:
+        paths: source_relative
+breaking:
+  against_git_ref: master

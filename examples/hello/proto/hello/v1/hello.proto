@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package hello.v1;
+
+option go_package = "github.com/gopherex/backplane/examples/hello/proto/hello/v1;hellov1";
+
+// External API of hello. One implementation is served over gRPC (with
+// Connect transcoding) and ws-proto.
+service HelloService {
+  rpc Greet(GreetRequest) returns (GreetResponse);
+  // Server stream: exercises streaming over gRPC and ws-proto.
+  rpc Countdown(CountdownRequest) returns (stream CountdownResponse);
+}
+
+message GreetRequest {
+  string name = 1;
+}
+
+message GreetResponse {
+  string greeting = 1;
+}
+
+message CountdownRequest {
+  uint32 from = 1;
+}
+
+message CountdownResponse {
+  uint32 left = 1;
+}

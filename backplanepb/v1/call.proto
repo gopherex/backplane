@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package backplane.v1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/v1;backplanev1";
+
+// Envelopes carried through Temporal. The envelope is ours; `payload` is
+// the author's data as JSON, opaque to the platform.
+
+// Input of the Nexus operation a service raises.
+message HookCall {
+  string hook = 1;
+  string instance = 2;
+  bytes payload = 3;
+  // W3C trace context: traceparent, tracestate, baggage.
+  map<string, string> trace = 4;
+  google.protobuf.Duration deadline = 5;
+}
+
+message HookResult {
+  bytes payload = 1;
+}
+
+// Input of an activity or child workflow the binding workflow executes on
+// the target service's task queue.
+message ActivityCall {
+  string activity = 1;
+  bytes payload = 2;
+  map<string, string> trace = 3;
+  // For diagnostics: which binding or rule and which step.
+  string binding = 4;
+  string step = 5;
+}
+
+message ActivityResult {
+  bytes payload = 1;
+}

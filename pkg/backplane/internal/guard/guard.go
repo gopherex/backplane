@@ -1,0 +1,85 @@
+// Package guard protects the platform port with the installation's internal
+// secret: the console relay presents it, the SDK checks it. Health stays
+// open for Consul checks and probes. An empty secret disables the guard.
+package guard
+
+import (
+	"context"
+	"crypto/subtle"
+	"net/http"
+	"strings"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+)
+
+// Header carries the secret: gRPC metadata key and, canonicalized,
+// HTTPHeader.
+const (
+	Header     = "bp-internal-secret"
+	HTTPHeader = "Bp-Internal-Secret"
+)
+
+const healthPrefix = "/grpc.health.v1.Health/"
+
+// Guard checks the secret.
+type Guard struct{ secret []byte }
+
+// New creates a guard; an empty secret allows everything.
+func New(secret string) Guard { return Guard{secret: []byte(secret)} }
+
+func (g Guard) ok(presented string) bool {
+	return len(g.secret) == 0 || subtle.ConstantTimeCompare(g.secret, []byte(presented)) == 1
+}
+
+// Authorize checks the secret in incoming gRPC metadata; health is exempt.
+// The error is a gRPC status and is returned as is.
+func (g Guard) Authorize(ctx context.Context, method string) error {
+	if len(g.secret) == 0 || strings.HasPrefix(method, healthPrefix) {
+		return nil
+	}
+
+	md, _ := metadata.FromIncomingContext(ctx)
+	if values := md.Get(Header); len(values) == 1 && g.ok(values[0]) {
+		return nil
+	}
+
+	// A gRPC status: returned as is so the code reaches the caller.
+	return status.Error(codes.PermissionDenied, "internal secret required") //nolint:wrapcheck // see above
+}
+
+// ServerOptions installs the guard on a gRPC server.
+func (g Guard) ServerOptions() []grpc.ServerOption {
+	return []grpc.ServerOption{grpc.ChainUnaryInterceptor(g.unary), grpc.ChainStreamInterceptor(g.stream)}
+}
+
+func (g Guard) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, next grpc.UnaryHandler) (any, error) {
+	if err := g.Authorize(ctx, info.FullMethod); err != nil {
+		return nil, err
+	}
+
+	return next(ctx, req)
+}
+
+func (g Guard) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, next grpc.StreamHandler) error {
+	if err := g.Authorize(ss.Context(), info.FullMethod); err != nil {
+		return err
+	}
+
+	return next(srv, ss)
+}
+
+// HTTP wraps a handler.
+func (g Guard) HTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !g.ok(r.Header.Get(HTTPHeader)) {
+			http.Error(w, "internal secret required", http.StatusForbidden)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}

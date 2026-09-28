@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package backplane.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/v1;backplanev1";
+
+// InstanceState is written by the SDK to Consul KV
+// `backplane/services/<service>/instances/<id>` under a session with TTL, so
+// it dies with the instance. The console shows what is really applied; the
+// console relay takes address and port from here.
+message InstanceState {
+  string id = 1;
+  string service = 2;
+  string version = 3;
+  string address = 4;
+  uint32 platform_port = 5;
+  google.protobuf.Timestamp started_at = 6;
+  // Effective configuration as JSON, secrets masked.
+  bytes config = 7;
+  // Source of every configuration path.
+  map<string, ConfigSource> sources = 8;
+  // Revision from Consul KV `config/<service>/_revision` that is applied.
+  uint64 config_revision = 9;
+  // Why the last KV update was not applied; empty when applied.
+  string config_error = 10;
+}
+
+enum ConfigSource {
+  CONFIG_SOURCE_UNSPECIFIED = 0;
+  CONFIG_SOURCE_DEFAULT = 1;
+  CONFIG_SOURCE_FILE = 2;
+  CONFIG_SOURCE_ENV = 3;
+  CONFIG_SOURCE_KV = 4;
+}

@@ -28,5 +28,9 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
+.idea/
 # .vscode/
+
+# Local tools (make configure) and vendored proto deps (easyp mod vendor)
+bin/
+easyp_vendor/

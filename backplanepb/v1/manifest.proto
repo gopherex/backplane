@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package backplane.v1;
+
+import "schemapb/schema.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/v1;backplanev1";
+
+// Manifest is everything a service declares. The SDK assembles it at start
+// and writes it to Consul KV `backplane/services/<service>/manifests/<version>`
+// as protobuf binary. Names are mandatory; schemas are optional.
+message Manifest {
+  string service = 1;
+  string version = 2;
+  string sdk_version = 3;
+  // The service configuration: one struct; Live fields are listed in
+  // config.live and are the only ones Consul KV overrides.
+  ConfigSection config = 4;
+  reserved 5;
+  reserved "static", "dynamic";
+  // External API: proxied by Envoy, informational for the console.
+  repeated Route routes = 6;
+  // Internal API: full gRPC service names on the platform port; the only
+  // methods the console relay forwards.
+  repeated string internal_services = 7;
+  repeated Event events = 8;
+  repeated Hook hooks = 9;
+  repeated Activity activities = 10;
+  UI ui = 11;
+  // The node tree the author composed, in creation (= start) order.
+  repeated Node nodes = 12;
+}
+
+// The configuration. `keys` is the declaration; `schema` is optional and,
+// when present, drives forms, validation and secret masking.
+message ConfigSection {
+  repeated string keys = 1;
+  schemapb.Schema schema = 2;
+  // Paths of Live fields, dot-separated ("postgres.log_level").
+  repeated string live = 3;
+}
+
+// A node of the service tree: component, dependency or singleton.
+message Node {
+  // Place in the tree: "users", "users/templates".
+  string path = 1;
+  NodeKind kind = 2;
+  // Optional dependencies do not hold readiness.
+  bool optional = 3;
+}
+
+enum NodeKind {
+  NODE_KIND_UNSPECIFIED = 0;
+  NODE_KIND_COMPONENT = 1;
+  NODE_KIND_DEPENDENCY = 2;
+  NODE_KIND_SINGLETON = 3;
+}
+
+// A public route for Envoy.
+message Route {
+  oneof match {
+    string prefix = 1;
+    string host = 2;
+  }
+  RouteKind kind = 3;
+  // Port of the external API this route leads to; 0 = the port registered
+  // in Consul.
+  uint32 port = 4;
+  // Schema for transcoding and the console's API tab; optional.
+  oneof schema {
+    // OpenAPI document (HTTP).
+    bytes openapi = 5;
+    // Serialized FileDescriptorSet (gRPC, Connect, ws-proto).
+    bytes descriptors = 6;
+    // Introspection result as JSON (GraphQL).
+    bytes graphql = 7;
+  }
+}
+
+enum RouteKind {
+  ROUTE_KIND_UNSPECIFIED = 0;
+  ROUTE_KIND_HTTP = 1;
+  ROUTE_KIND_GRPC = 2;
+  ROUTE_KIND_CONNECT = 3;
+  ROUTE_KIND_WS_PROTO = 4;
+  ROUTE_KIND_GRAPHQL = 5;
+}
+
+message Event {
+  string name = 1;
+  schemapb.Schema schema = 2;
+}
+
+// An operation the service calls without implementing it.
+message Hook {
+  string name = 1;
+  schemapb.Schema input = 2;
+  schemapb.Schema output = 3;
+  // The service cannot work without a binding.
+  bool required = 4;
+}
+
+// An operation the service implements; a binding step target.
+message Activity {
+  string name = 1;
+  schemapb.Schema input = 2;
+  schemapb.Schema output = 3;
+}
+
+message UI {
+  // Content hash of the bundle served at GET /_backplane/ui/.
+  string hash = 1;
+  uint32 sdk_major = 2;
+}

@@ -1,0 +1,49 @@
+# platform-in-a-box: the stack backplane and services run against.
+# `make up` / `make down`. Ports are published on localhost for development.
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.39.1
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+    volumes: ["./deployments/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    ports: ["10000:10000", "9901:9901"]
+
+  consul:
+    image: hashicorp/consul:1.22
+    command: agent -dev -client=0.0.0.0
+    ports: ["8500:8500", "8600:8600/udp"]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: backplane
+      POSTGRES_PASSWORD: backplane
+      POSTGRES_DB: backplane
+    ports: ["5432:5432"]
+    volumes: ["pg:/var/lib/postgresql/data"]
+
+  nats:
+    image: nats:2-alpine
+    command: -js -m 8222
+    ports: ["4222:4222", "8222:8222"]
+
+  temporal:
+    image: temporalio/auto-setup:1.29
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: backplane
+      POSTGRES_PWD: backplane
+      POSTGRES_SEEDS: postgres
+    depends_on: [postgres]
+    ports: ["7233:7233"]
+
+  temporal-ui:
+    image: temporalio/ui:2.40.1
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    depends_on: [temporal]
+    ports: ["8233:8080"]
+
+volumes:
+  pg: {}
