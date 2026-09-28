@@ -43,8 +43,9 @@ type Effective struct {
 // Open loads the configuration and keeps it live: Consul KV (named by the
 // embedded Backplane block) overrides Live fields only. The Consul layer is
 // resilient: unreachable at start it is empty, failing later it keeps its
-// last values; either way Open succeeds, Degraded reports it and the layer
-// recovers on its own. Close it when done.
+// last values; Degraded reports it and the layer recovers on its own. A
+// required Live value that only Consul holds keeps Open waiting until
+// Consul answers or ctx ends. Close it when done.
 func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error) {
 	st, err := newSettings(opts)
 	if err != nil {
@@ -61,7 +62,8 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 		return nil, err
 	}
 
-	first, err := xconf.LoadAs[C](ctx, schema, sources...)
+	// The first pass only finds Consul; Live fields may still be waiting in KV.
+	first, err := xconf.LoadAs[C](ctx, withoutLiveRequired(schema), sources...)
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
@@ -77,13 +79,19 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 		sources = append(sources, src)
 	}
 
+	// The runtime outlives ctx; ctx only bounds the wait for a degraded
+	// Consul that holds a required Live value.
 	runCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	unbind := context.AfterFunc(ctx, stop)
 
 	rt, err := xconf.OpenAs[C](runCtx, schema, sources...)
+
+	unbind()
+
 	if err != nil {
 		stop()
 
-		return nil, fmt.Errorf("config: %w", err)
+		return nil, fmt.Errorf("config: %w", errors.Join(err, ctx.Err()))
 	}
 
 	value, err := rt.Current()

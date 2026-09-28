@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/hashicorp/consul/api"
+
+	"github.com/gopherex/xconf"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
 )
@@ -156,5 +159,87 @@ func TestLiveReloadFromConsul(t *testing.T) {
 
 	if src := rt.Effective().Sources["postgres.log_level"].String(); src != "CONFIG_SOURCE_KV" {
 		t.Fatalf("source: %s", src)
+	}
+}
+
+type GatedConfig struct {
+	config.Backplane `json:"backplane"`
+
+	Postgres Postgres            `json:"postgres"`
+	Gate     config.Live[string] `json:"gate"` // required, only Consul may hold it
+}
+
+func TestOpenWaitsForRequiredLiveWhileConsulDown(t *testing.T) {
+	t.Setenv("GATED_POSTGRES_DSN", "x")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "127.0.0.1:1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+
+	_, err := config.Open[GatedConfig](ctx,
+		config.Service("gated"), config.WithoutFile(), config.RetryBackoff(10*time.Millisecond, 50*time.Millisecond))
+
+	var degraded *xconf.DegradedError
+	if !errors.As(err, &degraded) {
+		t.Fatalf("want DegradedError, got %v", err)
+	}
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want deadline, got %v", err)
+	}
+
+	if since := time.Since(start); since < 250*time.Millisecond || since > 3*time.Second {
+		t.Fatalf("waited %v", since)
+	}
+}
+
+func TestOpenFailsFastOnMissingStaticWhileConsulDown(t *testing.T) {
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "127.0.0.1:1")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+
+	if _, err := config.Open[GatedConfig](ctx, config.Service("gated"), config.WithoutFile()); err == nil {
+		t.Fatal("missing postgres.dsn must fail")
+	}
+
+	if since := time.Since(start); since > time.Second {
+		t.Fatalf("static error must not wait for Consul: %v", since)
+	}
+}
+
+// Runs against a real Consul: BACKPLANE_TEST_CONSUL=localhost:8500 (make up).
+func TestOpenRequiredLiveFromConsul(t *testing.T) {
+	addr := os.Getenv("BACKPLANE_TEST_CONSUL")
+	if addr == "" {
+		t.Skip("BACKPLANE_TEST_CONSUL not set")
+	}
+
+	client, err := config.Consul{Addr: addr}.Client()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _, _ = client.KV().DeleteTree("config/gated-test/", nil) })
+
+	if _, err := client.KV().Put(&api.KVPair{Key: "config/gated-test/gate", Value: []byte("open")}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GATED_TEST_POSTGRES_DSN", "x")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
+
+	rt, err := config.Open[GatedConfig](context.Background(), config.Service("gated-test"), config.WithoutFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+
+	if got := rt.Value().Gate.Get(); got != "open" {
+		t.Fatalf("gate: %q", got)
 	}
 }

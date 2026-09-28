@@ -2,6 +2,7 @@ package backplane
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -66,6 +67,10 @@ type core struct {
 func newCore(ctx context.Context, o options, conf configState, cfg config.Backplane) *core {
 	id := o.id.resolve(ctx, cfg)
 	log := id.logger(o.log, cfg)
+	// Libraries logging through log/slog (the OTel SDK among them) land in
+	// the same stream, with identity and trace fields.
+	slog.SetDefault(slog.New(xlog.NewSlogHandler(log)))
+
 	t, root := tree.New(id.Service, log)
 
 	c := &core{

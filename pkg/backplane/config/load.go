@@ -15,6 +15,8 @@ import (
 	"reflect"
 	"strings"
 
+	"google.golang.org/protobuf/proto"
+
 	sp "github.com/gopherex/schemapb/go/schemapb"
 	"github.com/gopherex/xconf"
 	jsondec "github.com/gopherex/xconf/contrib/decoders/json"
@@ -199,4 +201,29 @@ func LivePaths(schema *sp.Schema) []xconf.Path {
 	walk(schema, nil)
 
 	return paths
+}
+
+// withoutLiveRequired copies schema with every Live field optional: the
+// layers below Consul need not supply what only Consul may.
+func withoutLiveRequired(schema *sp.Schema) *sp.Schema {
+	out, _ := proto.Clone(schema).(*sp.Schema)
+
+	var walk func(s *sp.Schema)
+
+	walk = func(s *sp.Schema) {
+		for _, f := range s.GetFields() {
+			if f.GetAnnotations()[LiveAnnotation].GetBoolValue() {
+				f.Required = false
+
+				continue
+			}
+
+			if obj := f.GetObject(); obj != nil {
+				walk(obj.GetSchema())
+			}
+		}
+	}
+	walk(out)
+
+	return out
 }

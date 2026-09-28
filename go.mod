@@ -5,13 +5,13 @@ go 1.26.0
 require (
 	github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5
 	github.com/gopherex/ws-proto v1.6.0
-	github.com/gopherex/xconf v1.3.0
-	github.com/gopherex/xconf/contrib/decoders/json v1.3.0
-	github.com/gopherex/xconf/contrib/decoders/yaml v1.3.0
-	github.com/gopherex/xconf/contrib/sources/consul v1.3.0
-	github.com/gopherex/xconf/contrib/sources/env v1.3.0
-	github.com/gopherex/xconf/contrib/sources/file v1.3.0
-	github.com/gopherex/xlog v1.1.0
+	github.com/gopherex/xconf v1.4.0
+	github.com/gopherex/xconf/contrib/decoders/json v1.4.0
+	github.com/gopherex/xconf/contrib/decoders/yaml v1.4.0
+	github.com/gopherex/xconf/contrib/sources/consul v1.4.0
+	github.com/gopherex/xconf/contrib/sources/env v1.4.0
+	github.com/gopherex/xconf/contrib/sources/file v1.4.0
+	github.com/gopherex/xlog v1.2.0
 	github.com/gopherex/xprobe v1.1.0
 	github.com/gopherex/xprobe/pkg/transport/grpc v1.1.0
 	github.com/gopherex/xshutdown v1.0.0
@@ -48,7 +48,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/google/cel-go v0.30.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gopherex/xlog/contrib/libs/otel v1.0.1 // indirect
+	github.com/gopherex/xlog/contrib/libs/otel v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
