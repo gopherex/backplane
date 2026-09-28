@@ -1,4 +1,22 @@
-// hello is the reference service: every part of the SDK API in one place.
+// hello is the reference service: every part of the SDK's author API, each
+// where a real service would put it.
+//
+//   - internal/store: a contrib-style provider (config section + Provider)
+//     used as a required dependency and as an optional one (ProbeOptional).
+//   - internal/greeter: a component with Go, Span, Meter, a Singleton, Live
+//     configuration with Watch and Validate; declares and publishes Greeted
+//     (Key, ID, Header); serves HelloService.
+//   - internal/audit: a reactor on hello.Greeted with a pinned Consumer and
+//     delivery options, idempotent through event.DeliveryOf.
+//   - internal/flows: the Greet hook (Call and WorkflowCall), the Echo
+//     activity (Handle) and the workflow-backed Welcome, workflows Declare,
+//     Register and an hourly Schedule.
+//   - internal/web and internal/legacy: HTTP, GraphQL, middleware and
+//     interceptors; a listener of its own announced by svc.Route.
+//   - internal/admin, ui: the internal API and the console plugin bundle.
+//
+// Consul, NATS and Temporal are optional: without them hello starts with
+// warnings and the local fallbacks answer.
 package main
 
 import (
@@ -6,27 +24,38 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"time"
 
 	"google.golang.org/grpc"
 
+	"github.com/gopherex/xprobe/pkg/probe"
+
+	"github.com/gopherex/backplane/examples/hello/internal/admin"
+	"github.com/gopherex/backplane/examples/hello/internal/audit"
+	"github.com/gopherex/backplane/examples/hello/internal/flows"
 	"github.com/gopherex/backplane/examples/hello/internal/greeter"
+	"github.com/gopherex/backplane/examples/hello/internal/legacy"
 	"github.com/gopherex/backplane/examples/hello/internal/store"
+	"github.com/gopherex/backplane/examples/hello/internal/web"
 	helloconsolev1 "github.com/gopherex/backplane/examples/hello/proto/hello/console/v1"
 	helloui "github.com/gopherex/backplane/examples/hello/ui"
 	"github.com/gopherex/backplane/pkg/backplane"
-	"github.com/gopherex/backplane/pkg/backplane/activity"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
-	"github.com/gopherex/backplane/pkg/backplane/hook"
 	"github.com/gopherex/backplane/pkg/backplane/route"
 	"github.com/gopherex/backplane/pkg/backplane/wsproto"
 )
 
-// greetTimeout bounds the hook call of the HTTP handler.
-const greetTimeout = 2 * time.Second
+// Route policy at Envoy.
+const (
+	httpTimeout   = 5 * time.Second
+	streamTimeout = time.Minute
+	corsMaxAge    = time.Hour
+	maxGraphQL    = 64 << 10
+	// cacheRetry bounds the delay between attempts to provide the cache.
+	cacheRetry = 10 * time.Second
+)
 
 // Config is the whole configuration: file < env (HELLO_*, BACKPLANE_* for the
 // block) < Consul KV for Live fields only.
@@ -36,34 +65,22 @@ type Config struct {
 	Greeter greeter.Config `json:"greeter"`
 	Store   store.Config   `json:"store"`
 	Cache   store.Config   `json:"cache"`
+	Legacy  legacy.Config  `json:"legacy"`
 }
-
-// Payloads of the hook and the activity.
-type (
-	GreetIn struct {
-		Name string `json:"name"`
-	}
-	GreetOut struct {
-		Text string `json:"text"`
-	}
-	EchoIn struct {
-		Text string `json:"text"`
-	}
-	EchoOut struct {
-		Text string `json:"text"`
-	}
-)
 
 // State is everything the service holds: a tree built under the Root.
 type State struct {
 	// Required: start waits for it (retrying), readiness follows its probe.
 	Store deps.Dependency[*store.DB]
-	// Optional: the service starts without it and keeps retrying.
+	// Optional: the service starts without it and keeps retrying; while its
+	// probe fails (ProbeOptional) Get reports it absent.
 	Cache deps.Optional[*store.DB]
 
 	Greeter *greeter.Greeter
-	Admin   *Admin
-	Greet   hook.Ref[GreetIn, GreetOut]
+	Audit   *audit.Audit
+	Flows   *flows.Flows
+	Admin   *admin.Admin
+	Legacy  *legacy.Server
 }
 
 // NewState wires the tree explicitly: every node gets what it needs by
@@ -72,9 +89,9 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	cfg := root.Config()
 
 	st := &State{
-		Store: deps.NewDependency(root, store.New(&cfg.Store)),
-		Cache: deps.NewOptional(root, store.New(&cfg.Cache), deps.Name("cache")),
-		Greet: hook.Declare[GreetIn, GreetOut](root, "Greet", hook.Required()),
+		Store: deps.NewDependency(root, store.New(&cfg.Store), deps.ProbeTimeout(time.Second)),
+		Cache: deps.NewOptional(root, store.New(&cfg.Cache), deps.Name("cache"),
+			deps.ProbeOptional(), deps.Backoff(time.Second, cacheRetry)),
 	}
 
 	g, err := greeter.New(root, &cfg.Greeter, st.Store)
@@ -83,46 +100,15 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	}
 
 	st.Greeter = g
-	st.Admin = NewAdmin(root, g, st.Store, st.Cache)
+	st.Audit = audit.New(root, g.Greeted())
+	st.Flows = flows.New(root, g, st.Store)
+	st.Admin = admin.New(root, g, st.Audit, st.Store, st.Cache)
 
-	// What the service can do for bindings and rules.
-	activity.Handle(root, "Echo", func(_ context.Context, in EchoIn) (EchoOut, error) { return EchoOut(in), nil })
+	if st.Legacy, err = legacy.New(root, &cfg.Legacy); err != nil {
+		return nil, err //nolint:wrapcheck // prefixed by legacy
+	}
 
 	return st, nil
-}
-
-// Admin is the internal API for the console plugin.
-type Admin struct {
-	helloconsolev1.UnimplementedAdminServiceServer
-	deps.Component
-
-	greeter *greeter.Greeter
-	db      deps.Dependency[*store.DB]
-	cache   deps.Optional[*store.DB]
-}
-
-// NewAdmin creates the admin component.
-func NewAdmin(
-	parent deps.Scope, g *greeter.Greeter, db deps.Dependency[*store.DB], cache deps.Optional[*store.DB],
-) *Admin {
-	return &Admin{Component: deps.NewComponent(parent, "admin"), greeter: g, db: db, cache: cache}
-}
-
-// GetStats implements AdminService.
-func (a *Admin) GetStats(
-	ctx context.Context, _ *helloconsolev1.GetStatsRequest,
-) (*helloconsolev1.GetStatsResponse, error) {
-	text, err := a.greeter.Text(ctx, "you")
-	if err != nil {
-		return nil, err //nolint:wrapcheck // already carries the node path
-	}
-
-	// An optional dependency may be absent: Get says so.
-	if cache, ok := a.cache.Get(); ok {
-		cache.Inc(ctx, "stats")
-	}
-
-	return &helloconsolev1.GetStatsResponse{Greetings: a.db.Get().Total(), CurrentGreeting: text}, nil
 }
 
 func main() {
@@ -140,38 +126,23 @@ func run(ctx context.Context) error {
 
 	st := svc.State()
 
-	// External API: one implementation over gRPC (+Connect) and ws-proto, plus HTTP.
-	svc.GRPC(st.Greeter.Register, route.Transcode())
+	// External API: one implementation over gRPC (+Connect) and ws-proto.
+	svc.GRPC(st.Greeter.Register, route.Transcode(), route.Reflection(),
+		route.Interceptors(web.Unary(svc.Log())), route.StreamInterceptors(web.Stream(svc.Log())),
+		route.Timeout(streamTimeout))
 	// The zero origin policy: same-origin browsers and non-browser clients.
-	wsproto.Serve(svc, "/ws/", route.Origins{}, st.Greeter.Register)
-	svc.HTTP("/hello/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	wsproto.Serve(svc, "/ws/", route.Origins{}, st.Greeter.Register,
+		route.Interceptors(web.Unary(svc.Log())), route.Middleware(web.ServedBy(svc.Name())))
 
-		name := r.URL.Query().Get("name")
-		if name == "" {
-			name = "world"
-		}
+	// HTTP and GraphQL, with their Envoy policy.
+	svc.HTTP("/hello/", web.Hello(st.Flows.Greet, st.Greeter),
+		route.Middleware(web.ServedBy(svc.Name())), route.Timeout(httpTimeout),
+		route.CORS(route.CORSPolicy{Origins: []string{"*"}, Methods: []string{"GET"}, MaxAge: corsMaxAge}))
+	svc.GraphQL("/graphql/", web.GraphQL(st.Greeter), web.Introspection,
+		route.Timeout(httpTimeout), route.MaxRequestBytes(maxGraphQL))
 
-		// A bound hook answers first; the local greeter is the fallback when
-		// there is no Temporal, no binding or no answer in time.
-		ctx, cancel := context.WithTimeout(r.Context(), greetTimeout)
-		defer cancel()
-
-		if out, err := st.Greet.Call(ctx, GreetIn{Name: name}); err == nil {
-			fmt.Fprintln(w, out.Text)
-
-			return
-		}
-
-		text, err := st.Greeter.Text(r.Context(), name)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-
-			return
-		}
-
-		fmt.Fprintln(w, text) //nolint:gosec // text/plain, not HTML
-	}))
+	// A listener hello serves itself, announced for Envoy.
+	svc.Route(route.HTTP(legacy.Prefix, route.Port(st.Legacy.Port()), route.Timeout(httpTimeout)))
 
 	// Internal API and UI bundle for the console plugin.
 	svc.Internal(func(r grpc.ServiceRegistrar) { helloconsolev1.RegisterAdminServiceServer(r, st.Admin) })
@@ -182,6 +153,10 @@ func run(ctx context.Context) error {
 	}
 
 	svc.UI(bundle)
+
+	// Probes beyond the required dependencies, which are readiness already.
+	svc.LivenessProbe(probe.FromError(st.Greeter.Alive))
+	svc.ReadinessProbe(probe.FromError(st.Greeter.Ready))
 
 	return svc.Run(ctx) //nolint:wrapcheck // prefixed by backplane
 }

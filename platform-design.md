@@ -1,7 +1,15 @@
 # backplane — design v2
 
-Статус: черновик 2026-09-27 после ревью. Единственный документ дизайна;
-прежние спека и docs/ удалены.
+Статус: черновик. Единственный документ дизайна платформы и её Go SDK.
+
+**Что из этого есть в коде.** Репозиторий содержит Go SDK
+(`pkg/backplane`, proto-контракт `backplanepb`), эталонный сервис
+`examples/hello`, conformance-тесты и platform-in-a-box
+(`docker-compose.yaml`). Сервера backplane (бинарь `cmd/backplane`,
+консоль, UI SDK, генератор `protoc-gen-backplane`) в репозитории нет:
+разделы и абзацы, помеченные **[backplane]**, — дизайн сервера платформы,
+а не поведение SDK. Всё непомеченное про SDK описывает код как он есть;
+статус по этапам — §16.2.
 
 ## 0. Что такое backplane
 
@@ -55,8 +63,9 @@ backplane — место, где **независимые сервисы сое�
   Схема (schemapb; protobuf — удобный способ её получить, не обязанность)
   — приложение к манифесту: есть — формы, валидация CEL при сохранении,
   подсветка, маскирование секретов; нет — JSON-редактор и ошибки в
-  рантайме. SDK снимает схему автоматически с proto и Go-структур, отказ —
-  явный.
+  рантайме. SDK снимает схему автоматически с proto и Go-структур: для
+  конфигурации схема, которая не снимается, — ошибка `Open`, для хуков, активити,
+  событий и workflows — объявление без схемы (payload — просто JSON).
 - **Два уровня на проводе.** Протокол платформы — protobuf binary, наши
   пакеты `backplane.*`: манифест, состояние инстанса, envelope хука и
   активити, API консоли. Внутри envelope — payload автора как непрозрачный
@@ -83,6 +92,10 @@ backplane — место, где **независимые сервисы сое�
 | **Temporal** | workflows сервисов, исполнение хуков, биндингов и правил | да |
 | **PostgreSQL** | собственное состояние backplane | да |
 
+«Обязателен» — для установки с backplane. Сервис на SDK стартует и
+работает без любого из них: недостающее — предупреждение в лог, не ошибка
+(§4.5).
+
 Consul — не Kubernetes-специфичен, ставится везде; это и делает возможным
 «мы не деплоим». Service mesh не требуется (§10).
 
@@ -90,21 +103,26 @@ Consul — не Kubernetes-специфичен, ставится везде; э
 
 Сервис — процесс на нашем SDK, со своим API, своими портами, своим кодом.
 Всё, что он хочет от платформы, он **объявляет**; SDK собирает объявления
-в **манифест** при старте. Семь разделов:
+в **манифест** (`backplane.v1.Manifest`, §4.2) в `Run`. Восемь разделов:
 
 | # | раздел | кто потребляет | обязательно | схема (опционально) |
 |---|---|---|---|---|
-| 0 | статическая и динамическая конфигурация | консоль, Consul KV | ключи | schemapb из proto / Go-структуры / руками |
+| 0 | конфигурация: обычные и Live-поля | консоль, Consul KV | ключи | schemapb из Go-структуры |
 | 1 | внешнее API | Envoy (роуты), консоль (только информация) | роуты | OpenAPI или proto-дескрипторы |
 | 2 | внутреннее API | его UI-бандл через консольный прокси | полные имена gRPC-сервисов | — (relay байтов) |
-| 3 | события, которые он отправляет | подписчики, консоль | имена | schemapb |
+| 3 | события, которые он отправляет, и реакторы на чужие | подписчики, консоль | имена | schemapb |
 | 4 | хуки, которые он вызывает | backplane (биндинги) | имена | schemapb входа/выхода |
 | 5 | активити, которые он может обработать | биндинги и правила | имена | schemapb входа/выхода |
 | 6 | UI-бандл | консоль | `plugin.json` | — |
+| 7 | свои workflows и расписания (§9) | консоль | имена | schemapb входа/выхода |
 
-Генератор `protoc-gen-backplane` (поверх `protoc-gen-go`,
-`protoc-gen-go-temporal`) — удобство: делает объявления и типизированные
-обёртки из proto. Runtime SDK принимает объявления в коде с любыми типами.
+Плюс то, что SDK добавляет сам: дерево узлов автора (`nodes`) и общий
+`FileDescriptorSet` сервисов (`descriptors`).
+
+Объявления — в коде, с любыми Go-типами. Генератор
+`protoc-gen-backplane` (поверх `protoc-gen-go`, `protoc-gen-go-temporal`),
+который делал бы объявления и типизированные обёртки из proto, — удобство
+на будущее: его нет, и SDK от него не зависит.
 
 ### 3.0 Конфигурация
 
@@ -142,15 +160,34 @@ Consul — не Kubernetes-специфичен, ставится везде; э
 
 Пакет `config` работает и без остального SDK: `config.Load[C](ctx, opts...)`
 читает один раз (defaults, файл, env) — для утилит и тестов;
-`config.Open[C](ctx, opts...)` возвращает `*config.Runtime[C]` —
-живую конфигурацию: `Value()` (стабильный указатель, Live-поля
-обновляются на месте), `Degraded()` (почему слой Consul пуст или устарел),
-`Close()`. `config.TLS.ClientConfig()` — `*tls.Config` из PEM-полей блока
-TLS, тот же, что SDK строит для Consul и NATS. Опции: `Service`, `File`, `WithoutFile`, `EnvPrefix`,
-`WithoutEnv`, `Source` (свои слои выше env, ниже KV), `WithoutConsul`,
-`ConsulOptions`, `ConsulBackoff(min, max)` (пауза между попытками до
-недоступного Consul, по умолчанию 1s..30s). `ctx` ограничивает только
-загрузку; runtime живёт до `Close`.
+`config.Open[C](ctx, opts...)` (C встраивает `config.Backplane`)
+возвращает `*config.Runtime[C]` — живую конфигурацию: `Value()`
+(стабильный указатель, Live-поля обновляются на месте), `Degraded()`
+(почему слой Consul пуст или устарел), `Close()`. Опции: `Service`
+(имя, если `build.Service` не проштампован), `File` (вместо
+`BACKPLANE_CONFIG_FILE`; YAML или JSON по расширению), `WithoutFile`,
+`EnvPrefix` (вместо `<SERVICE>_`), `WithoutEnv`, `Source` (свои слои выше
+env, ниже KV), `WithoutConsul`, `ConsulOptions` (в Consul-источник xconf),
+`ConsulBackoff(min, max)` (пауза между попытками до недоступного Consul,
+по умолчанию 1s..30s). `ctx` ограничивает только загрузку; runtime живёт
+до `Close`.
+
+Env автора — `<SERVICE>_<PATH>`: префикс — имя сервиса в верхнем
+регистре, `-` и `.` → `_` (`my-svc` → `MY_SVC_`); путь — JSON-имена
+полей в верхнем регистре через `_` (`HELLO_GREETER_SUFFIX`). Блок SDK
+читается из фиксированного `BACKPLANE_<PATH>` (§4.3); `<SERVICE>_*` —
+слой выше, так что `<SERVICE>_BACKPLANE_<PATH>` перекрывает
+`BACKPLANE_<PATH>`. Объект или список задаётся одной переменной целиком
+в JSON (`BACKPLANE_CONSUL_TAGS='["blue"]'`); объект целиком и его поле по
+отдельности вместе — ошибка загрузки.
+
+`config.TLS` — TLS клиентского соединения: `Enabled`, `CA`, `Cert`, `Key`
+(`Secret`), `ServerName`, `InsecureSkipVerify`; PEM-содержимое, не пути.
+`ClientConfig()` строит из него `*tls.Config` (TLS 1.2+; `nil` при
+выключенном TLS; пустой `CA` — системный пул; `Cert` и `Key` — только
+вместе, иначе `config.ErrTLSPair`; `CA` без сертификата —
+`config.ErrTLSCA`) — это тот же `*tls.Config`, что SDK строит для
+Consul, NATS и Temporal.
 
 ### 3.1 Внешнее API
 
@@ -242,9 +279,9 @@ ws-proto несут в манифесте полные имена сервисо
 консольный прокси backplane (§11), байты как есть. Другим сервисам
 недоступно. Регистрация — `svc.Internal(register)`. Proto-пакет —
 `<service>.console.v1` (`-` в имени сервиса → `_`; `internal` в пути
-запрещён Go): сервис из другого пакета — ошибка `Run`. Полные имена
-методов должны быть уникальны в установке, коллизия — манифест
-отвергается.
+запрещён Go): сервис из другого пакета — ошибка `Run`. **[backplane]**
+Полные имена методов должны быть уникальны в установке: манифест с
+коллизией backplane отвергает.
 
 Внутреннее API закрыто секретом (`BACKPLANE_INTERNAL_SECRET`, §11.1) и
 обслуживается только пока поднято дерево автора: до его старта (например,
@@ -256,14 +293,17 @@ ws-proto несут в манифесте полные имена сервисо
 ### 3.3 События
 
 Именованные сообщения, которые сервис публикует в NATS как CloudEvents с
-JSON-payload (§8). `event.Declare[T](scope, "Greeted")` возвращает
-`event.Ref[T]`; `ref.Publish(ctx, v, event.Key(k))` отправляет. Реактор на
-чужое событие — `event.React[T](scope, "iam.UserRegistered", fn, opts...)`
-(опции доставки — `event.MaxDeliver`, `Concurrency`, `Ordered`, `Timeout`,
+JSON-payload (§8). `event.Declare[T](scope, "Greeted", event.Describe(s))`
+возвращает `event.Ref[T]`; `ref.Publish(ctx, v, opts...)` отправляет
+(опции — `event.Key`, `ID`, `Time`, `Header`, §8), `ref.Name()` — полное
+имя `<service>.Greeted`. Реактор на событие любого сервиса —
+`event.React[T](scope, "iam.UserRegistered", fn, opts...)` (опции
+доставки — `event.MaxDeliver`, `Concurrency`, `Ordered`, `Timeout`,
 `Redelivery`, `StartAt`, `Consumer`, `InactiveThreshold`, §8); в манифесте
-он — `subscriptions` (`event` и `consumer`, §8). Метаданные доставки —
+он — `subscriptions` (`event` и `consumer`). Метаданные доставки —
 `event.DeliveryOf(ctx)`, ошибка без повторов — `event.Terminal(err)`,
-повторная обработка dead letters — `event.Redrive`.
+повторная обработка dead letters — `event.Redrive`, нативный клиент —
+`event.JetStream(scope)`.
 
 ### 3.4 Хуки («нужно»)
 
@@ -281,13 +321,16 @@ out, err := send.Call(ctx, in, hook.Key(in.RequestID), hook.Timeout(5*time.Secon
 - `hook.Declare[Req, Res](scope, name, opts...)` возвращает
   `hook.Ref[Req, Res]`. Опции: `hook.Required()` — без биндинга сервис
   работать не может; `hook.DefaultTimeout(d)` — дедлайн вызова, если сам
-  вызов его не задал; `hook.Describe(s)` — описание для консоли. Манифест
-  несёт `required`, `timeout`, `description` и схемы.
+  вызов его не задал (`d ≤ 0` игнорируется); `hook.Describe(s)` —
+  описание для консоли. Манифест несёт `required`, `timeout`,
+  `description` и схемы. `ref.Name()` — полное имя `<service>.<Name>`.
 - `ref.Call(ctx, req, opts...)` работает из любого Go-кода — HTTP-handler'а,
   реактора, активити, `OnStart` и `OnStop` компонента (§7.2); из
   workflow-кода — `ref.WorkflowCall(wctx, req, opts...)` с
-  `workflow.Context`. Пока транспорта нет, `Call` возвращает
-  `hook.ErrUnavailable`.
+  `workflow.Context`. Пока транспорта нет (Temporal не задан, не
+  подключён или backplane ещё не завёл Nexus endpoint сервиса), `Call`
+  сразу возвращает `hook.ErrUnavailable`; нет биндинга —
+  `hook.ErrNoBinding`.
 - Дедлайн вызова — самый ранний из дедлайна `ctx` и собственного:
   `hook.Timeout(d)` вызова, иначе `DefaultTimeout` объявления, иначе — если
   у `ctx` дедлайна нет — платформенный `backplane.temporal.hook_timeout`
@@ -300,7 +343,8 @@ out, err := send.Call(ctx, in, hook.Key(in.RequestID), hook.Timeout(5*time.Secon
   живёт, пока Temporal хранит завершённый запуск (retention namespace'а).
   `WorkflowCall` ключ игнорирует — workflow и так durable.
 - Метрика `backplane.hook.call.duration` (атрибуты `hook`, `outcome`:
-  `ok`, `no_binding`, `unavailable`, `timeout`, `error`) — на каждый `Call`.
+  `ok`, `no_binding`, `unavailable`, `timeout`, `error`) — на каждый `Call`
+  (`WorkflowCall` виден в истории workflow и её не пишет).
 
 ### 3.5 Активити («умею»)
 
@@ -318,7 +362,9 @@ activity.Workflow(root, "Onboard", onboarding.Run) // func(workflow.Context, Req
 ```
 
 - `activity.Handle(scope, name, func(ctx, in Req) (Res, error), opts...)` —
-  Temporal activity (`kind: ACTIVITY` в манифесте).
+  Temporal activity (`kind: ACTIVITY` в манифесте). Ошибка обработчика
+  повторяется по политике шага; `activity.NonRetryable(err)` — без
+  повторов; вход, который не декодируется, — тоже без повторов (§7.2).
 - `activity.Workflow(scope, name, func(wctx, in Req) (Res, error), opts...)`
   — активити на workflow (`kind: WORKFLOW`): шаг биндинга исполняет её как
   child workflow с этим именем на очереди сервиса; внутри можно ждать,
@@ -334,7 +380,8 @@ activity.Workflow(root, "Onboard", onboarding.Run) // func(workflow.Context, Req
   первая), `Binding` и `Step` (из `ActivityCall`: кто вызвал и какой шаг),
   `Key` — `<workflow id>/<activity id>`, одинаковый у всех попыток одного
   исполнения шага (ключ идемпотентности для внешних побочных эффектов),
-  `Deadline` попытки. Вне транспорта (`backplanetest`) — `false`.
+  `Deadline` попытки. Обработчик, вызванный напрямую, а не транспортом или
+  `backplanetest.Activity` (§4.6), получает `false`.
 - `activity.Heartbeat(ctx, details...)` — прогресс долгого обработчика:
   таймаут heartbeat отсчитывается от последнего, отмену шага `ctx`
   замечает на следующем; вне транспорта ничего не делает.
@@ -356,7 +403,12 @@ proto-сообщений). Вход и выход меняются только 
 Module Federation remote, собранный против UI SDK; `plugin.json` с
 `sdk_major` и навигацией. Работает с внутренним API (§3.2) через консоль.
 Объявление — `svc.UI(bundle fs.FS)`; манифест получает `ui.hash` (sha256
-бандла) и `ui.sdk_major` из `plugin.json`. Доставка — §11.2.
+по пути и содержимому каждого файла бандла) и `ui.sdk_major` из
+`plugin.json`; бандл без читаемого `plugin.json` — ошибка `Run`. SDK
+отдаёт бандл на платформенном порту (`GET /_backplane/ui/<path>`, за
+секретом, §4.1) с `ETag` = `"<ui.hash>"` и `Cache-Control: no-cache` на
+каждом файле: кэш перепроверяет файл и получает `304`, пока бандл не
+изменился. Доставка в браузер — §11.2.
 
 ## 4. Регистрация, порты, манифест
 
@@ -367,11 +419,12 @@ Module Federation remote, собранный против UI SDK; `plugin.json` 
 - **платформенный порт** — один (`BACKPLANE_INTERNAL_PORT`, 9400),
   поднимает SDK, всё платформенное через cmux: внутреннее API (gRPC),
   `grpc.health.v1`, HTTP-пробы xprobe (`/healthz/liveness`,
-  `/healthz/readiness`, `/healthz/startup`), `GET /_backplane/ui/*` (бандл),
-  `GET /_backplane/info` (JSON: сервис, версия, инстанс, адрес, окружение,
-  `sdk_version`, `go_version`, commit и дата сборки) и, с
-  `BACKPLANE_PPROF=true`, `/debug/pprof/*`. Пробы и health открыты;
-  остальное — только с секретом (§11.1). Через Envoy не публикуется;
+  `/healthz/readiness`, `/healthz/startup`), `GET /_backplane/ui/*` (бандл,
+  §3.6), `GET /_backplane/info` (JSON: `service`, `version`, `instance`,
+  `advertise`, `environment`, `sdk_version`, `go_version`, `commit`,
+  `build_date`) и, с `BACKPLANE_PPROF=true`, `/debug/pprof/*`. Пробы и
+  `grpc.health.v1` открыты; остальное — только с секретом (§11.1). Через
+  Envoy не публикуется;
 - **порты внешнего API** — общий публичный порт managed-роутов
   (`BACKPLANE_PUBLIC_PORT`, 8080), отдельные `route.Listen(addr)` и порты,
   которые автор обслуживает сам (declarative-роуты).
@@ -409,16 +462,18 @@ readiness сами; в liveness зависимостям не место — м�
   новую), присутствие в Consul продолжается. Версию с build-метаданными
   (`+…`, dev-сборки) SDK перезаписывает. Версия без штампа (`0.0.0`) записывается как
   `0.0.0+<12 hex хэша манифеста>`: dev-сборки с разными объявлениями не
-  перетирают манифесты друг друга. Содержимое: `service`, `version`,
-  `sdk_version`; `config` (схема, ключи, пути Live-полей); `routes`;
-  `internal_services`; `events`, `hooks`, `activities`; `subscriptions`
-  (реакторы: событие и consumer); `ui`; `nodes` — дерево автора в порядке
-  старта (путь, вид, `optional`); `descriptors` — один
+  перетирают манифесты друг друга. Отсутствующий ключ создаётся CAS'ом:
+  два инстанса одной версии, стартующие одновременно, не спорят.
+  Содержимое: `service`, `version`, `sdk_version`; `config` (схема, ключи
+  верхнего уровня, пути Live-полей); `routes`; `internal_services`;
+  `events`, `hooks`, `activities`; `subscriptions` (реакторы: событие и
+  consumer); `workflows` и `schedules` (§9); `ui`; `nodes` — дерево автора
+  в порядке старта (путь, вид, `optional`); `descriptors` — один
   `FileDescriptorSet` на все сервисы managed-роутов и внутреннего API.
-  Консоль и backplane используют манифест **старшей живой
-  версии** (версии живых инстансов — из их состояния); ключи версий, у
-  которых не осталось инстансов, backplane удаляет. Rolling upgrade и
-  откат не моргают и не требуют CAS.
+  Манифест больше 512 KB — ошибка `Run`. **[backplane]** Консоль и
+  backplane используют манифест **старшей живой версии** (версии живых
+  инстансов — из их состояния); ключи версий, у которых не осталось
+  инстансов, backplane удаляет. Rolling upgrade и откат не моргают.
 - **Состояние инстанса** — `backplane/services/<name>/instances/<id>`,
   `backplane.InstanceState`:
   - `id`, `service`, `version`, `address`, `platform_port`, `started_at`,
@@ -441,22 +496,32 @@ readiness сами; в liveness зависимостям не место — м�
   чьи зависимости ещё ретраятся, виден с фазой `starting`; дальше — при
   каждом изменении конфигурации и фазы, а `nodes` и `transports`
   сверяются на каждом продлении сессии (TTL/3). Ключ привязан к
-  Consul-сессии инстанса с TTL `BACKPLANE_CONSUL_SESSION_TTL` (30s, от 10s
-  до 24h) — умирает вместе с ним; сессия продлевается каждые TTL/3,
-  продления, неудачные дольше TTL/2, пересоздают присутствие. Отсюда
+  Consul-сессии инстанса с TTL `BACKPLANE_CONSUL_SESSION_TTL` (30s;
+  значение вне допустимых Consul 10s..24h приводится к границе) —
+  умирает вместе с ним; сессия продлевается каждые TTL/3, продления,
+  неудачные дольше TTL/2, пересоздают присутствие. Сессия называется
+  `<instance>#<инкарнация>` (случайная на процесс): первое установление
+  присутствия процесса перехватывает ключ у сессии прошлой инкарнации
+  того же инстанса (упавший предшественник); сессия другой живой
+  инкарнации позже — это дубликат id инстанса: ошибка в лог
+  (`duplicate instance id`) и повтор с backoff. **[backplane]** Отсюда
   консоль берёт «что реально применено», backplane — базу для валидации
   override, консольный прокси — адрес и порт для relay.
 
-backplane держит blocking queries на каталог и на префикс
-`backplane/services/`. `Meta` регистрации (512 символов на значение) не
-используется — всё наше лежит в KV, и внешняя регистрация деплоем ничего
+**[backplane]** backplane держит blocking queries на каталог и на префикс
+`backplane/services/`. `Meta` регистрации (512 символов на значение) SDK
+не заполняет — всё наше лежит в KV, и внешняя регистрация деплоем ничего
 про нас знать не должна.
 
 ### 4.3 Блок SDK в конфигурации
 
 Блок `config.Backplane`, встроенный в конфигурацию автора (тег
-`json:"backplane"`); env фиксированный для всех сервисов, остальная
-конфигурация читается из `<SERVICE>_*` (`HELLO_GREETER_SUFFIX`):
+`json:"backplane"`; `backplane.Open` требует его — `config.Backplaner`).
+Env блока фиксирован для всех сервисов: `BACKPLANE_<PATH>`, путь —
+JSON-имена полей блока в верхнем регистре через `_`; остальная
+конфигурация читается из `<SERVICE>_*` (`HELLO_GREETER_SUFFIX`, §3.0). В
+файле конфигурации блок — секция `backplane:`. Таблица — все поля блока
+с умолчаниями:
 
 | | |
 |---|---|
@@ -465,15 +530,15 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_CONSUL_TLS_ENABLED`, `_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME` | HTTPS к Consul: содержимое PEM, не пути; пустой `_TLS_CA` — системный пул; `_TLS_CERT` + `_TLS_KEY` — клиентский сертификат, только парой; непарсящийся PEM — ошибка `Open`. Включённый TLS блока целиком заменяет TLS из `CONSUL_*` |
 | `BACKPLANE_CONSUL_TLS_INSECURE_SKIP_VERIFY` | не проверять сертификат Consul — только для разработки |
 | `CONSUL_HTTP_TOKEN`, `CONSUL_HTTP_TOKEN_FILE`, `CONSUL_HTTP_SSL`, `CONSUL_CACERT`, `CONSUL_CAPATH`, `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`, `CONSUL_TLS_SERVER_NAME`, `CONSUL_HTTP_SSL_VERIFY` | стандартные переменные клиента Consul: заполняют то, что блок оставил пустым (токен, TLS при выключенном TLS блока); Consul включает только `BACKPLANE_CONSUL_ADDR` |
-| `BACKPLANE_CONSUL_REGISTER` | `false` — регистрирует деплой |
+| `BACKPLANE_CONSUL_REGISTER` | регистрация в каталоге (`true`); `false` — регистрирует деплой |
 | `BACKPLANE_CONSUL_TAGS` | теги регистрации в каталоге, JSON-список (`["blue","canary"]`) |
 | `BACKPLANE_CONSUL_CHECK_INTERVAL`, `_CHECK_TIMEOUT`, `_DEREGISTER_AFTER` | health check регистрации: интервал (`10s`), таймаут (`5s`), снятие из каталога после стольких в critical (`1m`) |
-| `BACKPLANE_CONSUL_SESSION_TTL` | TTL сессии, под которой живёт состояние инстанса (`30s`, от 10s до 24h): продление каждые TTL/3, после TTL/2 неудачных продлений присутствие пересоздаётся; после смерти процесса состояние исчезает не позже чем через TTL |
-| `BACKPLANE_INSTANCE`, `BACKPLANE_ADVERTISE` | id и адрес инстанса, если не по умолчанию |
-| `BACKPLANE_INTERNAL_PORT` | платформенный порт (9400) |
+| `BACKPLANE_CONSUL_SESSION_TTL` | TTL сессии, под которой живёт состояние инстанса (`30s`; вне 10s..24h приводится к границе): продление каждые TTL/3, после TTL/2 неудачных продлений присутствие пересоздаётся; после смерти процесса состояние исчезает не позже чем через TTL |
+| `BACKPLANE_INSTANCE`, `BACKPLANE_ADVERTISE` | id инстанса (по умолчанию `<service>-<hostname>`) и адрес (по умолчанию `POD_IP`, иначе адрес hostname'а, §4.2); опции `backplane.Instance` / `Advertise` — выше них |
+| `BACKPLANE_INTERNAL_PORT` | платформенный порт (`9400`, 1..65535) |
 | `BACKPLANE_INTERNAL_SECRET` | секрет платформенного порта (§11.1); пусто — проверка выключена, `Run` пишет предупреждение |
 | `BACKPLANE_INTERNAL_SECRET_PREVIOUS` | прежний секрет, принимаемый наравне с текущим, пока идёт ротация (§13); без `_INTERNAL_SECRET` не действует |
-| `BACKPLANE_PUBLIC_PORT` | публичный порт managed-роутов (8080) |
+| `BACKPLANE_PUBLIC_PORT` | публичный порт managed-роутов (`8080`, 1..65535) |
 | `BACKPLANE_NATS_URL`, `_NATS_CREDS` | события; пусто — без NATS; `_NATS_CREDS` — содержимое `.creds`-файла |
 | `BACKPLANE_NATS_TLS_ENABLED`, `_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME` | TLS к NATS: содержимое PEM, не пути; пустой `_TLS_CA` — системный пул; `_TLS_CERT` + `_TLS_KEY` — клиентский сертификат, только парой; непарсящийся PEM — ошибка старта узла `nats` |
 | `BACKPLANE_NATS_TLS_INSECURE_SKIP_VERIFY` | не проверять сертификат NATS — только для разработки |
@@ -482,16 +547,16 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_NATS_REPLICAS` | реплики стрима событий и стрима dead letters сервиса (`1`, от 1 до 5) |
 | `BACKPLANE_NATS_DEDUP_WINDOW` | окно дедупликации стрима событий (`2m`); `0 < окно ≤ max_age`, иначе ошибка `Open` |
 | `BACKPLANE_NATS_DLQ_MAX_AGE` | хранение dead letters `bp_dlq_<service>` (`720h`); `0` — без ограничения |
-| `BACKPLANE_TEMPORAL_ADDR`, `_TEMPORAL_NS` | хуки, активити, workflows; пусто — без Temporal |
+| `BACKPLANE_TEMPORAL_ADDR`, `_TEMPORAL_NS` | хуки, активити, workflows; пустой адрес — без Temporal; namespace (`default`; поле `ns`: `namespace` — зарезервированное слово CEL) |
 | `BACKPLANE_TEMPORAL_TLS_ENABLED`, `_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME` | TLS к Temporal: содержимое PEM, не пути; пустой `_TLS_CA` — системный пул; `_TLS_CERT` + `_TLS_KEY` — клиентский сертификат (mTLS), только парой; непарсящийся PEM — ошибка старта узла `temporal` |
 | `BACKPLANE_TEMPORAL_TLS_INSECURE_SKIP_VERIFY` | не проверять сертификат сервера — только для разработки |
 | `BACKPLANE_TEMPORAL_API_KEY` | API key Temporal Cloud (`Authorization: Bearer`); включает TLS и без `_TLS_ENABLED` |
 | `BACKPLANE_TEMPORAL_DIAL_TIMEOUT` | одна попытка подключения (`2s`): первая — на старте узла `temporal`, следующие — в фоне; он же таймаут проверки соединения |
 | `BACKPLANE_TEMPORAL_HOOK_TIMEOUT` | дедлайн вызова хука, если его не задали ни `ctx`, ни вызов, ни объявление (`30s`, §3.4) |
 | `BACKPLANE_TEMPORAL_WORKER_ENABLED` | `false` — реплика без worker'а активити и workflows; worker вызовов хуков работает и здесь (§9) |
-| `BACKPLANE_TEMPORAL_WORKER_MAX_CONCURRENT_ACTIVITIES`, `_MAX_CONCURRENT_WORKFLOW_TASKS` | параллелизм worker'а; `0` — умолчание Temporal |
-| `BACKPLANE_TEMPORAL_WORKER_ACTIVITY_POLLERS`, `_WORKFLOW_POLLERS` | поллеры worker'а; `0` — умолчание Temporal |
-| `BACKPLANE_ENVIRONMENT` | `deployment.environment.name` |
+| `BACKPLANE_TEMPORAL_WORKER_MAX_CONCURRENT_ACTIVITIES`, `_MAX_CONCURRENT_WORKFLOW_TASKS` | параллелизм worker'а (`0` — умолчание Temporal; отрицательное — ошибка `Open`) |
+| `BACKPLANE_TEMPORAL_WORKER_ACTIVITY_POLLERS`, `_WORKFLOW_POLLERS` | поллеры worker'а (`0` — умолчание Temporal; отрицательное — ошибка `Open`) |
+| `BACKPLANE_ENVIRONMENT` | `deployment.environment.name` телеметрии и `environment` в `/_backplane/info`; пусто — атрибута нет |
 | `BACKPLANE_LOG_LEVEL` | уровень лога (`info`); Live — меняется из консоли на лету, непарсящееся значение оставляет прежний уровень с предупреждением в лог. С `backplane.Logger(l)` не применяется: уровень, выводы и OTLP-tee переданного логгера — дело автора |
 | `BACKPLANE_SHUTDOWN_TIMEOUT` | бюджет всей остановки (`25s`); `terminationGracePeriodSeconds` — больше него |
 | `BACKPLANE_SHUTDOWN_DRAIN` | пауза между дерегистрацией и закрытием listener'ов, чтобы балансировщики заметили уход (`3s`); `0 ≤ drain < timeout` |
@@ -504,7 +569,7 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_SERVER_GRPC_MAX_RECV_MSG_SIZE` | gRPC: предел входящего сообщения (`4194304`) |
 | `BACKPLANE_SERVER_GRPC_KEEPALIVE_MIN_TIME`, `_GRPC_PERMIT_WITHOUT_STREAM` | gRPC: минимальный интервал keepalive-пингов клиента (`30s`; Envoy пингует чаще умолчания grpc-go 5m) и пинги на соединении без стримов (`true`) |
 | `BACKPLANE_PPROF` | `/debug/pprof/*` на платформенном порту за секретом (`false`) |
-| `BACKPLANE_CONFIG_FILE` | файл конфигурации (YAML/JSON) той же формы, что структура |
+| `BACKPLANE_CONFIG_FILE` | файл конфигурации (YAML по `.yaml`/`.yml`, иначе JSON) той же формы, что структура; слой ниже env. Не поле блока: читается до загрузки |
 
 Телеметрия — стандартные `OTEL_*` (xtrace `contrib/sdk`); сигнал без
 endpoint (общего `OTEL_EXPORTER_OTLP_ENDPOINT` или своего
@@ -623,7 +688,9 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 `backplane.dependency.ready{node}` — 1, пока значение предоставлено (и
 проходит пробу при `ProbeOptional`). Для тестов и значений, которыми
 сервис владеет сам, — `deps.Static(v)` и `deps.StaticOptional(v)`;
-нулевой `Optional` — отсутствующая зависимость.
+нулевой `Optional` — отсутствующая зависимость. `IsZero()` у каждого вида
+отличает несозданный узел: `Get()` нулевой `Dependency` — нулевое
+значение без паники, `Err()` нулевой зависимости — `deps.ErrNotReady`.
 
 Провайдер (`deps.Provider[T]`: `Name`, `Provide`, `Probe`, `Close`) — форма
 будущих contrib-модулей (`contrib/pgx`, `contrib/valkey`, `contrib/s3`):
@@ -634,8 +701,9 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 имя узла — от типа (`*pgxpool.Pool` → `pool`). Фабрика синглтона
 (`deps.Factory[T]`) — провайдер без пробы.
 
-Каждый узел — `deps.Scope`: свой путь (`greeter/templates`), логгер с
-`node=<путь>`, трейсер и метр (`<service>/<путь>`), `Span`, `Go`,
+Каждый узел — `deps.Scope`: `Name`, свой путь `Path` (`greeter/templates`),
+логгер `Log` с `node=<путь>`, `Tracer` и `Meter` (`<service>/<путь>`),
+`Span(ctx, name, fn)` (и `deps.SpanValue` для fn со значением), `Go`,
 `OnStart`/`OnStop`. Одинаковые имена получают суффикс (`store-2`). Узлы
 создаются до `Run` (после — паника; исключение — `Provide` обязательной
 зависимости); дерево попадает в манифест (`nodes`).
@@ -648,9 +716,16 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 
 `config → telemetry → health → platform → consul → nats → temporal → hooks → <дерево автора> → internal-api → reactors → worker → schedules → public:<addr> → drain → register → serving`
 
-`nats` и `temporal` — соединения (есть, когда транспорт настроен); `hooks`
-— worker вызовов хуков вне workflow, так что компонент может публиковать
-события и вызывать хуки уже из `OnStart` и ещё из `OnStop`. `reactors`,
+Не все узлы есть всегда: `nats` — когда задан `nats.url`; `temporal` и
+`hooks` — когда задан `temporal.addr` (`hooks` — worker вызовов хуков вне
+workflow; ничего не запускает, если хуков нет); `reactors` — когда
+объявлены реакторы и есть NATS; `worker` — когда объявлены активити или
+workflows, есть Temporal и `temporal.worker.enabled`; `schedules` — когда
+есть Temporal (сверка идёт и без объявлений, §9); `register` — когда
+задан Consul; `public:<addr>` — по одному на публичный адрес. Без
+транспорта объявленное остаётся в манифесте, `Run` пишет предупреждение.
+Соединения стоят до дерева автора, поэтому компонент может публиковать
+события и вызывать хуки уже из `OnStart` и ещё из `OnStop`; `reactors`,
 `worker` (активити и workflows автора) и `schedules` идут после дерева и
 останавливаются раньше него.
 
@@ -678,7 +753,12 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 `Shutdown.Listeners` — по его концу открытые стримы обрываются, а
 контексты внутренних вызовов в полёте отменяются; окно и `drain`
 укорачиваются так, чтобы дереву автора, зависимостям и телеметрии
-осталось не меньше `Shutdown.Reserve`. Повторный SIGINT/SIGTERM во время
+осталось не меньше `Shutdown.Reserve`. У `worker` и `reactors` своего
+окна нет: они ждут активити и обработчиков в полёте до конца общего
+бюджета, поэтому обработчик, который не заканчивается,
+съедает и `Reserve` (§8, «Остановка реакторов»). Узел, не уложившийся в
+бюджет, — ошибка остановки: `Run` возвращает её, остальные узлы всё
+равно останавливаются. Повторный SIGINT/SIGTERM во время
 остановки (или сигнал, пришедший, когда остановка уже идёт по другой
 причине) — немедленный выход процесса с кодом 1 после записи в лог. Сигнал во время старта —
 чистая остановка уже поднятого, `Run` возвращает `nil`; обязательная
@@ -686,16 +766,18 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 предоставленные закрываются. Health один: пробы регистрируются по виду;
 `grpc.health.v1`, HTTP-пробы и Consul-check читают одно и то же.
 
-Все серверы инструментированы (otelgrpc, otelhttp, ws-proto), логи несут
-trace_id; паника handler'а на любом сервере — ошибка запроса, не
-процесса (§3.1). Лимиты серверов — `config.Server` (§4.3) на обоих
-классах портов.
+Серверы инструментированы: gRPC обоих классов портов — otelgrpc (без
+вызовов `grpc.health.v1`), HTTP публичных портов — otelhttp, ws-proto —
+span на вызов; HTTP платформенного порта (пробы, бандл, info, pprof)
+span'ов не пишет. Логи несут trace_id; паника handler'а на любом сервере
+— ошибка запроса, не процесса (§3.1). Лимиты серверов — `config.Server`
+(§4.3) на обоих классах портов.
 
 **Consul presence.** Сессия с `LockDelay` 1 мс (дефолтные 15 с не дали бы
 перезапущенному инстансу опубликовать состояние); ключ, удерживаемый
-прошлой инкарнацией того же инстанса, перехватывается — новейший
-побеждает. Consul ни на старте, ни потом не роняет сервис: присутствие
-восстанавливается в фоне (§4.5).
+прошлой инкарнацией того же инстанса, перехватывается при первом
+установлении присутствия процесса (§4.2). Consul ни на старте, ни потом
+не роняет сервис: присутствие восстанавливается в фоне (§4.5).
 
 **Логирование.** Логгер по умолчанию — JSON в stdout плюс OTLP-tee; его
 уровень — Live-поле `log_level`, изменение применяется на лету, неверное
@@ -714,10 +796,12 @@ Consul задан и доступен — иначе предупреждени�
 проверить блок SDK → собрать State конструктором автора. `Run`: собрать и
 проверить манифест (ошибки объявлений — ошибка `Run` до того, как что-то
 слушает) → телеметрия → health `NOT_SERVING` → платформенный порт →
-манифест и состояние в Consul (фаза `starting`, если Consul есть) → дерево
-узлов (обязательные зависимости ждут готовности) → внутреннее API
-открывается → порты внешнего API → регистрация в каталоге Consul, фаза
-`serving` → health `SERVING`. Без Consul, NATS и Temporal сервис работает в
+манифест и состояние в Consul (фаза `starting`, если Consul есть; в
+фоне) → соединения NATS и Temporal (одна короткая попытка, дальше в фоне)
+и worker хуков → дерево узлов автора (обязательные зависимости ждут
+готовности) → внутреннее API открывается → реакторы, worker, сверка
+расписаний (в фоне, как только есть соединение) → порты внешнего API →
+регистрация в каталоге Consul, фаза `serving` → health `SERVING`. Без Consul, NATS и Temporal сервис работает в
 объёме внешнего API и конфигурации из env/файла.
 
 **Деградация.** Ни одна из внешних систем не роняет сервис — ни на старте,
@@ -728,9 +812,9 @@ Consul задан и доступен — иначе предупреждени�
 |---|---|---|---|
 | Consul · конфигурация | Consul-слой пуст, Live-поля из env/файла/defaults, повтор с backoff 1s..30s (`config.ConsulBackoff`); исключение — обязательное Live-поле, которое есть только в KV: держит `Open` до ответа Consul или конца ctx (§5.3) | последние значения KV остаются в силе; переход пишется в лог (warn) и в `backplane.config.degraded` | слой перечитывается, изменения применяются по обычным правилам (§5.5); переход — в лог (info) |
 | Consul · присутствие | манифест, состояние и регистрация ретраятся в фоне (backoff 2s..1m); инстанс работает, но не виден | продление сессии ретраится TTL/2, затем присутствие пересоздаётся с backoff; состояние исчезает, когда истекает сессия; регистрация в каталоге живёт в агенте | новая сессия, состояние переписывается, регистрация подтверждается (если инстанс уже `serving`) |
-| NATS · `Publish` | сразу ошибка `event.ErrUnavailable`; стрим `bp_<service>` создаётся в фоне после подключения | сразу `ErrUnavailable` — без буферизации | снова публикует |
-| NATS · реакторы | consumers создаются в фоне после подключения | потребление стоит; неподтверждённое будет доставлено заново | потребление продолжается с позиции durable consumer'а |
-| Temporal · `Call` (хуки) | одна попытка подключения (`dial_timeout`), дальше в фоне; `Call` сразу — `hook.ErrUnavailable` | вызов падает ошибкой транспорта в пределах своего дедлайна | вызовы проходят |
+| NATS · `Publish` | клиент переподключается бесконечно (2 s + jitter до 1 s); `Publish` сразу — `event.ErrUnavailable`; стрим `bp_<service>` создаётся в фоне после подключения (backoff 0.5s..15s) | сразу `ErrUnavailable` — без буферизации | снова публикует |
+| NATS · реакторы | стримы и consumers создаются в фоне после подключения (backoff 0.5s..15s) | потребление стоит; неподтверждённое будет доставлено заново; consumer, удалённый на сервере, пересоздаётся с позиции реактора (старейшее неподтверждённое, иначе после последнего увиденного) | потребление продолжается с позиции durable consumer'а |
+| Temporal · `Call` (хуки) | одна попытка подключения (`dial_timeout`), дальше в фоне (backoff 1s..30s); `Call` сразу — `hook.ErrUnavailable` | подключённый клиент проверяет соединение каждые 5 s; вызов падает ошибкой транспорта в пределах своего дедлайна | вызовы проходят |
 | Temporal · worker'ы, расписания | worker'ы стартуют и расписания сверяются, как только соединение поднимется | worker'ы SDK Temporal переподключаются сами; активити в полёте добегают или истекают по таймаутам Temporal | опрос очередей продолжается |
 | OTLP · экспорт | сигнал без endpoint не экспортируется; с endpoint экспортёр ретраит и отбрасывает | батчи отбрасываются после ретраев экспортёра | экспорт продолжается |
 | readiness | Consul и OTLP не входят никогда; NATS и Temporal — только с `RequireNATS()` / `RequireTemporal()`: не ready, пока соединения нет | то же | ready снова, как только соединение есть |
@@ -740,22 +824,67 @@ Consul задан и доступен — иначе предупреждени�
 
 ### 4.6 Тесты компонентов — `backplanetest`
 
-Компоненты тестируются без `Open`, `Run`, портов и Consul:
+Компоненты тестируются без `Open`, `Run`, портов и Consul: транспорты
+заменены записывающей заглушкой, дерево — то же, что в сервисе.
 
 ```go
-h := backplanetest.New(t)                       // дерево сервиса "test"
-g := greeter.New(h.Root(), &cfg, deps.Static(db)) // узлы — под h.Root()
-backplanetest.Answer(h, g.Lookup, fn)           // ответ на хук
-h.Start()                                       // provide, горутины; стоп — в t.Cleanup
-backplanetest.Events(h, greeted)                // что опубликовано в event.Ref
-backplanetest.Activity[In, Out](ctx, h, "Echo", in)          // вызов активити
-backplanetest.React(ctx, h, "greeter", "iam.UserRegistered", v) // доставка реактору: один раз, с его Timeout
-backplanetest.SetLive(&cfg.Suffix, "?")         // Live как из консоли; Watch срабатывает
-h.Manifest()                                    // что объявлено
+h := backplanetest.New(t, backplanetest.Name("hello"))           // дерево сервиса ("test" по умолчанию)
+cfg := backplanetest.Config[greeter.Config](t, map[string]string{"SUFFIX": "?"})
+g, _ := greeter.New(h.Root(), &cfg, deps.Static(db))              // узлы — под h.Root()
+f := flows.New(h.Root(), g, deps.Static(db))
+backplanetest.Answer(h, f.Greet, fn)                             // ответ на хук: Call и WorkflowCall
+h.Start()                                                        // provide, горутины; стоп — в t.Cleanup
+backplanetest.Ready(h)                                           // readiness дерева, как у пробы
+backplanetest.Events(h, g.Greeted())                             // что опубликовано в event.Ref
+backplanetest.Activity[flows.EchoIn, flows.EchoOut](ctx, h, "Echo", in) // вызов активити
+backplanetest.ReactConsumer(ctx, h, audit.Consumer, v)           // доставка реактору
+backplanetest.SetLive(&cfg.Suffix, "!")                          // Live как из консоли; Watch срабатывает
+w := backplanetest.Workflows(h)                                  // testsuite Temporal с worker'ом сервиса
+h.Manifest()                                                     // что объявлено
 ```
 
-Хук без `Answer` отвечает `hook.ErrUnavailable`, как в продакшене без
-биндинга; активити или реактор, которых нет, — `backplanetest.ErrNotDeclared`.
+- **Harness.** `New(t, opts...)`: `Name(service)` — имя сервиса (события
+  публикуются как `<name>.<Event>`, реактор на своё событие —
+  `<name>.<Event>`), `StopBudget(d)` — бюджет остановки в `t.Cleanup`
+  (10 s; не уложился — тест падает). `h.Root()`, `h.Start()`,
+  `h.Service()`, `h.Manifest()` (ошибка объявлений — тест падает).
+  `Ready(h)` — `nil` или ошибка `ErrNotReady` с каждой неготовой
+  обязательной зависимостью и причиной.
+- **Конфигурация.** `Config[C](t, vars)` / `LoadConfig[C](ctx, vars)` —
+  секция или вся конфигурация, как её загрузит сервис: умолчания схемы и
+  `vars` (имена как в env сервиса без префикса: `{"SUFFIX": "?"}` для
+  секции, `{"GREETER_SUFFIX": "?"}` для всей); незнакомое имя — ошибка;
+  все `Validate` вызываются. Файл, env процесса и Consul не читаются.
+  `SetLive(&live, v)` — обновление Live-поля, как из консоли.
+- **Хуки.** `Answer(h, ref, fn)` отвечает на `Call` и, в `Workflows`, на
+  `WorkflowCall`; `CallKey(ctx)` в `fn` — `hook.Key` вызова. Хук без
+  `Answer` отвечает `hook.ErrUnavailable` (`WorkflowCall` —
+  `hook.ErrNoBinding`), как в продакшене без транспорта или биндинга.
+- **События.** `Events(h, ref)` — значения, `EventsWithMeta(h, ref)` — с
+  `Key`, `ID`, `Time`, `Headers`. `FailPublish(h, err)` — `Publish`
+  падает с `err`; `Unavailable(h)` / `Available(h)` — оба транспорта
+  пропадают (`event.ErrUnavailable`, `hook.ErrUnavailable`) и
+  возвращаются.
+- **Реакторы.** `React(ctx, h, path, event, v, opts...)` — реактору узла
+  `path` (`""` — корень; реактор с `event.Consumer` находится по событию,
+  если он такой один), `ReactConsumer(ctx, h, consumer, v, opts...)` — по
+  имени consumer'а. Обработчик вызывается один раз с `Timeout` реактора и
+  полным `event.Delivery` (новый `ID`, `Attempt` 1, `Consumer`,
+  расширения `instance` и `version`); `WithKey`, `WithID`, `WithAttempt`,
+  `WithHeader` меняют доставку. Результат — ошибка обработчика; повторов
+  и DLQ нет.
+- **Активити.** `Activity[Req, Res](ctx, h, name, in)` вызывает активити
+  один раз, как шаг биндинга: `activity.InfoOf` даёт `Attempt` 1,
+  уникальный `Key` и дедлайн `ctx`; `Heartbeat` ничего не делает.
+- **Workflows.** `Workflows(h)` — `testsuite.TestWorkflowEnvironment` с
+  регистрациями worker'а сервиса: активити `Handle` по имени через
+  envelope, workflows `workflows.Declare`, `activity.Workflow`,
+  `workflows.Register`; хуки — Nexus-сервис `<service>.Hooks` среды,
+  отвечающий через `Answer`. Одна среда — один workflow.
+  `WorkflowActivity[Req, Res](w, name, in)` запускает активити на
+  workflow, как шаг биндинга.
+
+Активити или реактор, которых нет, — `backplanetest.ErrNotDeclared`.
 
 ## 5. Конфигурация
 
@@ -770,7 +899,7 @@ KV — верхний, необязательный слой и видит то�
 обычного поля в KV игнорируется. Появился — применился горячо, пропал —
 остались значения из env/файла.
 
-### 5.2 Роль backplane
+### 5.2 Роль backplane [backplane]
 
 Consul KV — **канал доставки**, не источник правды: у KV нет истории,
 аудита и отката, а правки через Consul UI реплицируются мгновенно без
@@ -790,9 +919,10 @@ Consul KV — **канал доставки**, не источник правд�
 - Сервис читает KV любым способом (in-process watch через SDK,
   consul-template, envconsul) и о backplane не знает.
 
-### 5.3 Репликация PostgreSQL → Consul
+### 5.3 Репликация PostgreSQL → Consul [backplane]
 
-Consul может умереть или потерять данные — мы не теряем ничего:
+Сторона SDK здесь — чтение `_revision` и отчёт в состоянии инстанса;
+остальное — сервер. Consul может умереть или потерять данные — мы не теряем ничего:
 
 - сохранение ревизии = транзакция в PostgreSQL, затем запись значений в
   `config/<service>/` одной `txn`-операцией вместе с
@@ -814,7 +944,7 @@ Consul может умереть или потерять данные — мы �
   загрузку: запущенный сервис от него не зависит. Ошибка в обычном поле
   при этом не ждёт Consul — `Open` падает сразу.
 
-### 5.4 GitOps
+### 5.4 GitOps [backplane]
 
 Обычные поля остаются в git → Argo → env; их изменение — rollout, и это
 правильно. Live-значения живут вне git — это и есть смысл динамической
@@ -852,7 +982,11 @@ backplane проверяет override до сохранения только с�
 отверг, консоль видит по `config_rejected_revision` и `config_error` каждого
 инстанса.
 
-## 6. Gateway — Envoy
+## 6. Gateway — Envoy [backplane]
+
+Раздел — сервер платформы: SDK только объявляет роуты с политикой в
+манифесте (§3.1), xDS-сервера в репозитории нет; есть bootstrap Envoy
+(`deployments/envoy/envoy.yaml`), ждущий его на порту 18000.
 
 Envoy — единственный вход. backplane — его control-plane по **xDS**: ADS
 (один gRPC bidi-стрим на все ресурсы), Delta-режим,
@@ -883,7 +1017,7 @@ gateway, не в v0.
 
 ## 7. Хуки, активити, биндинги
 
-### 7.1 Биндинг
+### 7.1 Биндинг [backplane]
 
 Биндинг — **реализация хука («нужно»), собранная из активити («умею»)**.
 Живёт в backplane, редактируется в консоли, к коду сервисов не относится:
@@ -916,6 +1050,10 @@ IAM знает только свою `SendEmail`; template и smtp — толь�
 
 ### 7.2 Исполнение — Temporal Nexus
 
+Сторона backplane — Nexus-handler, binding-workflow, endpoint'ы — дизайн
+сервера (**[backplane]**; в conformance-тестах её играет тест, §16.3);
+сторона SDK — вызов хука, worker'ы, активити — описывает код.
+
 Своего транспорта нет. Хук — **Nexus-операция**: Nexus service = сервис
 хуков вызывающего (`iam.Hooks`), операция = имя хука (`SendEmail`),
 endpoint = имя сервиса (`iam`). Endpoint в реестре Temporal указывает на task queue `backplane`;
@@ -931,7 +1069,7 @@ step}` на входе активити; симметричные `*Result`); **
 работает над payload, envelope не видит. Если тип автора — proto, SDK
 кладёт protojson — это тот же JSON, читаемый и в Temporal UI.
 
-- Endpoint `<service>` backplane создаёт, **как только видит манифест с
+- **[backplane]** Endpoint `<service>` backplane создаёт, **как только видит манифест с
   хуками** — не при сохранении биндинга; вызов без биндинга получает
   `no binding`, а не «endpoint not found». Пока endpoint'а нет (backplane
   ещё не видел сервис), `Call` сразу возвращает `hook.ErrUnavailable`
@@ -1056,9 +1194,10 @@ NATS не сконфигурирован или сервис ещё не ста�
   применяется create-or-update при следующем старте эмиттера. Подписчик
   создаёт отсутствующий чужой стрим с дефолтами платформы (7 суток, без
   ограничения размера, 2 минуты, 1 реплика) — эмиттер при старте
-  перезапишет их своими. В metadata стрима — `bp.service`, `bp.kind`
-  (`events`) и `bp.ensured-by` (`emitter` или `subscriber` — кто создал или
-  обновил последним).
+  перезапишет их своими; реактор на собственное событие сервиса создаёт
+  стрим сразу с лимитами своего блока `nats`. В metadata стрима —
+  `bp.service`, `bp.kind` (`events`) и `bp.ensured-by` (`emitter` или
+  `subscriber` — кто создал или обновил последним).
 - **Имена в NATS.** Имя сервиса, события и consumer'а становится токеном
   NATS так: ASCII-буквы, цифры и `-` остаются, любой другой байт — `_XX`
   (две заглавные hex-цифры). Отображение взаимно однозначно, и в
@@ -1086,8 +1225,8 @@ NATS не сконфигурирован или сервис ещё не ста�
 - **Метаданные — CloudEvents** (NATS binding, binary mode, headers
   `ce-*`): `ce-specversion` = `1.0`, `ce-id` (UUID или `event.ID`),
   `ce-source` = сервис, `ce-type` = полное имя события
-  `<service>.<Event>`, `ce-time` (RFC 3339, UTC; момент публикации или
-  `event.Time`), `ce-subject` = ключ (если задан), `ce-datacontenttype` и
+  `<service>.<Event>`, `ce-time` (RFC 3339 с долями секунды, UTC; момент
+  публикации или `event.Time`), `ce-subject` = ключ (если задан), `ce-datacontenttype` и
   `content-type` = `application/json`; расширения `ce-instance`,
   `ce-version` и авторские `event.Header`; контекст трассировки — заголовки
   W3C `traceparent` / `tracestate` (пропагатор OpenTelemetry). `dataschema`
@@ -1146,7 +1285,11 @@ NATS не сконфигурирован или сервис ещё не ста�
   текущее имя. Манифест перечисляет реакторы в `subscriptions` (`event`,
   `consumer`); durable consumer в NATS — `<subscriber>__<consumer>` (оба
   экранированы, см. «Имена в NATS»; длиннее 200 символов — обрезается и
-  дополняется хешем), на стриме `bp_<src>` с фильтром `bp.<src>.<Event>`.
+  дополняется хешем), на стриме `bp_<src>` с фильтром `bp.<src>.<Event>`;
+  в metadata consumer'а — `bp.service`, `bp.consumer`, `bp.event`.
+  Consumer, удалённый на сервере, пока сервис работает, SDK пересоздаёт
+  с позиции реактора — со старейшего неподтверждённого сообщения, иначе
+  сразу после последнего увиденного — и потребление продолжается.
   Новый consumer начинает с событий, опубликованных после его создания
   (`deliver_policy new`), или, с `event.StartAt(event.StartAll)`, со всех
   событий, которые стрим ещё хранит (`deliver_policy all`); дальше позиция
@@ -1202,14 +1345,16 @@ NATS не сконфигурирован или сервис ещё не ста�
   (create-or-update), так что изменённые опции действуют после выкатки;
   точка старта — только при создании. В манифест опции не попадают: их
   видно в конфигурации consumer'а в NATS. В `backplanetest` `React`
-  вызывает обработчик один раз с `Timeout` реактора и `Delivery` (новый
-  `ID`, `Attempt` 1) на контексте; повторов и DLQ там нет.
+  вызывает обработчик один раз с `Timeout` реактора и `Delivery` на
+  контексте; повторов и DLQ там нет (§4.6).
 - **DLQ.** Если последняя доставка (`MaxDeliver`) тоже неуспешна или
   ошибка терминальна, сообщение с исходными payload и заголовками (кроме
   служебных `Nats-*`) публикуется в `bp.dlq.<subscriber>.<consumer>` —
   стрим `bp_dlq_<subscriber>` (subjects `bp.dlq.<subscriber>.>`; подписчик
   создаёт или обновляет его при старте реакторов; хранение — `dlq_max_age`
-  блока `nats`, 30 суток, `0` — без ограничения; реплики — `replicas`) — с
+  блока `nats`, 30 суток, `0` — без ограничения; реплики — `replicas`;
+  окно дедупликации — 2 минуты, не больше хранения; metadata `bp.kind` =
+  `dead-letters`) — с
   заголовками `bp-error` (текст последней ошибки, до 4 KiB), `bp-consumer`
   (имя consumer'а из манифеста) и `bp-delivered`; `Nats-Msg-Id` =
   `<durable>:<стрим>:<seq>`, так что повтор не дублирует dead letter.
@@ -1227,10 +1372,14 @@ NATS не сконфигурирован или сервис ещё не ста�
   сервиса): два параллельных прогона могут обработать dead letter дважды.
 - **Остановка реакторов** (до остановки дерева автора): выборка
   прекращается, выбранные, но не начатые сообщения возвращаются (nak), SDK
-  ждёт обработчиков в полёте в бюджете остановки; если бюджет кончился —
-  их контексты отменяются. Обработчик, прерванный остановкой, не считается
-  упавшим: сообщение возвращается простым nak без задержки и никогда не
-  уходит в DLQ. Счётчик доставок NATS такая доставка всё же увеличивает
+  ждёт обработчиков в полёте до конца общего бюджета остановки (своего
+  окна у узла `reactors` нет, §4.4); по его концу их контексты
+  отменяются, а остановка узла — ошибка `Run`. Обработчик, прерванный
+  остановкой, не считается упавшим: сообщение возвращается простым nak
+  без задержки и никогда не уходит в DLQ. Такой nak уходит, когда бюджет
+  уже исчерпан, и соединение NATS к этому моменту может быть закрыто —
+  тогда сообщение возвращается по `ack_wait` (таймаут обработчика +
+  15 с), тоже без DLQ. Счётчик доставок NATS такая доставка всё же увеличивает
   (сервер не отличает её от обычной): `Attempt` у следующей доставки на 1
   больше, а число настоящих попыток до DLQ может стать меньше
   `MaxDeliver`, но DLQ всегда следует за настоящей ошибкой обработчика.
@@ -1239,10 +1388,10 @@ NATS не сконфигурирован или сервис ещё не ста�
 - Интерфейс SDK узкий и брокеро-независимый: publish, durable subscribe,
   ack/nak, DLQ и его redrive; повтор истории — новый consumer со
   `StartAll`. Kafka под него встаёт; v0 — NATS.
-- backplane в data path событий не участвует; наблюдает каталог, lag, DLQ;
-  держит consumers правил.
+- **[backplane]** backplane в data path событий не участвует; наблюдает
+  каталог, lag, DLQ; держит consumers правил (§8.1).
 
-### 8.1 Правила: событие → активити
+### 8.1 Правила: событие → активити [backplane]
 
 Правило — **биндинг, у которого источник — событие, а не хук**. Тот же
 DSL, тот же исполнитель, та же консоль:
@@ -1282,7 +1431,7 @@ on iam.UserRegistered when event.email != "" :=
 - внутри сервиса — обычный Temporal: retry, таймеры, сигналы, расписания;
 - между сервисами — только через хуки (§7): activity вызывает `Call` хука,
   реализация — биндинг; чужих очередей и типов сервис не знает;
-- из консоли — запустить любой workflow, хук или активити с входом: форма
+- **[backplane]** из консоли — запустить любой workflow, хук или активити с входом: форма
   по схеме, если есть, иначе JSON; запуски, история, отмена, повтор —
   Temporal API в карточке.
 
@@ -1341,17 +1490,19 @@ workflows.Schedule(root, "NightlyReport", workflows.Cron("0 3 * * *"), reports.N
 workflows.Schedule(root, "Poll", workflows.Every(time.Minute), "poller.Poll")
 ```
 
-- Когда — `Cron(expr)` (как читает Temporal: 5–7 полей, `@daily` и т. п.;
-  минутная точность, секунды — только 7 полями) или `Every(d)` (интервал
-  от Unix-эпохи, не меньше секунды).
+- Когда — `Cron(expr)` (как читает Temporal: 5 полей, 6 — плюс год, 7 —
+  секунды первыми; `@hourly`, `@daily`, `@weekly`, `@monthly`,
+  `@yearly`; в часовом поясе `TimeZone`) или `Every(d)` (интервал от
+  Unix-эпохи, не меньше секунды: `Every(time.Hour)` — в начале каждого
+  часа).
 - Что — workflow функцией или зарегистрированным именем типа; для функции
   имя — как у `RegisterWorkflow` (короткое имя функции). `Schedule` его не
   регистрирует: workflow обязан быть в `Register` — регистрацию и
   расписание держит один автор, двойная регистрация в Temporal — паника.
 - Опции: `Args(...)` — аргументы запуска (JSON; proto — protojson);
   `Overlap(p)` — что делать, если прошлый запуск ещё идёт: `OverlapSkip`
-  (по умолчанию), `BufferOne`, `BufferAll`, `CancelOther`,
-  `TerminateOther`, `AllowAll`; `CatchupWindow(d)` — насколько поздно
+  (по умолчанию), `OverlapBufferOne`, `OverlapBufferAll`,
+  `OverlapCancelOther`, `OverlapTerminateOther`, `OverlapAllowAll`; `CatchupWindow(d)` — насколько поздно
   догонять пропущенное, пока Temporal лежал (по умолчанию год);
   `Jitter(d)`; `TimeZone(iana)` (по умолчанию UTC); `Paused()` — создать на
   паузе; `PauseOnFailure()`; для запущенного workflow — `Timeout(d)`
@@ -1402,7 +1553,10 @@ Consul DNS и обычный gRPC/HTTP. Ничего между ними нет;
 чужие адреса; backplane не вызывает сервисы по адресу иначе как relay
 консоли; в mesh gateway-драйвер — Consul config entries (§6).
 
-## 11. Консоль
+## 11. Консоль [backplane]
+
+Раздел — сервер и фронтенд платформы; сторона SDK — секрет платформенного
+порта (§4.1, §13) и отдача бандла (§3.6).
 
 Shell — собственный UI backplane. Два слоя:
 
@@ -1460,10 +1614,12 @@ Shell — собственный UI backplane. Два слоя:
 - **Единый UI** = один роутер, один layout (плагин рендерит только
   контент), один UI-kit из shared.
 - **Доставка бандла — у сервиса.** Бандл встроен в бинарь (`embed`), SDK
-  отдаёт его на платформенном порту по `GET /_backplane/ui/<path>`.
-  backplane раздаёт со своего origin `/plugins/<service>/<hash>/...`,
-  забирая у любого живого инстанса и кэшируя по хэшу из манифеста
-  (`Cache-Control: immutable`). Один origin → нет CORS, cookie работают, браузер сервис не
+  отдаёт его на платформенном порту по `GET /_backplane/ui/<path>` с
+  `ETag` = `ui.hash` и `Cache-Control: no-cache` (§3.6). backplane
+  раздаёт со своего origin `/plugins/<service>/<hash>/...`, забирая у
+  любого живого инстанса (перепроверка по `ETag` — `304`) и кэшируя по
+  хэшу из манифеста (`Cache-Control: immutable`: путь с хэшем не меняет
+  содержимого). Один origin → нет CORS, cookie работают, браузер сервис не
   видит. Нет живого инстанса — плагина нет в навигации, карточка остаётся.
 
 ### 11.3 Auth консоли
@@ -1508,7 +1664,7 @@ v0 — один оператор.
 7. **Клиент внутреннего API** генерируется шаблоном сервиса
    (`protoc-gen-es` + `protoc-gen-ws-es`); UI SDK про сервисы не знает.
 
-## 12. Хранилище и конфигурация backplane
+## 12. Хранилище и конфигурация backplane [backplane]
 
 ### 12.1 Хранилище
 
@@ -1556,8 +1712,8 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 2. **Consul ACL.** Токен на сервис: регистрировать себя, читать каталог,
    писать свои манифесты и состояние, читать все манифесты (для «подписан
    на всё»), читать свой `config/<name>/`. Токен
-   backplane: читать каталог и `backplane/*`, писать `config/*`. Шаблоны
-   политик — в репозитории. В dev без ACL работает.
+   backplane: читать каталог и `backplane/*`, писать `config/*`. Шаблонов
+   политик в репозитории нет — их пишет деплой. В dev без ACL работает.
 3. **NATS.** Пользователь на сервис: publish `bp.<name>.>` и
    `bp.dlq.<name>.>`, subscribe `bp.>`, JetStream API на свои стримы
    (`bp_<name>`, `bp_dlq_<name>`), на создание отсутствующих `bp_*`
@@ -1566,7 +1722,8 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
    работает.
 4. **Temporal.** Один namespace; per-service авторизация в OSS требует
    authorizer-плагина — в v0 нет, доверие внутри namespace явное. Nexus
-   endpoint access policy — allowlist namespace.
+   endpoint access policy — allowlist namespace. Temporal Cloud — API key
+   (`BACKPLANE_TEMPORAL_API_KEY`, §4.3) поверх TLS.
 5. **backplane → платформенный порт сервисов.** Сеть плюс
    `BACKPLANE_INTERNAL_SECRET` в конфигурации обеих сторон. Пустой секрет
    выключает проверку: внутреннее API и бандл открыты всем, кто достал до
@@ -1579,18 +1736,23 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
    (rollout; оба принимаются); (2) backplane переходит на новый;
    (3) сервисам убрать `_PREVIOUS` (rollout). `_PREVIOUS` без основного
    секрета проверку не включает.
-6. **Секреты.** Поле типа `config.Secret` маскируется везде (лог, JSON,
-   состояние инстанса, схема); в карточке и истории — по пометке `secret`
-   в схеме, без схемы — предупреждение и показ как есть. Live-значения лежат в
-   PostgreSQL и KV открытым текстом под защитой доступа; шифрование at
-   rest — не в v0.
-7. **Консоль** — §11.3; CSP `script-src 'self'`, без inline.
-8. **Хуки** — авторизация = биндинг: вызывается только привязанное.
+6. **Секреты.** Поле типа `config.Secret` маскируется везде, где его
+   выводит SDK (fmt, лог, JSON, эффективная конфигурация в состоянии
+   инстанса, схема — пометка `secret`). **[backplane]** В карточке и
+   истории — по пометке `secret` в схеме, без схемы — предупреждение и
+   показ как есть. Live-значения лежат в PostgreSQL и KV открытым текстом
+   под защитой доступа; шифрование at rest — не в v0.
+7. **[backplane] Консоль** — §11.3; CSP `script-src 'self'`, без inline.
+8. **[backplane] Хуки** — авторизация = биндинг: вызывается только
+   привязанное.
 
 Не в v0: несколько пользователей, RBAC, mesh/mTLS между сервисами,
 per-service auth в Temporal, шифрование at rest.
 
-## 14. Аудит
+## 14. Аудит [backplane]
+
+Сторона SDK — memo `source` и search attributes запуска хука (§7.2);
+остальное — сервер.
 
 Принцип: не дублировать то, что стек уже пишет.
 
@@ -1643,7 +1805,44 @@ JSON/CSV.
 `service.version`, `deployment.environment.name` (если задан
 `BACKPLANE_ENVIRONMENT`). Автор ничего не пишет.
 
-### 15.2 Что показывает карточка
+### 15.4 Что пишет SDK
+
+Метрики SDK — метр `github.com/gopherex/backplane`:
+
+| метрика | тип | атрибуты | когда |
+|---|---|---|---|
+| `backplane.dependency.provide.attempts` | counter | `node`, `outcome` (`ok`, `error`) | каждая попытка `Provide` обязательной или опциональной зависимости |
+| `backplane.dependency.ready` | gauge 0/1 | `node` | значение предоставлено (и проходит пробу при `ProbeOptional`) |
+| `backplane.config.updates` | counter | `outcome` (`applied`, `rejected`) | обновление конфигурации из KV (§5.5) |
+| `backplane.config.degraded` | gauge 0/1 | — | слой Consul пуст или устарел |
+| `backplane.hook.call.duration` | histogram, s | `hook`, `outcome` (`ok`, `no_binding`, `unavailable`, `timeout`, `error`) | каждый `Call` хука |
+| `backplane.event.published` | counter | `event`, `outcome` (`ok`, `unavailable`, `timeout`, `error`) | каждый `Publish` |
+| `backplane.reactor.duration` | histogram, s | `consumer`, `outcome` (`ack`, `nak`, `dead`, `terminal`) | каждая доставка реактору и каждый dead letter в `Redrive` |
+| `backplane.activity.duration` | histogram, s | `activity` (`<service>.<Name>`), `outcome` (`ok`, `error`) | каждое исполнение `activity.Handle` |
+| `backplane.transport.connected` | gauge 0/1 | `transport` (`consul`, `nats`, `temporal`) | при каждом изменении соединения |
+| `backplane.panics` | counter | `where` (`grpc.public`, `grpc.internal`, `wsproto`, `http.public`, `http.platform`, `reactor`, `activity <service>.<Name>`) | каждая перехваченная паника |
+
+Кроме них: метрики хоста и Go-рантайма (xtrace), метрики Temporal SDK
+(метр `github.com/gopherex/backplane/temporal`), otelgrpc и otelhttp
+серверов.
+
+Span'ы SDK:
+
+- gRPC-серверы обоих классов портов — otelgrpc (кроме `grpc.health.v1`);
+  HTTP публичных портов — otelhttp (операция `public<addr>`); ws-proto —
+  server span на вызов (имя — полный метод, `rpc.system` = `ws-proto`).
+- `publish <service>.<Event>` (producer) на каждый `Publish`; контекст
+  уходит в `traceparent` события. `process <service>.<Event>` (consumer)
+  на каждую доставку реактору, в trace события; атрибуты `messaging.*`
+  (система `nats`, subject, durable, номер доставки).
+- Temporal — интерцепторы OTel SDK Temporal: запуск `CallHook`, workflow,
+  Nexus-операция, activity. `activity <service>.<Name>` (consumer) — когда
+  заголовки Temporal не донесли trace, активити продолжает trace из
+  `ActivityCall.trace` со ссылкой на текущий span.
+- Узлы дерева — `scope.Span` / `deps.SpanValue` на трейсере
+  `<service>/<путь>`.
+
+### 15.2 Что показывает карточка [backplane]
 
 Всё по конвенциям, без настройки: метрики с `service="<name>"` (список
 через label API, графики по инстансам; сверху — внешнее API из метрик
@@ -1655,7 +1854,7 @@ Envoy, хуки и правила из метрик Temporal, lag событий
 Компоненты — из HyperDX (timeseries, логи, waterfall, stat), адаптированные
 под Mantine и UI SDK.
 
-### 15.3 Драйверы и что должен обеспечить деплой
+### 15.3 Драйверы и что должен обеспечить деплой [backplane]
 
 backplane — query-proxy: ходит в endpoint'ы со своей аутентификацией,
 подставляет контекст сервиса.
@@ -1666,10 +1865,10 @@ backplane — query-proxy: ходит в endpoint'ы со своей аутен�
 | prometheus/loki/tempo (позже) | PromQL | LogQL | TraceQL |
 
 Панели Envoy, Temporal и NATS показывают что-то, только если деплой
-скрейпит их метрики в тот же backend. Мы пишем для девопсов документ:
-что скрейпить (Envoy `/stats/prometheus`, Temporal server, NATS exporter),
-какие лейблы ждём, куда слать OTLP. Не сделали — панели пустые, остальное
-работает.
+скрейпит их метрики в тот же backend. Что скрейпить (Envoy
+`/stats/prometheus`, Temporal server, NATS exporter), какие лейблы ждём,
+куда слать OTLP — `deployments/README.md`. Не сделали — панели пустые,
+остальное работает.
 
 Не в v0: alerting (возможно v1), редактор дашбордов, панели как данные,
 своё хранилище телеметрии.
@@ -1686,28 +1885,44 @@ identity-сервис; CaC/CLI/GitOps-канал доставки конфига
 
 ### 16.2 Milestones
 
-**M0 — SDK и `hello`, без backplane.** Platform-in-a-box: compose с
-Consul, NATS, Temporal, PostgreSQL, Envoy. SDK: конфигурация из
-env/файла с Live-полями из KV, дерево узлов, манифест и состояние инстанса в KV, регистрация в Consul,
-платформенный порт (cmux: внутреннее API, health, xprobe, бандл),
-OTel-атрибуты. `hello` объявляет все семь разделов по минимуму.
-Доказывает: сервис живёт без backplane; манифест и слои конфига верны.
+Статус: M0 сделан; из M2 сделана сторона SDK; сервер backplane (M1, M2,
+M3) не начат.
 
-**M1 — backplane: конфиг, gateway, консоль.** Watch каталога и KV; схема
-PostgreSQL, ревизии, репликация в KV, hot reload в `hello`; xDS из роутов
-`hello`; shell с карточками (инстансы, конфигурация по инстансам с
-историей Live-значений, внешнее API); relay ws-proto → внутреннее API; auth консоли.
-Доказывает: цикл «форма → ревизия → KV → сервис» и вход через Envoy.
+**M0 — SDK и `hello`, без backplane. Сделано.** Platform-in-a-box:
+compose с Consul, NATS, Temporal (dev-сервер с Nexus), PostgreSQL и Envoy
+(bootstrap ждёт xDS backplane). SDK: конфигурация из env/файла с
+Live-полями из KV и `Validate`, дерево узлов с зависимостями и бюджетом
+остановки, манифест и состояние инстанса в KV, регистрация в Consul,
+платформенный порт (cmux: внутреннее API за секретом и гейтом, health,
+xprobe, бандл, info, pprof), managed- и declarative-роуты с политикой
+Envoy, OTel (resource, серверы, логи с trace_id), `backplanetest`.
+`hello` объявляет все разделы манифеста. Доказывает: сервис живёт без
+backplane; манифест и слои конфига верны.
 
-**M2 — хуки, биндинги, правила, события.** Temporal в SDK; Nexus-endpoint
-и binding-workflow; DSL с CEL над JSON; события CloudEvents и реакторы;
-правила. `hello` объявляет хук `Greet` (вызывается из HTTP-handler'а —
-проверка пути вне workflow), активити `Echo` и событие `Greeted`; биндинг
-`hello.Greet := hello.Echo`, правило `on hello.Greeted := hello.Echo`.
-Доказывает: развязка end-to-end, один trace через всё.
+**M1 — backplane: конфиг, gateway, консоль. Не начат.** Watch каталога
+и KV; схема PostgreSQL, ревизии, репликация в KV (hot reload в SDK уже
+есть); xDS из роутов `hello`; shell с карточками (инстансы, конфигурация
+по инстансам с историей Live-значений, внешнее API); relay ws-proto →
+внутреннее API; auth консоли. Доказывает: цикл «форма → ревизия → KV →
+сервис» и вход через Envoy.
 
-**M3 — плагины, observability, аудит.** UI SDK, MF-хост, доставка бандла,
-плагин `hello`; драйвер `victoria`; аудит и событие `backplane.AuditEntry`.
+**M2 — хуки, биндинги, правила, события.** Сторона SDK **сделана**:
+Temporal в SDK — хуки (`Call` через `backplane.CallHook.v1` на очереди
+`<service>.hooks`, `WorkflowCall` — Nexus напрямую, ключ идемпотентности),
+активити обоих видов, workflows (`Register`, `Declare`, `Client`) и
+расписания со сверкой, настройка worker'а; события CloudEvents над
+JetStream, реакторы с опциями доставки, DLQ и `Redrive`. Сторона
+backplane **не начата**: Nexus-endpoint и handler, binding-workflow, DSL
+с CEL над JSON, правила. `hello` объявляет хук `Greet` (вызывается из
+HTTP-handler'а и из workflow), активити `Echo` и событие `Greeted`;
+биндинг `hello.Greet := hello.Echo`, правило `on hello.Greeted :=
+hello.Echo` — на стороне backplane. Доказывает: развязка end-to-end, один
+trace через всё.
+
+**M3 — плагины, observability, аудит. Не начат.** UI SDK, MF-хост,
+доставка бандла консолью (отдача с платформенного порта в SDK есть),
+плагин `hello`; драйвер `victoria`; аудит и событие
+`backplane.AuditEntry`.
 
 **Дальше, вне репозитория** — Kratos-wrapper, `template`, `smtp` (courier
 режется на атомарные способности), биндинг `iam.SendEmail`. Любой special
@@ -1717,90 +1932,135 @@ case в SDK ради них — дефект модели.
 
 - В репозитории один пример — `examples/hello`; он же и вызывает хук, и
   реализует активити (`hello.Greet := hello.Echo`). Ничего доменного.
-- **Conformance** — тесты над контрактом SDK против platform-in-a-box на
-  каждом PR: манифест и состояние инстанса в KV; слои конфига и hot reload
-  по записи в KV; relay внутреннего API; хук через Nexus из workflow и из
-  HTTP-handler'а; активити по имени с JSON-входом; событие с корректными
-  `ce-*`; правило запускается и дедуплицируется по `ce-id`; бандл с
-  платформенного порта. Другой язык SDK проходит этот же набор.
-- **Шаблон сервиса** — один; генерирует `proto/`, `internal/`, `cmd/`,
-  `ui/`, Makefile, Dockerfile, conformance-таргет; версия шаблона
-  записывается; `template upgrade` — v1.
+- **Conformance** (`conformance/`, против `make up`; запуск —
+  `deployments/README.md`) —
+  тесты над контрактом SDK снаружи: по сети, Consul, NATS и Temporal.
+  Каждый набор включается своей переменной и без неё пропускается:
+  `BACKPLANE_TEST_CONSUL`, `BACKPLANE_TEST_NATS`,
+  `BACKPLANE_TEST_TEMPORAL`. Сторону backplane (Nexus endpoint, handler,
+  binding-workflow) там играет сам тест. Проверяется:
+  - манифест и состояние инстанса в KV, регистрация и check в каталоге,
+    уход из каталога и KV на остановке;
+  - платформенный порт: health открыт, внутреннее API и бандл за
+    секретом; бандл с `ETag` = `ui.hash`, `Cache-Control: no-cache` и
+    `304` на `If-None-Match`;
+  - внешнее API: gRPC, стрим, HTTP, ws-proto;
+  - слои конфига и hot reload по записи в KV (источник KV в состоянии);
+  - хук из HTTP-handler'а и из `OnStart`/`OnStop` через биндинг, который
+    вызывает активити по имени с JSON-входом; `hook.Key` исполняет
+    биндинг один раз; `no binding`;
+  - хук из workflow (`WorkflowCall`); активити на workflow по имени с
+    envelope `ActivityCall`;
+  - событие с корректными `ce-*` и trace до реактора;
+  - реакторы через `backplane.Open`: DLQ по терминальной ошибке и после
+    последней доставки, заголовки dead letter, `Redrive`; обработчик,
+    прерванный остановкой, возвращает сообщение без DLQ; эволюция схемы
+    (лишнее поле — игнор, JSON и protojson; отсутствующее — нулевое);
+  - workflows и расписания: клиент, создание, обновление, удаление
+    неописанного на реплике без worker'а.
+
+  **[backplane]** Не проверяется, потому что это сторона сервера: relay
+  внутреннего API через консоль, правило и его дедупликация по `ce-id`.
+  Другой язык SDK проходит этот же набор.
+- **Шаблон сервиса** — один (не реализован); генерирует `proto/`,
+  `internal/`, `cmd/`, `ui/`, Makefile, Dockerfile, conformance-таргет;
+  версия шаблона записывается; `template upgrade` — v1.
 
 ### 16.4 Известные риски
 
-- **Регистрация Nexus-операций.** В Temporal Go набор операций фиксируется
-  до старта worker'а. backplane — один handler для хуков всех сервисов:
-  новый хук → пересобрать набор и перезапустить worker (объект в
-  процессе). Проверить на M2 первым: нет ли catch-all и не рвёт ли
-  перезапуск in-flight.
+- **[backplane] Регистрация Nexus-операций.** В Temporal Go набор
+  операций фиксируется до старта worker'а. backplane — один handler для
+  хуков всех сервисов: новый хук → пересобрать набор и перезапустить
+  worker (объект в процессе). Первое, что проверить на стороне сервера
+  M2: нет ли catch-all и не рвёт ли перезапуск in-flight.
 - **Активити по имени.** Единственное место, где backplane формирует
   данные для чужого кода: envelope `ActivityCall` наш, payload — JSON из
-  CEL; conformance проверяет первым.
-- **HyperDX-компоненты** не публикуются как библиотека — извлечение и
-  адаптация под Mantine, работа на M3.
+  CEL. Сторону SDK conformance проверяет, играя backplane (§16.3).
+- **[backplane] HyperDX-компоненты** не публикуются как библиотека —
+  извлечение и адаптация под Mantine, работа на M3.
 
 ## 17. Конвенции имён
 
 | что | как |
 |---|---|
-| имя сервиса | `^[a-z][a-z0-9-]*$` (иначе ошибка `Open`), уникально в установке |
-| id инстанса | `<service>-<hostname>` (или `BACKPLANE_INSTANCE`, опция `backplane.Instance`) = Consul service ID = `service.instance.id` |
-| Consul: регистрация | адрес `BACKPLANE_ADVERTISE` / `POD_IP` / hostname; `Port` внешнего API; `Meta` не используется |
-| Consul KV | `backplane/services/<service>/manifests/<version>`, `backplane/services/<service>/instances/<id>`, `config/<service>/<path>` — только пути Live-полей (вложенность — `/`; скаляр — строкой, контейнер — JSON); ревизия — `config/<service>/_revision` (не Live-путь: SDK не применяет его как значение) |
-| env | `<SERVICE>_<PATH>`, путь — верхний регистр, `_` между уровнями; блок SDK — `BACKPLANE_<PATH>` |
+| имя сервиса | `^[a-z][a-z0-9-]*$` (иначе `backplane.ErrConfig` из `Open`), уникально в установке; `dlq` зарезервировано (узел `nats` его отвергает) |
+| id инстанса | `<service>-<hostname>` (или `BACKPLANE_INSTANCE`, опция `backplane.Instance`) = Consul service ID = `service.instance.id` = identity Temporal-клиента |
+| Consul: регистрация | имя — сервис; адрес `BACKPLANE_ADVERTISE` / `POD_IP` / hostname; `Port` — основной публичный порт (0 без внешнего API); теги `BACKPLANE_CONSUL_TAGS`; gRPC check на платформенный порт; `Meta` не заполняется |
+| Consul: сессия | `<instance>#<инкарнация>`, `LockDelay` 1 мс, TTL `session_ttl` |
+| Consul KV | `backplane/services/<service>/manifests/<version>` (dev-версия `0.0.0` — `0.0.0+<12 hex хэша манифеста>`), `backplane/services/<service>/instances/<id>`, `config/<service>/<path>` — только пути Live-полей (вложенность — `/`; скаляр — строкой, контейнер — JSON); ревизия — `config/<service>/_revision` (не Live-путь: SDK не применяет его как значение) |
+| env | `<SERVICE>_<PATH>`: `SERVICE` — имя сервиса в верхнем регистре, `-` и `.` → `_`; путь — JSON-имена полей в верхнем регистре через `_`; блок SDK — `BACKPLANE_<PATH>` (таблица §4.3) |
 | файл | `BACKPLANE_CONFIG_FILE` (YAML/JSON) той же формы, что структура конфигурации |
-| блок SDK | `BACKPLANE_*` — таблица §4.3 |
-| NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>`; durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста, `<путь узла>:<событие>` или `event.Consumer`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; имена экранируются (§8); правила `backplane__rule_<id>` |
-| Temporal | namespace один; task queue `<service>`; очередь backplane `backplane`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити, workflow type активити на workflow и `workflows.Declare` — объявленное имя; workflow вызова хука вне workflow `backplane.CallHook.v1` на очереди `<service>.hooks`, id `hook/<service>/<Name>/<uuid>` или `hook/<service>/<Name>/<key>`, memo `source`, search attributes `BpService`, `BpHook`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; workflow id правила `rule/<id>/<ce-id>`; тип ошибки «нет биндинга» `backplane.NoBinding` |
-| имена хуков, активити, событий | `<service>.<Name>`, `Name` — CamelCase |
-| proto-пакеты | внутреннее API `<service>.console.v1`; хуки `<service>.hooks.v1`; активити `<service>.activities.v1`; события `<service>.events.v1` |
-| консоль | `/s/<service>/...` — плагин; `/plugins/<service>/<hash>/...` — бандл |
+| платформенный порт | `/healthz/liveness`, `/healthz/readiness`, `/healthz/startup`, `/_backplane/ui/<path>`, `/_backplane/info`, `/debug/pprof/*`; секрет — gRPC metadata `bp-internal-secret`, HTTP `Bp-Internal-Secret` |
+| NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>` (фильтр стрима `bp.<service>.>`); durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста: `<путь узла>:<событие>`, на `Root` — `<событие>`, или `event.Consumer`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; имена экранируются (§8); metadata стримов `bp.service`, `bp.kind` (`events` / `dead-letters`), `bp.ensured-by`, consumer'ов `bp.service`, `bp.consumer`, `bp.event`; заголовки dead letter `bp-error`, `bp-consumer`, `bp-delivered`; **[backplane]** consumers правил `backplane__rule_<id>` |
+| Temporal | namespace один (`BACKPLANE_TEMPORAL_NS`); task queue сервиса `<service>`; очередь вызовов хуков `<service>.hooks`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow type активити на workflow и `workflows.Declare` — объявленное имя; workflow вызова хука вне workflow `backplane.CallHook.v1`, id `hook/<service>/<Name>/<uuid>` или `hook/<service>/<Name>/<key>`, memo `source` = `<service>/<instance>`, search attributes `BpService`, `BpHook`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; типы application error: `backplane.NoBinding` (нет биндинга), `backplane.HookFailed`, `backplane.Timeout` (вызов хука), `backplane.NonRetryable` (активити); **[backplane]** очередь backplane `backplane`, workflow id правила `rule/<id>/<ce-id>` |
+| имена хуков, активити, событий, workflows | `<service>.<Name>`, `Name` — CamelCase `[A-Z][A-Za-z0-9]*`; имя расписания — `[A-Za-z][A-Za-z0-9_]*` |
+| proto-пакеты | внутреннее API — `<service>.console.v1` (`-` → `_`; другой пакет — ошибка `Run`); конвенция генератора, SDK её не проверяет: хуки `<service>.hooks.v1`, активити `<service>.activities.v1`, события `<service>.events.v1` |
+| **[backplane]** консоль | `/s/<service>/...` — плагин; `/plugins/<service>/<hash>/...` — бандл |
 
 ## 18. Раскладка репозитория
 
+Что есть:
+
 ```
 backplane/
-  platform-design.md
-  Makefile  easyp.yaml  go.mod
-  docker-compose.yaml        platform-in-a-box: Consul, Envoy, NATS, Temporal, PostgreSQL, backplane
-  deployments/               всё про деплой: конфиги Envoy bootstrap, Consul, Temporal, NATS;
-                             документ для девопсов (§15.3); k8s-примеры позже
-  backplanepb/               proto-исходники backplane.v1 и сгенерированный Go
-  pkg/backplane/             Go SDK: Open, Root, Service, Identity, опции
+  platform-design.md         этот документ
+  Makefile  easyp.yaml  easyp.lock  go.mod  .golangci.yaml
+  docker-compose.yaml        platform-in-a-box: Consul, Envoy, NATS, Temporal (dev), PostgreSQL
+  deployments/               что даёт деплой: README для девопсов (§4.3, §15.3), envoy/envoy.yaml —
+                             bootstrap Envoy (admin 9901, xDS ADS от backplane на 18000)
+  backplanepb/v1/            proto-контракт backplane.v1 (manifest, instance, call) и сгенерированный Go
+  pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed
+    activity/                активити: Handle, Workflow, опции для биндинга, InfoOf, Heartbeat, NonRetryable
+    backplanetest/           harness для тестов компонентов без Open/Run/портов/Consul (§4.6)
     build/                   идентичность из ldflags и build info
-    config/                  конфигурация: Load, Open, Runtime, Backplane, Live, Secret
+    config/                  конфигурация: Load, Open, Runtime, Backplane, Live, Secret, TLS, Validator
     deps/                    дерево узлов: Scope, Component, Dependency, Optional, Singleton,
                              Provider, Factory, Func (без зависимости от пакета backplane)
-    route/                   declarative-роуты и опции managed-роутов, Origins
-    wsproto/                 ws-proto как managed-роут (своя зависимость)
-    hook/ activity/ event/   объявления хуков, активити, событий и реакторов (транспорт — M2)
-    backplanetest/           harness для тестов компонентов без Open/Run/портов/Consul
+    event/                   события: Declare, Publish и опции, React и опции доставки, Delivery,
+                             Terminal, Redrive, JetStream
+    hook/                    хуки: Declare, Call, WorkflowCall, Key, Timeout, ErrUnavailable, ErrNoBinding
+    route/                   declarative-роуты, опции managed-роутов, политика Envoy, Origins
+    workflows/               workflows автора: Register, Declare, Client, Queue, Schedule и опции
+    wsproto/                 ws-proto как managed-роут (своя зависимость ws-proto)
     internal/
-      node/                  дерево узлов и lifecycle: старт в порядке создания, стоп обратно
-      configrt/              то, что ядру нужно от живой конфигурации: эффективные значения,
-                             источники, схема, общий Consul-клиент
+      backoff/               политика ретраев (экспоненциальная, с джиттером)
+      broker/                события над NATS JetStream: стримы, публикация, реакторы, DLQ, redrive
+      configrt/              что ядру нужно от живой конфигурации: эффективные значения, источники,
+                             схема, общий Consul-клиент
+      consul/                присутствие: манифест, состояние инстанса под сессией, регистрация
+      decl/                  общее для объявлений: сервис узла, схемы, кодирование payload
+      env/                   общее для узлов одного сервиса: манифест, транспорты, обработчики
+      gate/                  гейт внутреннего API: пускает, пока поднято дерево автора
+      guard/                 секрет платформенного порта (gRPC и HTTP)
+      health/                пробы, grpc.health.v1, HTTP-пробы; один источник для Consul check
       link/                  доступ SDK-пакетов к приватному публичных типов
-      env/ decl/             общее для узлов одного сервиса: манифест, транспорт, обработчики;
-                             схемы и кодирование payload объявлений
-      manifest/              сборка манифеста, общий FileDescriptorSet
-      routes/                общие для route и ядра описания managed-роутов
-      listener/ gate/ guard/ cmux-listener; гейт внутреннего API; секрет платформенного порта
-      health/ telemetry/     пробы и grpc.health.v1; OTel через xtrace
-      consul/ backoff/       presence (регистрация, манифест, состояние инстанса); ретраи
+      listener/              один адрес: gRPC и HTTP через cmux, остановка в бюджете
+      manifest/              сборка манифеста, общий FileDescriptorSet, ui.hash
+      metrics/               метрики SDK (§15.4)
+      node/                  дерево узлов и lifecycle: старт в порядке создания, стоп обратно
+      recovery/              паника handler'а — ошибка запроса, backplane.panics
+      routes/                описания managed-роутов: префиксы, хосты, перехватчики, политика
+      telemetry/             OTel через xtrace: resource, экспортёры из OTEL_*
+      temporal/              Temporal: соединение, вызов хуков, worker'ы, активити, расписания, TLS
+        temporaltest/        тестовая обвязка против dev-сервера: играет Nexus-сторону backplane
       testlog/               логгер для тестов
-  internal/                  приватное backplane: registry (Consul watch), config (PG ↔ KV),
-                             xds, nexus (handler и binding-workflow), rules, console (ws-proto
-                             server, relay, auth), store (PostgreSQL), obs (query-proxy)
+  examples/
+    hello/                   единственный пример: proto/, internal/, cmd/, ui/
+  conformance/               тесты контракта SDK против platform-in-a-box (§16.3)
+```
+
+**[backplane]** Чего нет — сервер и фронтенд платформы, по плану:
+
+```
   cmd/
     backplane/               бинарь платформы
     protoc-gen-backplane/    генератор (удобство)
-  examples/
-    hello/                   единственный пример: proto/, internal/, cmd/, ui/
+  internal/                  приватное backplane: registry (Consul watch), config (PG ↔ KV),
+                             xds, nexus (handler и binding-workflow), rules, console (ws-proto
+                             server, relay, auth), store (PostgreSQL), obs (query-proxy)
   web/                       yarn workspace
     packages/console/        shell (MF-хост)
     packages/ui/             @backplane/ui — UI SDK для плагинов, включая @backplane/ui-build
-  conformance/               тесты контракта SDK против platform-in-a-box
 ```
 
 `pkg/` — только то, что импортируют сервисы; всё остальное Go — в

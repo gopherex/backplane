@@ -1,28 +1,134 @@
 # Deploying services and backplane
 
 backplane never deploys anything. This is what a deployment provides so that
-services on the SDK and backplane itself work; `docker-compose.yaml` at the
-repository root is a complete example for development (platform-in-a-box).
+services on the SDK work, and later backplane itself (the server is not in
+this repository yet; see `platform-design.md`). `docker-compose.yaml` at the
+repository root is a complete example for development: platform-in-a-box.
 
 ## A service on the SDK
 
 | what | how |
 |---|---|
-| identity | build with `-ldflags -X github.com/gopherex/backplane/pkg/backplane/build.Service=<name> -X ….Version=<v>` (see `make hello`) |
-| static configuration | env `<SERVICE>_*`, or file `BACKPLANE_CONFIG_FILE` (YAML/JSON) |
-| dynamic configuration | same file under `dynamic:`, env `<SERVICE>_DYNAMIC_*`; Consul KV `config/<service>/dynamic/` on top |
-| SDK block | env `BACKPLANE_*`: `CONSUL_ADDR`, `CONSUL_TOKEN`, `CONSUL_REGISTER`, `INSTANCE`, `ADVERTISE`, `ENVIRONMENT`, `INTERNAL_PORT` (9400), `INTERNAL_SECRET`, `PUBLIC_PORT` (8080), `LOG_LEVEL`, `SHUTDOWN_TIMEOUT` (25s) |
+| identity | build with `-ldflags "-X github.com/gopherex/backplane/pkg/backplane/build.Service=<name> -X ….Version=<v> -X ….Commit=<sha> -X ….Date=<rfc3339>"` (see `make hello`); without `Service` the name is the last element of the main package path |
+| configuration | one struct: schema defaults < file `BACKPLANE_CONFIG_FILE` (YAML by `.yaml`/`.yml`, else JSON) < env `BACKPLANE_*` for the SDK block < env `<SERVICE>_*` for everything (`HELLO_GREETER_SUFFIX`; `<SERVICE>` is the name upper-cased, `-` and `.` as `_`) < Consul KV `config/<service>/<path>` |
+| live configuration | only fields of type `config.Live[T]` change at runtime, from Consul KV `config/<service>/<path>` (nested as `/`, scalars as strings, containers as JSON); ordinary fields come from env and file only and change by a rollout |
+| SDK block | env `BACKPLANE_*` — the full list with defaults is below and in `platform-design.md` §4.3 |
 | address | `BACKPLANE_ADVERTISE`, else `POD_IP` (Downward API in k8s), else the hostname's IPv4; must be reachable from the Consul agent (health check) and from Envoy |
-| telemetry | standard `OTEL_*`; without `OTEL_EXPORTER_OTLP_ENDPOINT` export is off |
-| ports | platform port (`INTERNAL_PORT`): never public — only Consul checks, probes and backplane reach it; public port(s): reached by Envoy |
-| probes | `GET :9400/healthz/liveness`, `/healthz/readiness`, `/healthz/startup`; `grpc.health.v1` on the same port |
-| shutdown | SIGTERM; the SDK stops within `SHUTDOWN_TIMEOUT` — keep the orchestrator's grace period above it |
+| telemetry | standard `OTEL_*`; a signal without an endpoint (`OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_<SIGNAL>_ENDPOINT`) is not exported |
+| ports | platform port (`BACKPLANE_INTERNAL_PORT`, 9400): never public — only Consul checks, probes and backplane reach it; public port(s) (`BACKPLANE_PUBLIC_PORT`, 8080, plus `route.Listen` addresses): reached by Envoy |
+| probes | `GET :9400/healthz/liveness`, `/healthz/readiness`, `/healthz/startup`; `grpc.health.v1` on the same port (also on every public gRPC server) |
+| shutdown | SIGTERM; the SDK stops within `BACKPLANE_SHUTDOWN_TIMEOUT` (25s) — keep the orchestrator's grace period above it; a second signal exits at once |
 
 Nothing but the identity is required: without Consul, NATS, Temporal or a
 collector the service starts and serves, logging one warning per missing
-dependency.
+dependency. `backplane.RequireNATS()` / `RequireTemporal()` in the code make
+a connection part of readiness.
 
-## Telemetry the console reads
+### SDK block: every variable
+
+Durations are Go durations (`30s`, `2m`); lists are JSON (`["a","b"]`);
+TLS material is PEM content, not paths. Secrets are masked in logs and in
+the instance state.
+
+| variable | default | meaning |
+|---|---|---|
+| `BACKPLANE_CONSUL_ADDR` | — | Consul agent; empty: no Consul (no registration, no KV layer) |
+| `BACKPLANE_CONSUL_TOKEN` | — | ACL token (secret); else `CONSUL_HTTP_TOKEN(_FILE)` |
+| `BACKPLANE_CONSUL_DATACENTER` | agent's | datacenter of queries |
+| `BACKPLANE_CONSUL_TLS_ENABLED` | `false` | HTTPS to Consul; replaces the `CONSUL_*` TLS variables entirely |
+| `BACKPLANE_CONSUL_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME` | — | CA (empty: system pool), client certificate and key (together), server name |
+| `BACKPLANE_CONSUL_TLS_INSECURE_SKIP_VERIFY` | `false` | development only |
+| `BACKPLANE_CONSUL_REGISTER` | `true` | `false` when the deployment registers the service (consul-k8s, Nomad) |
+| `BACKPLANE_CONSUL_TAGS` | — | tags of the catalog registration, JSON list |
+| `BACKPLANE_CONSUL_CHECK_INTERVAL`, `_CHECK_TIMEOUT`, `_DEREGISTER_AFTER` | `10s`, `5s`, `1m` | gRPC health check of the registration |
+| `BACKPLANE_CONSUL_SESSION_TTL` | `30s` | session of the instance state (clamped to 10s..24h) |
+| `BACKPLANE_NATS_URL` | — | NATS; empty: no events |
+| `BACKPLANE_NATS_CREDS` | — | content of a `.creds` file (secret) |
+| `BACKPLANE_NATS_TLS_ENABLED`, `_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME`, `_TLS_INSECURE_SKIP_VERIFY` | `false`, … | TLS to NATS, as for Consul |
+| `BACKPLANE_NATS_PUBLISH_TIMEOUT` | `5s` | bound of a publish whose context has no deadline |
+| `BACKPLANE_NATS_MAX_AGE`, `_MAX_BYTES` | `168h`, `0` | retention of the service's event stream `bp_<service>`; `0`: unlimited |
+| `BACKPLANE_NATS_REPLICAS` | `1` | replicas of the event and dead-letter streams (1..5) |
+| `BACKPLANE_NATS_DEDUP_WINDOW` | `2m` | dedup window of the event stream, at most `max_age` |
+| `BACKPLANE_NATS_DLQ_MAX_AGE` | `720h` | retention of dead letters `bp_dlq_<service>`; `0`: unlimited |
+| `BACKPLANE_TEMPORAL_ADDR` | — | Temporal frontend; empty: no hooks, activities, workflows |
+| `BACKPLANE_TEMPORAL_NS` | `default` | namespace |
+| `BACKPLANE_TEMPORAL_TLS_ENABLED`, `_TLS_CA`, `_TLS_CERT`, `_TLS_KEY`, `_TLS_SERVER_NAME`, `_TLS_INSECURE_SKIP_VERIFY` | `false`, … | TLS (mTLS) to Temporal, as for Consul |
+| `BACKPLANE_TEMPORAL_API_KEY` | — | Temporal Cloud API key (secret); turns TLS on by itself |
+| `BACKPLANE_TEMPORAL_DIAL_TIMEOUT` | `2s` | one connection attempt; later ones run in the background |
+| `BACKPLANE_TEMPORAL_HOOK_TIMEOUT` | `30s` | deadline of a hook call nothing else bounds |
+| `BACKPLANE_TEMPORAL_WORKER_ENABLED` | `true` | `false`: this replica runs no activity/workflow worker (hook calls still work) |
+| `BACKPLANE_TEMPORAL_WORKER_MAX_CONCURRENT_ACTIVITIES`, `_MAX_CONCURRENT_WORKFLOW_TASKS`, `_ACTIVITY_POLLERS`, `_WORKFLOW_POLLERS` | `0` | worker tuning; `0`: Temporal's default |
+| `BACKPLANE_SHUTDOWN_TIMEOUT` | `25s` | whole stop budget |
+| `BACKPLANE_SHUTDOWN_DRAIN` | `3s` | pause between deregistration and closing the listeners |
+| `BACKPLANE_SHUTDOWN_LISTENERS` | `10s` | in-flight requests of the listeners and the internal API |
+| `BACKPLANE_SHUTDOWN_RESERVE` | `5s` | kept for components, dependencies, telemetry; `drain + listeners + reserve <= timeout` |
+| `BACKPLANE_HEALTH_INTERVAL`, `_HEALTH_TIMEOUT` | `5s`, `3s` | probe evaluation; `timeout <= interval` |
+| `BACKPLANE_SERVER_READ_HEADER_TIMEOUT`, `_IDLE_TIMEOUT`, `_MAX_HEADER_BYTES` | `10s`, `2m`, `1048576` | HTTP limits of both port classes |
+| `BACKPLANE_SERVER_GRPC_MAX_RECV_MSG_SIZE` | `4194304` | gRPC message limit |
+| `BACKPLANE_SERVER_GRPC_KEEPALIVE_MIN_TIME`, `_GRPC_PERMIT_WITHOUT_STREAM` | `30s`, `true` | gRPC keepalive enforcement (Envoy pings) |
+| `BACKPLANE_INSTANCE` | `<service>-<hostname>` | instance id = Consul service id |
+| `BACKPLANE_ADVERTISE` | `POD_IP`, else hostname's IP | address registered in Consul |
+| `BACKPLANE_ENVIRONMENT` | — | `deployment.environment.name` |
+| `BACKPLANE_INTERNAL_PORT` | `9400` | platform port |
+| `BACKPLANE_INTERNAL_SECRET` | — | secret backplane presents on the platform port (secret); empty: the internal API and bundle are open to whoever reaches the port |
+| `BACKPLANE_INTERNAL_SECRET_PREVIOUS` | — | also accepted while the secret rotates |
+| `BACKPLANE_PUBLIC_PORT` | `8080` | shared public port of managed routes |
+| `BACKPLANE_LOG_LEVEL` | `info` | log level; live from Consul KV `config/<service>/backplane/log_level` |
+| `BACKPLANE_PPROF` | `false` | `/debug/pprof/*` on the platform port, behind the secret |
+| `BACKPLANE_CONFIG_FILE` | — | configuration file (not a block field) |
+
+The standard Consul client variables (`CONSUL_HTTP_TOKEN`,
+`CONSUL_HTTP_TOKEN_FILE`, `CONSUL_HTTP_SSL`, `CONSUL_CACERT`,
+`CONSUL_CAPATH`, `CONSUL_CLIENT_CERT`, `CONSUL_CLIENT_KEY`,
+`CONSUL_TLS_SERVER_NAME`, `CONSUL_HTTP_SSL_VERIFY`) fill what the block
+leaves empty; only `BACKPLANE_CONSUL_ADDR` turns Consul on.
+
+## Platform-in-a-box
+
+`make up` starts `docker-compose.yaml` and waits for it; `make down` stops
+it. Ports are published on localhost:
+
+| service | image | ports | notes |
+|---|---|---|---|
+| Consul | `hashicorp/consul` | 8500 (HTTP), 8600/udp (DNS) | `agent -dev`: in-memory, no ACL |
+| NATS | `nats` | 4222, 8222 (monitoring) | JetStream on (`-js`) |
+| Temporal | `temporalio/temporal` | 7233 (frontend), 8233 (UI) | **dev server** (`server start-dev`): SQLite in memory, Nexus enabled, namespace `default`; enough for development and conformance — production runs a real Temporal cluster |
+| PostgreSQL | `postgres` | 5432 | for backplane (user/password/db `backplane`) |
+| Envoy | `envoyproxy/envoy` | 10000 (traffic), 9901 (admin) | bootstrap `envoy/envoy.yaml`; routes come over xDS from backplane |
+
+Run the example against it: `make run-hello` (builds `bin/hello` and points
+it at Consul; add `BACKPLANE_NATS_URL=nats://localhost:4222` and
+`BACKPLANE_TEMPORAL_ADDR=localhost:7233` for events, hooks and workflows).
+
+The dev Temporal keeps nothing across restarts: Nexus endpoints, schedules
+and workflow history vanish with the container.
+
+## Conformance
+
+The contract tests in `conformance/` run the SDK from outside, against
+platform-in-a-box. Every suite is enabled by its variable and skipped
+without it:
+
+| variable | enables |
+|---|---|
+| `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`) |
+| `BACKPLANE_TEST_NATS=localhost:4222` | events end to end, reactors: dead letters and redrive, stop without dead letters, schema evolution |
+| `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
+
+```sh
+make up
+BACKPLANE_TEST_CONSUL=localhost:8500 \
+BACKPLANE_TEST_NATS=localhost:4222 \
+BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+  GOWORK=off go test -race -count=1 ./...
+```
+
+The same variables enable the SDK's own integration tests under
+`pkg/backplane`. Names of services, streams, queues and endpoints are unique
+per run, so repeated runs do not collide; the `hello` suite refuses to run
+while another `hello` instance is live on the same Consul.
+
+## Telemetry the console reads (backplane)
 
 backplane shows what it can find in the deployment's telemetry stack
 (VictoriaMetrics / VictoriaLogs / VictoriaTraces in v0). Scrape into it:
@@ -35,8 +141,9 @@ backplane shows what it can find in the deployment's telemetry stack
 | NATS | `prometheus-nats-exporter` against `:8222` | `stream_name` = `bp_<service>` |
 
 Without these the corresponding panels are empty; everything else works.
+The SDK's own metrics and spans are listed in `platform-design.md` §15.4.
 
 ## Files here
 
 - `envoy/envoy.yaml` — Envoy bootstrap: admin on 9901, everything else over
-  xDS (ADS, delta) from backplane on port 18000.
+  xDS (ADS, delta) from backplane on port 18000 (`host.docker.internal`).

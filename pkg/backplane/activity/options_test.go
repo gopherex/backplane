@@ -76,13 +76,14 @@ func TestInfoOf(t *testing.T) {
 	}
 }
 
-// Through backplanetest a handler runs without transport info.
+// Through backplanetest a handler runs with the info a transport sets.
 func TestInfoOfInHarness(t *testing.T) {
 	t.Parallel()
 
 	h := backplanetest.New(t)
 	activity.Handle(h.Root(), "Probe", func(ctx context.Context, _ Order) (Receipt, error) {
-		if _, ok := activity.InfoOf(ctx); ok {
+		// The harness runs the handler as a transport would: InfoOf is set.
+		if info, ok := activity.InfoOf(ctx); !ok || info.Attempt != 1 || info.Key == "" {
 			return Receipt{}, errEmpty
 		}
 

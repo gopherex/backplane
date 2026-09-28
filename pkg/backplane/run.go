@@ -123,7 +123,8 @@ func (c *core) seal() (*backplanev1.Manifest, error) {
 // nats, temporal, hooks — are newCore's). They start in this order and
 // stop in reverse: traffic of every kind ends before the tree stops. The
 // public listeners and the internal gate share one Shutdown.Listeners
-// window that leaves Shutdown.Reserve of the budget to the tree.
+// window, as do the reactors and the worker (traffic too), which leaves
+// Shutdown.Reserve of the budget to the tree.
 func (c *core) tail(m *backplanev1.Manifest) {
 	sd := c.cfg.Shutdown
 	listeners := &window{d: sd.Listeners, reserve: sd.Reserve}
@@ -133,7 +134,7 @@ func (c *core) tail(m *backplanev1.Manifest) {
 	gn.OnStop(c.gate.Close)
 	gn.Budget(listeners.derive)
 
-	c.work(m)
+	c.work(m, listeners)
 
 	for _, p := range c.public {
 		c.listen("public"+p.addr, p.addr, p.grpc, c.publicHandler(p)).Budget(listeners.derive)
@@ -158,7 +159,7 @@ func (c *core) tail(m *backplanev1.Manifest) {
 // work adds the event reactors and the Temporal worker when the service
 // declared something for them, and the reconciliation of its Temporal
 // schedules; without the transport it warns.
-func (c *core) work(m *backplanev1.Manifest) {
+func (c *core) work(m *backplanev1.Manifest, listeners *window) {
 	switch {
 	case len(m.GetSubscriptions()) == 0:
 	case c.broker == nil:
@@ -167,6 +168,7 @@ func (c *core) work(m *backplanev1.Manifest) {
 		n := c.svc.Child("reactors", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.broker.StartReactors(ctx, n) })
 		n.OnStop(c.broker.StopReactors)
+		n.Budget(listeners.derive)
 	}
 
 	if len(m.GetHooks()) > 0 && c.temporal == nil {
@@ -184,6 +186,7 @@ func (c *core) work(m *backplanev1.Manifest) {
 		n := c.svc.Child("worker", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.StartWorker(ctx, n) })
 		n.OnStop(c.temporal.StopWorker)
+		n.Budget(listeners.derive)
 	}
 
 	switch {

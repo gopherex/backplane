@@ -146,9 +146,10 @@ type Temporal struct {
 // Worker on the service's task queue: an operational setting, the same
 // code runs with any of it. A zero limit is Temporal's default.
 type Worker struct {
-	// false: this replica runs no worker (activities, hooks raised outside
-	// workflows and the author's workflows are served by replicas that do);
-	// it still reconciles schedules and uses the client.
+	// false: this replica runs no worker (activities and the author's
+	// workflows are served by replicas that do); it still raises hooks
+	// (their own worker runs on every replica), reconciles schedules and
+	// uses the client.
 	Enabled bool `json:"enabled" schemapb:"default=true"`
 	// Activities executing at once.
 	MaxConcurrentActivities int64 `json:"max_concurrent_activities" schemapb:"default=0;gte=0"`

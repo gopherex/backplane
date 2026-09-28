@@ -187,11 +187,35 @@ func (c *core) Internal(register func(r grpc.ServiceRegistrar)) {
 }
 
 // UI declares the console plugin bundle, served at /_backplane/ui/ behind the
-// internal secret.
+// internal secret. Every file carries ETag = the bundle's ui.hash and
+// Cache-Control: no-cache, so a cache revalidates and gets 304 until the
+// bundle changes.
 func (c *core) UI(bundle fs.FS) {
 	c.declare("UI", func() {
 		c.env.Manifest.UI(bundle)
-		c.platform.Handle(uiPath, http.StripPrefix(uiPath, http.FileServerFS(bundle)))
+
+		// An unreadable bundle is already a declaration error of the
+		// manifest: Run fails before anything listens.
+		hash, _ := manifest.UIHash(bundle)
+		c.platform.Handle(uiPath, http.StripPrefix(uiPath, uiHandler(bundle, hash)))
+	})
+}
+
+// uiHandler serves bundle with validators: the file server answers
+// If-None-Match with 304 against the ETag set here, and drops both headers
+// from its error responses.
+func uiHandler(bundle fs.FS, hash string) http.Handler {
+	files := http.FileServerFS(bundle)
+	etag := `"` + hash + `"`
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+
+		if hash != "" {
+			w.Header().Set("ETag", etag)
+		}
+
+		files.ServeHTTP(w, r)
 	})
 }
 

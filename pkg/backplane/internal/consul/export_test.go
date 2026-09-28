@@ -25,3 +25,7 @@ func (p *Presence) Session() string { return p.currentSession() }
 
 // SessionName is the name of this process's sessions.
 func (p *Presence) SessionName() string { return p.name }
+
+// SetRenewGiveUp overrides how long failed renews are tolerated: tests that
+// assert "the session stays" must not lose it to a slow run.
+func (p *Presence) SetRenewGiveUp(d time.Duration) { p.timing.renewGiveUp = d }

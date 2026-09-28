@@ -358,7 +358,10 @@ func Descriptors(services []string) ([]byte, error) {
 	return fds, nil
 }
 
-func uiOf(bundle fs.FS) (*backplanev1.UI, error) {
+// UIHash is the bundle's ui.hash: sha256 over every file's path and
+// contents in walk order. It is also the ETag the platform port serves the
+// bundle with.
+func UIHash(bundle fs.FS) (string, error) {
 	h := sha256.New()
 
 	err := fs.WalkDir(bundle, ".", func(path string, d fs.DirEntry, err error) error {
@@ -377,10 +380,19 @@ func uiOf(bundle fs.FS) (*backplanev1.UI, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("manifest: ui bundle: %w", err)
+		return "", fmt.Errorf("manifest: ui bundle: %w", err)
 	}
 
-	ui := &backplanev1.UI{Hash: hex.EncodeToString(h.Sum(nil))}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func uiOf(bundle fs.FS) (*backplanev1.UI, error) {
+	hash, err := UIHash(bundle)
+	if err != nil {
+		return nil, err
+	}
+
+	ui := &backplanev1.UI{Hash: hash}
 
 	raw, err := fs.ReadFile(bundle, "plugin.json")
 	if err != nil {

@@ -177,11 +177,15 @@ func describe(t *testing.T, tc client.Client, id string) (*client.ScheduleDescri
 }
 
 func transient(err error) bool {
-	var unavailable *serviceerror.Unavailable
+	var (
+		unavailable *serviceerror.Unavailable
+		deadline    *serviceerror.DeadlineExceeded
+	)
 
-	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &unavailable) ||
+	return errors.Is(err, context.DeadlineExceeded) || errors.As(err, &unavailable) || errors.As(err, &deadline) ||
 		status.Code(err) == codes.DeadlineExceeded || status.Code(err) == codes.Unavailable ||
-		status.Code(err) == codes.Canceled
+		status.Code(err) == codes.Canceled ||
+		strings.Contains(err.Error(), "RST_STREAM") // the dev server resets streams under load
 }
 
 // listed waits until the schedule list (eventually consistent) shows id.
@@ -245,8 +249,17 @@ func TestSchedulesReconcile(t *testing.T) {
 			Action: &client.ScheduleWorkflowAction{Workflow: "Tick", TaskQueue: name},
 		},
 	} {
-		if _, err := tc.ScheduleClient().Create(t.Context(), s); err != nil {
-			t.Fatal(err)
+		for attempt := 1; ; attempt++ {
+			_, err := tc.ScheduleClient().Create(t.Context(), s)
+			if err == nil {
+				break
+			}
+
+			if attempt == 5 || !transient(err) {
+				t.Fatal(err)
+			}
+
+			time.Sleep(200 * time.Millisecond)
 		}
 
 		listed(t, tc, s.ID)

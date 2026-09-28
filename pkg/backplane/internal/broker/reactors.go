@@ -565,8 +565,12 @@ func nakDelay(p backoff.Policy, n uint64) time.Duration {
 	return min(d, p.Max)
 }
 
+// nakGrace is how long cancelled handlers get to nak at stop.
+const nakGrace = time.Second
+
 // StopReactors stops consuming and waits for handlers in flight; when ctx
-// ends first, their contexts are cancelled.
+// ends first, their contexts are cancelled and get nakGrace to nak while
+// the connection is still open.
 func (b *Broker) StopReactors(ctx context.Context) error {
 	st := &b.reactors
 
@@ -600,6 +604,20 @@ func (b *Broker) StopReactors(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("%w: %w", ErrStopTimeout, ctx.Err())
 	}
+
+	// Out of time: cancel the handlers and give them a moment to nak while
+	// the connection is still open, so their messages come back at once
+	// instead of after ack_wait.
+	st.cancel()
+
+	grace := time.NewTimer(nakGrace)
+	defer grace.Stop()
+
+	select {
+	case <-done:
+	case <-grace.C:
+	}
+
+	return fmt.Errorf("%w: %w", ErrStopTimeout, ctx.Err())
 }

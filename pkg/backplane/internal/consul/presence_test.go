@@ -680,7 +680,13 @@ func TestPresenceLifecycle(t *testing.T) {
 	}
 	manifest := &backplanev1.Manifest{Service: id.Service, Version: id.Version}
 
-	t.Cleanup(func() { _, _ = c.KV().DeleteTree("backplane/services/presence-test/", nil) })
+	// A leftover entry of an aborted run would satisfy "in catalog" below.
+	_ = c.Agent().ServiceDeregister(id.Instance)
+
+	t.Cleanup(func() {
+		_, _ = c.KV().DeleteTree("backplane/services/presence-test/", nil)
+		_ = c.Agent().ServiceDeregister(id.Instance)
+	})
 
 	p, err := consul.New(consul.Params{Client: c, Log: testlog.Discard(), Identity: id, Manifest: manifest, Register: true})
 	if err != nil {

@@ -147,6 +147,7 @@ func TestRegistrationRetried(t *testing.T) {
 	}
 
 	p.UseFastTiming()
+	p.SetRenewGiveUp(5 * time.Second) // only the registration may fail here
 
 	ctx, cancel := context.WithCancel(context.Background())
 

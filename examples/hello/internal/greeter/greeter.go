@@ -1,14 +1,19 @@
 // Package greeter is the service's domain component: it serves HelloService
-// over every public protocol with one implementation.
+// over every public protocol with one implementation and raises Greeted
+// after every greeting.
 package greeter
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/template"
 	"time"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc"
 
@@ -24,6 +29,16 @@ import (
 const (
 	countdownTick = 100 * time.Millisecond
 	reportEvery   = time.Minute
+	// maxSuffix bounds the Live suffix (Validate).
+	maxSuffix = 8
+)
+
+// Errors of Validate.
+var (
+	ErrSalute = errors.New("salute must not be empty")
+	ErrSuffix = errors.New("suffix must be at most 8 characters on one line")
+	// ErrStalled: the report loop has not ticked for three periods.
+	ErrStalled = errors.New("greeter: report loop stalled")
 )
 
 // Config of the greeter.
@@ -34,10 +49,28 @@ type Config struct {
 	Excited config.Live[bool]   `json:"excited" schemapb:"default=false"`
 }
 
-// Greeted is published after every greeting.
+// Validate checks what the schema cannot: Open fails on it, and a live
+// update it rejects (a suffix of nine characters) is not applied.
+func (c *Config) Validate() error {
+	var errs []error
+
+	if strings.TrimSpace(c.Salute) == "" {
+		errs = append(errs, ErrSalute)
+	}
+
+	if s := c.Suffix.Get(); len([]rune(s)) > maxSuffix || strings.ContainsAny(s, "\r\n") {
+		errs = append(errs, fmt.Errorf("%w: %q", ErrSuffix, s))
+	}
+
+	return errors.Join(errs...)
+}
+
+// Greeted is published after every greeting. Payloads evolve additively:
+// Text was added after Name and Count, readers that predate it ignore it.
 type Greeted struct {
 	Name  string `json:"name"`
 	Count uint64 `json:"count"`
+	Text  string `json:"text,omitempty"`
 }
 
 // Greeter is a component: a named node with its own logger, tracer and meter.
@@ -50,13 +83,18 @@ type Greeter struct {
 	greeted   event.Ref[Greeted]
 	templates deps.Singleton[*template.Template]
 	greetings metric.Int64Counter
+	// boot makes event ids unique per process: a greeting published twice
+	// (a retried Publish) is stored once, a restart counts afresh.
+	boot string
+	// beat is the unix time of the report loop's last tick (0: not running).
+	beat atomic.Int64
 }
 
 // New creates the greeter under parent; everything it needs is passed in,
 // the events it raises it declares itself.
 func New(parent deps.Scope, cfg *Config, db deps.Dependency[*store.DB]) (*Greeter, error) {
-	g := &Greeter{Component: deps.NewComponent(parent, "greeter"), cfg: cfg, db: db}
-	g.greeted = event.Declare[Greeted](g, "Greeted")
+	g := &Greeter{Component: deps.NewComponent(parent, "greeter"), cfg: cfg, db: db, boot: uuid.NewString()[:8]}
+	g.greeted = event.Declare[Greeted](g, "Greeted", event.Describe("a name was greeted"))
 
 	greetings, err := g.Meter().Int64Counter("hello.greetings", metric.WithDescription("Greetings served"))
 	if err != nil {
@@ -75,10 +113,14 @@ func New(parent deps.Scope, cfg *Config, db deps.Dependency[*store.DB]) (*Greete
 	return g, nil
 }
 
+// Greeted is the event the greeter raises.
+func (g *Greeter) Greeted() event.Ref[Greeted] { return g.greeted }
+
 // Register is the one registration for gRPC, Connect and ws-proto.
 func (g *Greeter) Register(r grpc.ServiceRegistrar) { hellov1.RegisterHelloServiceServer(r, g) }
 
-// Text greets name.
+// Text greets name and publishes Greeted; a publish that fails (no NATS)
+// does not fail the greeting.
 func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 	text, err := deps.SpanValue(ctx, g, "greet", func(ctx context.Context) (string, error) {
 		tmpl, err := g.templates.Get(ctx)
@@ -95,7 +137,11 @@ func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 
 		g.greetings.Add(ctx, 1)
 
-		if err := g.greeted.Publish(ctx, Greeted{Name: name, Count: count}, event.Key(name)); err != nil {
+		err = g.greeted.Publish(ctx, Greeted{Name: name, Count: count, Text: b.String()},
+			event.Key(name),
+			event.ID(g.boot+"-"+name+"-"+strconv.FormatUint(count, 10)),
+			event.Header("excited", strconv.FormatBool(g.cfg.Excited.Get())))
+		if err != nil {
 			g.Log().Ctx().Debug(ctx, "greeted not published", xlog.Err(err))
 		}
 
@@ -135,6 +181,26 @@ func (g *Greeter) Countdown(
 	}
 }
 
+// Ready is the greeter's readiness check: its templates build.
+func (g *Greeter) Ready(ctx context.Context) error {
+	if _, err := g.templates.Get(ctx); err != nil {
+		return fmt.Errorf("greeter templates: %w", err)
+	}
+
+	return nil
+}
+
+// Alive is the greeter's liveness check: the report loop, once started,
+// keeps ticking.
+func (g *Greeter) Alive(context.Context) error {
+	last := g.beat.Load()
+	if last != 0 && time.Since(time.Unix(last, 0)) > 3*reportEvery {
+		return ErrStalled
+	}
+
+	return nil
+}
+
 type view struct {
 	Salute, Name, Suffix string
 	Excited              bool
@@ -148,13 +214,23 @@ func (g *Greeter) report(ctx context.Context) error {
 	t := time.NewTicker(reportEvery)
 	defer t.Stop()
 
+	defer g.beat.Store(0)
+
 	for {
+		g.beat.Store(time.Now().Unix())
+
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-t.C:
-			g.Log().Ctx().Info(ctx, "greetings so far", xlog.Uint64("total", g.db.Get().Total()))
 		}
+
+		// A span of the component's own tracer around one report.
+		_ = g.Span(ctx, "report", func(ctx context.Context) error {
+			g.Log().Ctx().Info(ctx, "greetings so far", xlog.Uint64("total", g.db.Get().Total()))
+
+			return nil
+		})
 	}
 }
 

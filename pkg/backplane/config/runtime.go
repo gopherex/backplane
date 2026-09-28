@@ -237,12 +237,14 @@ func (r *Runtime[C]) handle(ctx context.Context, event xconf.Event) {
 		return
 	}
 
-	transfer(reflect.ValueOf(r.value).Elem(), reflect.ValueOf(&next).Elem())
-
+	// Record the snapshot first: watchers fired by transfer see Effective
+	// (values, sources, revision) already matching what they are told.
 	r.mu.Lock()
 	update := len(event.Changed) > 0 || rev != r.revision
 	r.applied, r.revision, r.rejected, r.rejectedRev = event.Snapshot, rev, nil, 0
 	r.mu.Unlock()
+
+	transfer(reflect.ValueOf(r.value).Elem(), reflect.ValueOf(&next).Elem())
 
 	if update {
 		metrics.ConfigUpdate(ctx, metrics.Applied)

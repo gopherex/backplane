@@ -72,7 +72,8 @@ test: ## Unit tests with the race detector (integration tests skip without the s
 
 .PHONY: conformance
 conformance: ## SDK contract and integration tests against platform-in-a-box (make up)
-	BACKPLANE_TEST_CONSUL=localhost:8500 go test -race -count=1 ./...
+	BACKPLANE_TEST_CONSUL=localhost:8500 BACKPLANE_TEST_NATS=localhost:4222 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+		go test -race -count=1 ./...
 
 .PHONY: up down
 up: ## Start platform-in-a-box (docker compose)

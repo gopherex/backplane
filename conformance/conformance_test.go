@@ -148,7 +148,11 @@ func start(t *testing.T) *env {
 	}
 
 	t.Cleanup(func() {
+		// Wait also joins the output copying, so the log is complete and
+		// no longer written. A test that already waited gets an error here.
 		_ = e.cmd.Process.Kill()
+		_ = e.cmd.Wait()
+
 		if t.Failed() {
 			t.Logf("hello logs:\n%s", e.logs)
 		}
@@ -253,7 +257,8 @@ func (e *env) manifest(t *testing.T) {
 	kinds := map[backplanev1.RouteKind]bool{}
 	for _, r := range m.GetRoutes() {
 		kinds[r.GetKind()] = true
-		if r.GetKind() != backplanev1.RouteKind_ROUTE_KIND_HTTP && len(r.GetServices()) == 0 {
+		if k := r.GetKind(); k != backplanev1.RouteKind_ROUTE_KIND_HTTP && k != backplanev1.RouteKind_ROUTE_KIND_GRAPHQL &&
+			len(r.GetServices()) == 0 {
 			t.Errorf("route %v without services", r)
 		}
 	}
@@ -268,7 +273,7 @@ func (e *env) manifest(t *testing.T) {
 
 	for _, k := range []backplanev1.RouteKind{
 		backplanev1.RouteKind_ROUTE_KIND_CONNECT, backplanev1.RouteKind_ROUTE_KIND_WS_PROTO,
-		backplanev1.RouteKind_ROUTE_KIND_HTTP,
+		backplanev1.RouteKind_ROUTE_KIND_HTTP, backplanev1.RouteKind_ROUTE_KIND_GRAPHQL,
 	} {
 		if !kinds[k] {
 			t.Errorf("no %v route", k)
@@ -279,7 +284,7 @@ func (e *env) manifest(t *testing.T) {
 		t.Errorf("internal services: %v", m.GetInternalServices())
 	}
 
-	if len(m.GetHooks()) != 1 || !m.GetHooks()[0].GetRequired() || len(m.GetActivities()) != 1 || len(m.GetEvents()) != 1 {
+	if len(m.GetHooks()) != 1 || !m.GetHooks()[0].GetRequired() || len(m.GetActivities()) != 2 || len(m.GetEvents()) != 1 {
 		t.Errorf("hooks %v activities %v events %v", m.GetHooks(), m.GetActivities(), m.GetEvents())
 	}
 
@@ -295,7 +300,8 @@ func (e *env) manifest(t *testing.T) {
 		}
 	}
 
-	if want := []string{"store", "cache", "greeter", "greeter/templates", "admin"}; !slices.Equal(paths, want) {
+	want := []string{"store", "cache", "greeter", "greeter/templates", "audit", "flows", "admin", "legacy"}
+	if !slices.Equal(paths, want) {
 		t.Errorf("nodes %v, want %v", paths, want)
 	}
 }
@@ -373,6 +379,68 @@ func (e *env) platformPort(t *testing.T) {
 	if code, _ := httpGet("http://"+e.platform+"/_backplane/ui/plugin.json", "Bp-Internal-Secret", secret); code != http.StatusOK {
 		t.Errorf("ui with secret: %d", code)
 	}
+
+	e.bundleCaching(t)
+}
+
+// bundleCaching: the bundle is served with ETag = the manifest's ui.hash
+// and Cache-Control: no-cache; the matching If-None-Match gets 304.
+func (e *env) bundleCaching(t *testing.T) {
+	t.Helper()
+
+	kv, _, err := e.consul.KV().Get("backplane/services/"+service+"/manifests/"+version, nil)
+	if err != nil || kv == nil {
+		t.Fatalf("manifest: %v", err)
+	}
+
+	var m backplanev1.Manifest
+	if err := proto.Unmarshal(kv.Value, &m); err != nil {
+		t.Fatal(err)
+	}
+
+	etag := `"` + m.GetUi().GetHash() + `"`
+	url := "http://" + e.platform + "/_backplane/ui/plugin.json"
+
+	res := uiRequest(t, url, "")
+	if res.StatusCode != http.StatusOK || res.Header.Get("ETag") != etag || res.Header.Get("Cache-Control") != "no-cache" {
+		t.Errorf("bundle: %d ETag %q Cache-Control %q, want ETag %s", res.StatusCode,
+			res.Header.Get("ETag"), res.Header.Get("Cache-Control"), etag)
+	}
+
+	if revalidated := uiRequest(t, url, etag); revalidated.StatusCode != http.StatusNotModified {
+		t.Errorf("bundle revalidated with its ETag: %d, want 304", revalidated.StatusCode)
+	}
+
+	if stale := uiRequest(t, url, `"previous"`); stale.StatusCode != http.StatusOK {
+		t.Errorf("bundle with a stale ETag: %d, want 200", stale.StatusCode)
+	}
+}
+
+// uiRequest GETs url from the platform port with the internal secret and,
+// when given, If-None-Match.
+func uiRequest(t *testing.T, url, ifNoneMatch string) *http.Response {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.Header.Set("Bp-Internal-Secret", secret)
+
+	if ifNoneMatch != "" {
+		req.Header.Set("If-None-Match", ifNoneMatch)
+	}
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = io.Copy(io.Discard, res.Body)
+	_ = res.Body.Close()
+
+	return res
 }
 
 func (e *env) protocols(t *testing.T) {

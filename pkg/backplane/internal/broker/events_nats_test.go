@@ -93,6 +93,13 @@ func TestStopNaksWithoutDeadLetter(t *testing.T) {
 		t.Fatalf("want ErrStopTimeout, got %v", err)
 	}
 
+	// The connection closes right after the stop, as NATS does later in the
+	// service's stop: the nak must already be out, or the message would
+	// only come back after ack_wait (well past waitFor).
+	if err := recv.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
 	attempts := make(chan int, 1)
 	next, _ := reacting(sub, src, env.Delivery{MaxDeliver: 1}, func(ctx context.Context, _ []byte) ([]byte, error) {
 		in, _ := env.IncomingOf(ctx)
