@@ -129,14 +129,21 @@ func admin(t *testing.T, url string, services ...string) jetstream.JetStream { /
 func open(t *testing.T, url, service string, e *env.Env) *broker.Broker {
 	t.Helper()
 
-	log := testlog.Discard()
+	return openWith(t, broker.Params{URL: url, Service: service, Env: e})
+}
+
+// openWith is open with p; Instance, Version and Log are filled in.
+func openWith(t *testing.T, p broker.Params) *broker.Broker {
+	t.Helper()
+
+	p.Log = testlog.Discard()
 	if os.Getenv("BROKER_TEST_LOG") != "" {
-		log = xlog.NewJSON(xlog.WithWriter(os.Stderr))
+		p.Log = xlog.NewJSON(xlog.WithWriter(os.Stderr))
 	}
 
-	b := broker.New(broker.Params{
-		URL: url, Service: service, Instance: service + "-1", Version: "1.0.0", Log: log, Env: e,
-	})
+	p.Instance, p.Version = p.Service+"-1", "1.0.0"
+
+	b := broker.New(p)
 	b.Fast(maxDeliver)
 
 	if err := b.Connect(t.Context(), newGroup(t)); err != nil {

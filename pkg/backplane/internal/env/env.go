@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
+	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
@@ -48,6 +50,17 @@ type Reactor struct {
 	Event    string // full name "<service>.<Event>"
 	Consumer string // unique within the service
 	Handler  Handler
+	Delivery Delivery
+}
+
+// Delivery is how a reactor's messages are delivered, as its author
+// declared it; a zero field means the transport's default.
+type Delivery struct {
+	MaxDeliver  int            // deliveries before the dead letter
+	Concurrency int            // handlers in flight at once
+	Timeout     time.Duration  // of one handler call
+	Redelivery  backoff.Policy // delay after a failed delivery
+	StartAll    bool           // a new consumer starts at the stream's first message
 }
 
 // Env of one service.
@@ -62,6 +75,7 @@ type Env struct {
 	reactors   []Reactor
 	registers  []func(registry any)
 	workflows  func() (any, error)
+	schedules  []any
 }
 
 // New creates the env of service.
@@ -155,18 +169,18 @@ func (e *Env) ActivityHandler(name string) (Handler, bool) {
 	return h, ok
 }
 
-// ReactorHandler returns the handler of a declared reactor.
-func (e *Env) ReactorHandler(consumer string) (Handler, bool) {
+// ReactorOf returns the declared reactor named consumer.
+func (e *Env) ReactorOf(consumer string) (Reactor, bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	for _, r := range e.reactors {
 		if r.Consumer == consumer {
-			return r.Handler, true
+			return r, true
 		}
 	}
 
-	return nil, false
+	return Reactor{}, false
 }
 
 // RegisterWorker adds fn, called with the service's Temporal worker
@@ -184,6 +198,22 @@ func (e *Env) WorkerRegistrations() []func(registry any) {
 	defer e.mu.RUnlock()
 
 	return append([]func(any){}, e.registers...)
+}
+
+// Schedule stores a declared schedule (a temporal.Schedule).
+func (e *Env) Schedule(s any) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.schedules = append(e.schedules, s)
+}
+
+// Schedules lists the declared schedules in declaration order.
+func (e *Env) Schedules() []any {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	return append([]any(nil), e.schedules...)
 }
 
 // SetWorkflowClient installs how the Temporal client is reached.

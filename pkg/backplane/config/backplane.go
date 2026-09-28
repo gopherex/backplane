@@ -50,10 +50,25 @@ type Consul struct {
 // Enabled reports whether Consul is configured.
 func (c Consul) Enabled() bool { return c.Addr != "" }
 
-// NATS connection.
+// NATS connection and the streams the service owns: its events
+// bp_<service> (applied when a service that declares events starts) and
+// its dead letters bp_dlq_<service> (applied when its reactors start).
+// Zero max_age, max_bytes or dlq_max_age mean unlimited.
 type NATS struct {
 	URL   string `json:"url,omitempty"`
 	Creds Secret `json:"creds,omitempty"`
+
+	// Retention of the service's events.
+	MaxAge time.Duration `json:"max_age" schemapb:"default=168h"`
+	// Size of the event stream in bytes; the oldest events go first.
+	MaxBytes int64 `json:"max_bytes" schemapb:"default=0;gte=0"`
+	// Replicas of both streams (JetStream cluster).
+	Replicas int64 `json:"replicas" schemapb:"default=1;gte=1;lte=5"`
+	// Window in which a repeated publish (same ce-id) is dropped; at most
+	// max_age.
+	DedupWindow time.Duration `json:"dedup_window" schemapb:"default=2m"`
+	// Retention of the dead letters of the service's reactors.
+	DLQMaxAge time.Duration `json:"dlq_max_age" schemapb:"default=720h"`
 }
 
 // Enabled reports whether NATS is configured.
@@ -63,6 +78,23 @@ func (n NATS) Enabled() bool { return n.URL != "" }
 type Temporal struct {
 	Addr      string `json:"addr,omitempty"`
 	Namespace string `json:"ns"             schemapb:"default=default"`
+	Worker    Worker `json:"worker"`
+}
+
+// Worker on the service's task queue: an operational setting, the same
+// code runs with any of it. A zero limit is Temporal's default.
+type Worker struct {
+	// false: this replica runs no worker (activities, hooks raised outside
+	// workflows and the author's workflows are served by replicas that do);
+	// it still reconciles schedules and uses the client.
+	Enabled bool `json:"enabled" schemapb:"default=true"`
+	// Activities executing at once.
+	MaxConcurrentActivities int64 `json:"max_concurrent_activities" schemapb:"default=0;gte=0"`
+	// Workflow tasks executing at once.
+	MaxConcurrentWorkflowTasks int64 `json:"max_concurrent_workflow_tasks" schemapb:"default=0;gte=0"`
+	// Pollers of the activity and workflow task queues.
+	ActivityPollers int64 `json:"activity_pollers" schemapb:"default=0;gte=0"`
+	WorkflowPollers int64 `json:"workflow_pollers" schemapb:"default=0;gte=0"`
 }
 
 // Enabled reports whether Temporal is configured.

@@ -129,5 +129,21 @@ func validate(b config.Backplane) error {
 		return fmt.Errorf("%w: shutdown.drain must be in [0, timeout), got %v", ErrConfig, b.Shutdown.Drain)
 	}
 
+	return validateNATS(b.NATS)
+}
+
+// validateNATS checks the stream settings JetStream would reject.
+func validateNATS(n config.NATS) error {
+	switch {
+	case !n.Enabled():
+		return nil
+	case n.MaxAge < 0:
+		return fmt.Errorf("%w: nats.max_age must be >= 0 (0: unlimited), got %v", ErrConfig, n.MaxAge)
+	case n.DLQMaxAge < 0:
+		return fmt.Errorf("%w: nats.dlq_max_age must be >= 0 (0: unlimited), got %v", ErrConfig, n.DLQMaxAge)
+	case n.DedupWindow <= 0 || (n.MaxAge > 0 && n.DedupWindow > n.MaxAge):
+		return fmt.Errorf("%w: nats.dedup_window must be in (0, max_age], got %v", ErrConfig, n.DedupWindow)
+	}
+
 	return nil
 }

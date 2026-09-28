@@ -145,19 +145,27 @@ func Activity[Req, Res any](ctx context.Context, h *Harness, name string, in Req
 
 // React delivers v to the reactor declared for the event name (full,
 // "iam.UserRegistered") on the scope at path ("" for the root), as the
-// broker would.
+// broker would: once, with the reactor's event.Timeout on ctx. The error
+// is the handler's; nothing is redelivered or dead-lettered.
 func React[T any](ctx context.Context, h *Harness, path, name string, v T) error {
 	consumer := name
 	if path != "" {
 		consumer = path + ":" + name
 	}
 
-	handler, ok := h.env.ReactorHandler(consumer)
+	r, ok := h.env.ReactorOf(consumer)
 	if !ok {
 		return fmt.Errorf("%w: reactor %q", ErrNotDeclared, consumer)
 	}
 
-	_, err := invoke[struct{}](ctx, handler, v)
+	if r.Delivery.Timeout > 0 {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, r.Delivery.Timeout)
+		defer cancel()
+	}
+
+	_, err := invoke[struct{}](ctx, r.Handler, v)
 
 	return err
 }

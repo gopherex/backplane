@@ -655,6 +655,31 @@ func TestOpenRejectsInvalidShutdown(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsInvalidNATS(t *testing.T) {
+	for name, env := range map[string][2]string{
+		"dedup above max_age": {"BACKPLANE_NATS_DEDUP_WINDOW", "2h"},
+		"negative max_age":    {"BACKPLANE_NATS_MAX_AGE", "-1s"},
+		"negative dlq":        {"BACKPLANE_NATS_DLQ_MAX_AGE", "-1s"},
+		"zero dedup":          {"BACKPLANE_NATS_DEDUP_WINDOW", "0s"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			setup(t, "")
+			t.Setenv("BACKPLANE_NATS_URL", "nats://127.0.0.1:1")
+			t.Setenv("BACKPLANE_NATS_MAX_AGE", "1h")
+			t.Setenv(env[0], env[1])
+
+			_, err := backplane.Open(t.Context(), func(backplane.Root[testConfig]) (*testState, error) {
+				t.Fatal("constructor called with an invalid configuration")
+
+				return nil, errDown
+			}, baseOptions("svc-invalid")...)
+			if !errors.Is(err, backplane.ErrConfig) {
+				t.Fatalf("want ErrConfig, got %v", err)
+			}
+		})
+	}
+}
+
 //nolint:paralleltest // t.Setenv: the SDK block reads the process environment
 func TestOpenFailsOnConstructorError(t *testing.T) {
 	setup(t, "")

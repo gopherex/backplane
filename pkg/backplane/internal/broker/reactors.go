@@ -58,7 +58,42 @@ type reactor struct {
 	durable  string
 	dead     string // dead-letter subject
 	handler  env.Handler
+	delivery delivery
 	pos      *position
+}
+
+// delivery is a reactor's env.Delivery over the broker's defaults.
+type delivery struct {
+	maxDeliver  int
+	concurrency int
+	timeout     time.Duration
+	nak         backoff.Policy
+	startAll    bool
+}
+
+func (b *Broker) deliveryOf(d env.Delivery) delivery {
+	out := delivery{
+		maxDeliver: b.t.maxDeliver, concurrency: b.t.concurrency, timeout: b.t.handlerTimeout,
+		nak: b.t.nak, startAll: d.StartAll,
+	}
+
+	if d.MaxDeliver > 0 {
+		out.maxDeliver = d.MaxDeliver
+	}
+
+	if d.Concurrency > 0 {
+		out.concurrency = d.Concurrency
+	}
+
+	if d.Timeout > 0 {
+		out.timeout = d.Timeout
+	}
+
+	if d.Redelivery.Validate() == nil {
+		out.nak = d.Redelivery
+	}
+
+	return out
 }
 
 func (b *Broker) reactorOf(r env.Reactor) (reactor, error) {
@@ -70,7 +105,8 @@ func (b *Broker) reactorOf(r env.Reactor) (reactor, error) {
 	return reactor{
 		event: r.Event, consumer: r.Consumer, source: service,
 		subject: Subject(service, name), durable: Durable(b.p.Service, r.Consumer),
-		dead: DLQSubject(b.p.Service, r.Consumer), handler: r.Handler, pos: newPosition(),
+		dead: DLQSubject(b.p.Service, r.Consumer), handler: r.Handler, delivery: b.deliveryOf(r.Delivery),
+		pos: newPosition(),
 	}, nil
 }
 
@@ -103,8 +139,8 @@ func (b *Broker) StartReactors(ctx context.Context, g node.Group) error {
 	st.work, st.cancel = context.WithCancel(context.WithoutCancel(ctx)) //nolint:gosec // StopReactors cancels
 	st.mu.Unlock()
 
-	for _, re := range list {
-		g.Go(func(ctx context.Context) error { return b.run(ctx, re) })
+	for i := range list {
+		g.Go(func(ctx context.Context) error { return b.run(ctx, list[i]) })
 	}
 
 	return nil
@@ -201,11 +237,16 @@ func (b *Broker) consume(
 		return nil, nil, err
 	}
 
-	if err := ensureExists(ctx, jet, eventStream(re.source, bySubscribe)); err != nil {
+	lim := DefaultStreams()
+	if re.source == b.p.Service {
+		lim = b.p.Streams
+	}
+
+	if err := ensureExists(ctx, jet, eventStream(re.source, bySubscribe, lim)); err != nil {
 		return nil, nil, err
 	}
 
-	if err := ensureExists(ctx, jet, deadStream(b.p.Service)); err != nil {
+	if err := b.ensureDead(ctx, jet); err != nil {
 		return nil, nil, err
 	}
 
@@ -221,11 +262,11 @@ func (b *Broker) consume(
 
 	re.pos.started(cons.CachedInfo().AckFloor.Stream)
 
-	sem := make(chan struct{}, b.t.concurrency)
+	sem := make(chan struct{}, re.delivery.concurrency)
 	lost := make(chan error, 1)
 
 	cc, err := cons.Consume(func(msg jetstream.Msg) { b.dispatch(re, sem, msg) },
-		jetstream.PullMaxMessages(b.t.concurrency),
+		jetstream.PullMaxMessages(re.delivery.concurrency),
 		jetstream.ConsumeErrHandler(func(_ jetstream.ConsumeContext, err error) {
 			b.log.Debug("reactor consume", re.fields(xlog.Err(err))...)
 
@@ -247,8 +288,8 @@ func (b *Broker) consume(
 
 // startAt is the consumer configuration with its start position. The
 // server does not let an existing consumer's start change, so an existing
-// consumer keeps its own; a missing one starts at resume when set, else at
-// new messages.
+// consumer keeps its own; a missing one starts at resume when set, else
+// where the reactor asks: new messages or the whole stream.
 func (b *Broker) startAt(
 	ctx context.Context, jet jetstream.JetStream, re reactor, resume uint64,
 ) (jetstream.ConsumerConfig, error) {
@@ -264,6 +305,8 @@ func (b *Broker) startAt(
 		return cfg, fmt.Errorf("broker: consumer %s: %w", re.durable, err)
 	case resume > 0:
 		cfg.DeliverPolicy, cfg.OptStartSeq = jetstream.DeliverByStartSequencePolicy, resume
+	case re.delivery.startAll:
+		cfg.DeliverPolicy = jetstream.DeliverAllPolicy
 	}
 
 	return cfg, nil
@@ -281,8 +324,8 @@ func (b *Broker) consumerConfig(re reactor) jetstream.ConsumerConfig {
 		FilterSubject: re.subject,
 		DeliverPolicy: jetstream.DeliverNewPolicy,
 		AckPolicy:     jetstream.AckExplicitPolicy,
-		AckWait:       b.t.handlerTimeout + ackMargin,
-		MaxDeliver:    b.t.maxDeliver,
+		AckWait:       re.delivery.timeout + ackMargin,
+		MaxDeliver:    re.delivery.maxDeliver,
 		Metadata:      map[string]string{metaService: b.p.Service, "bp.consumer": re.consumer, "bp.event": re.event},
 	}
 }
@@ -321,7 +364,7 @@ func (b *Broker) untrack(cc jetstream.ConsumeContext) {
 }
 
 // dispatch runs the handler of one message on its own goroutine, at most
-// b.t.concurrency at once per reactor. JetStream calls it sequentially, so
+// the reactor's concurrency at once. JetStream calls it sequentially, so
 // a full semaphore holds back the next message.
 func (b *Broker) dispatch(re reactor, sem chan struct{}, msg jetstream.Msg) {
 	st := &b.reactors
@@ -366,7 +409,7 @@ func (b *Broker) handle(work context.Context, re reactor, msg jetstream.Msg) {
 
 	ctx := otel.GetTextMapPropagator().Extract(work, carrier(msg.Headers()))
 
-	hctx, cancel := context.WithTimeout(ctx, b.t.handlerTimeout)
+	hctx, cancel := context.WithTimeout(ctx, re.delivery.timeout)
 	err := xtrace.Run(hctx, otel.Tracer(instrumentation), "process "+re.event,
 		func(ctx context.Context, _ trace.Span) error { return call(ctx, re.handler, msg.Data()) },
 		xtrace.WithSpanOptions(trace.WithSpanKind(trace.SpanKindConsumer)), xtrace.WithAttrs(
@@ -389,10 +432,10 @@ func (b *Broker) handle(work context.Context, re reactor, msg jetstream.Msg) {
 		}
 
 		re.pos.settled(seq)
-	case delivered < uint64(b.t.maxDeliver): //nolint:gosec // positive
+	case delivered < uint64(re.delivery.maxDeliver): //nolint:gosec // positive
 		log.Warn(ctx, "reactor failed, redelivering", re.fields(xlog.Err(err), xlog.Uint64("delivered", delivered))...)
 
-		if err := msg.NakWithDelay(nakDelay(b.t.nak, delivered)); err != nil {
+		if err := msg.NakWithDelay(nakDelay(re.delivery.nak, delivered)); err != nil {
 			log.Warn(ctx, "reactor nak", re.fields(xlog.Err(err))...)
 		}
 	default:

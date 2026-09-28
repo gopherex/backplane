@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package backplane.v1;
 
+import "google/protobuf/duration.proto";
 import "schemapb/schema.proto";
 
 option go_package = "github.com/gopherex/backplane/backplanepb/v1;backplanev1";
@@ -36,6 +37,8 @@ message Manifest {
   bytes descriptors = 13;
   // Events the service reacts to.
   repeated Subscription subscriptions = 14;
+  // Temporal Schedules of the service's own workflows.
+  repeated Schedule schedules = 15;
 }
 
 // The configuration. `keys` is the declaration; `schema` is optional and,
@@ -131,4 +134,45 @@ message UI {
   // Content hash of the bundle served at GET /_backplane/ui/.
   string hash = 1;
   uint32 sdk_major = 2;
+}
+
+// A Temporal Schedule the service declares; the SDK reconciles it at start.
+// Schedule id "<service>/<name>"; it starts the workflow on the service's
+// task queue with workflow id "<service>/<name>-<time>".
+message Schedule {
+  // Unique within the service: [A-Za-z][A-Za-z0-9_]*.
+  string name = 1;
+  // When the workflow starts.
+  oneof spec {
+    // Cron expression as Temporal reads it (5-7 fields, @daily, ...).
+    string cron = 2;
+    // Fixed interval.
+    google.protobuf.Duration every = 3;
+  }
+  // Workflow type started.
+  string workflow = 4;
+  ScheduleOverlap overlap = 5;
+  // Created paused.
+  bool paused = 6;
+  // IANA time zone of a cron spec; empty is UTC.
+  string time_zone = 7;
+  // Random delay up to this added to every start.
+  google.protobuf.Duration jitter = 8;
+}
+
+// What a start does while the previous run is still going.
+enum ScheduleOverlap {
+  SCHEDULE_OVERLAP_UNSPECIFIED = 0;
+  // Do not start (the default).
+  SCHEDULE_OVERLAP_SKIP = 1;
+  // Start once the running one ends; at most one waits.
+  SCHEDULE_OVERLAP_BUFFER_ONE = 2;
+  // Start every missed one after the running one ends.
+  SCHEDULE_OVERLAP_BUFFER_ALL = 3;
+  // Cancel the running one, then start.
+  SCHEDULE_OVERLAP_CANCEL_OTHER = 4;
+  // Terminate the running one, then start.
+  SCHEDULE_OVERLAP_TERMINATE_OTHER = 5;
+  // Start regardless.
+  SCHEDULE_OVERLAP_ALLOW_ALL = 6;
 }

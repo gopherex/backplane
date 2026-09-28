@@ -7,10 +7,12 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/event"
+	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
@@ -229,4 +231,73 @@ func TestDeclareOnZeroScopePanics(t *testing.T) {
 			declare()
 		})
 	}
+}
+
+func TestReactOptions(t *testing.T) {
+	t.Parallel()
+
+	root, e := bare(t)
+	noop := func(context.Context, Greeted) error { return nil }
+
+	event.React(root, "iam.UserRegistered", noop)
+	event.React(deps.NewComponent(root, "mailer"), "iam.UserRegistered", noop,
+		event.MaxDeliver(2), event.Concurrency(1), event.Timeout(time.Second),
+		event.Redelivery(time.Millisecond, time.Second), event.StartAt(event.StartAll))
+	event.React(deps.NewComponent(root, "late"), "iam.UserRegistered", noop,
+		event.StartAt(event.StartAll), event.StartAt(event.StartNew))
+
+	declared := e.Reactors()
+	if len(declared) != 3 {
+		t.Fatalf("reactors %d", len(declared))
+	}
+
+	if declared[0].Delivery != (env.Delivery{}) {
+		t.Errorf("no options: %+v", declared[0].Delivery)
+	}
+
+	want := env.Delivery{
+		MaxDeliver: 2, Concurrency: 1, Timeout: time.Second,
+		Redelivery: backoff.Policy{Min: time.Millisecond, Max: time.Second}, StartAll: true,
+	}
+	if declared[1].Delivery != want {
+		t.Errorf("options: %+v, want %+v", declared[1].Delivery, want)
+	}
+
+	if declared[2].Delivery.StartAll {
+		t.Error("the last StartAt wins")
+	}
+}
+
+func TestReactOptionsValidated(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct {
+		want string
+		opt  func()
+	}{
+		"max deliver":     {"MaxDeliver must be >= 1", func() { event.MaxDeliver(0) }},
+		"concurrency":     {"Concurrency must be >= 1", func() { event.Concurrency(-1) }},
+		"timeout":         {"Timeout must be positive", func() { event.Timeout(0) }},
+		"redelivery bent": {"event: redelivery: backoff", func() { event.Redelivery(time.Second, time.Millisecond) }},
+		"redelivery zero": {"event: redelivery: backoff", func() { event.Redelivery(0, time.Second) }},
+		"start":           {"unknown Start", func() { event.StartAt(event.Start(7)) }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			defer func() {
+				if r, _ := recover().(string); !strings.Contains(r, c.want) {
+					t.Fatalf("panic %q, want %q", r, c.want)
+				}
+			}()
+
+			c.opt()
+		})
+	}
+
+	event.MaxDeliver(1)
+	event.Concurrency(1)
+	event.Timeout(time.Nanosecond)
+	event.Redelivery(time.Second, time.Second)
+	event.StartAt(event.StartNew)
 }

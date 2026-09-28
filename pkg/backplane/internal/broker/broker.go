@@ -1,14 +1,16 @@
 // Package broker carries events over NATS JetStream (design §8).
 //
 // Every service has one stream, bp_<service>, with subjects
-// bp.<service>.<Event>. The emitter creates or updates it at start (its
-// configuration wins); a subscriber creates it when missing, with the same
-// platform defaults, so it exists before the emitter first runs. Events are
+// bp.<service>.<Event>. The emitter creates or updates it at start with the
+// operator's Streams (its configuration wins); a subscriber creates it when
+// missing, with the platform defaults, so it exists before the emitter
+// first runs. Events are
 // CloudEvents in NATS binary mode: ce-* headers, JSON data, Nats-Msg-Id =
 // ce-id for deduplication and the W3C trace context.
 //
 // A reactor is a durable pull consumer <subscriber>__<consumer> filtered on
-// one event. A handler that fails is redelivered with a growing delay; when
+// one event, delivered as its env.Delivery says over the broker's defaults.
+// A handler that fails is redelivered with a growing delay; when
 // the last delivery fails the message goes to the dead-letter subject
 // bp.dlq.<subscriber>.<consumer> (stream bp_dlq_<subscriber>) and is
 // terminated. A consumer deleted on the server while the service runs is
@@ -57,6 +59,27 @@ type Params struct {
 	Version  string
 	Log      *xlog.Logger
 	Env      *env.Env
+	// Streams the service owns; the zero value takes the platform
+	// defaults.
+	Streams Streams
+}
+
+// Streams are the operator's settings of the streams the service owns:
+// its event stream bp_<service> and its dead letters bp_dlq_<service>.
+// Zero MaxAge, MaxBytes or DeadMaxAge mean unlimited.
+type Streams struct {
+	MaxAge     time.Duration // retention of the service's events
+	MaxBytes   int64         // size of the event stream, oldest dropped first
+	Replicas   int           // of both streams
+	Duplicates time.Duration // dedup window of the event stream
+	DeadMaxAge time.Duration // retention of the dead letters
+}
+
+// DefaultStreams are the platform defaults of Streams.
+func DefaultStreams() Streams {
+	return Streams{
+		MaxAge: eventsMaxAge, Replicas: 1, Duplicates: dedupWindow, DeadMaxAge: deadMaxAge,
+	}
 }
 
 // tuning holds the timings; tests shorten them.
@@ -67,7 +90,7 @@ type tuning struct {
 	publishTimeout  time.Duration // when the caller's ctx has no deadline
 	// Background ensure of streams and consumers.
 	retry backoff.Policy
-	// Reactors.
+	// Reactors, unless the reactor sets its own (env.Delivery).
 	maxDeliver     int
 	handlerTimeout time.Duration
 	nak            backoff.Policy // delay after the n-th failed delivery
@@ -121,6 +144,10 @@ func New(p Params) *Broker {
 	log := p.Log
 	if log == nil {
 		log = xlog.New(xlog.NopCore{})
+	}
+
+	if p.Streams == (Streams{}) {
+		p.Streams = DefaultStreams()
 	}
 
 	return &Broker{p: p, t: defaults(), log: log, closed: make(chan struct{})}

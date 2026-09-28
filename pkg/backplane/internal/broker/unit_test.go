@@ -243,3 +243,60 @@ func TestUnreachableDoesNotBlock(t *testing.T) {
 		t.Fatalf("took %v", took)
 	}
 }
+
+func TestReactorSettings(t *testing.T) {
+	t.Parallel()
+
+	b := broker.New(broker.Params{Service: "mail", Log: testlog.Discard()})
+	h := func(context.Context, []byte) ([]byte, error) { return nil, nil }
+
+	def, err := b.ReactorSettings(env.Reactor{Event: "iam.UserRegistered", Consumer: "c", Handler: h})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if def.Consumer.MaxDeliver != 5 || def.Consumer.AckWait != 45*time.Second || def.Concurrency != 4 ||
+		def.Timeout != 30*time.Second || def.Nak != (backoff.Policy{Min: time.Second, Max: time.Minute}) ||
+		def.StartAll || def.Consumer.DeliverPolicy != jetstream.DeliverNewPolicy {
+		t.Fatalf("defaults: %+v", def)
+	}
+
+	got, err := b.ReactorSettings(env.Reactor{Event: "iam.UserRegistered", Consumer: "c", Handler: h, Delivery: env.Delivery{
+		MaxDeliver: 2, Concurrency: 1, Timeout: time.Second,
+		Redelivery: backoff.Policy{Min: time.Millisecond, Max: 10 * time.Millisecond}, StartAll: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Consumer.MaxDeliver != 2 || got.Consumer.AckWait != 16*time.Second || got.Concurrency != 1 ||
+		got.Timeout != time.Second || got.Nak != (backoff.Policy{Min: time.Millisecond, Max: 10 * time.Millisecond}) ||
+		!got.StartAll {
+		t.Fatalf("declared: %+v", got)
+	}
+}
+
+func TestOwnStreams(t *testing.T) {
+	t.Parallel()
+
+	events, dead := broker.New(broker.Params{Service: "mail"}).OwnStreams()
+	if events.MaxAge != 7*24*time.Hour || events.MaxBytes != -1 || events.Replicas != 1 ||
+		events.Duplicates != 2*time.Minute || dead.MaxAge != 30*24*time.Hour || dead.Replicas != 1 ||
+		dead.Duplicates != 2*time.Minute {
+		t.Fatalf("defaults: %+v %+v", events, dead)
+	}
+
+	events, dead = broker.New(broker.Params{Service: "mail", Streams: broker.Streams{
+		MaxAge: time.Hour, MaxBytes: 1 << 30, Replicas: 3, Duplicates: 30 * time.Second, DeadMaxAge: time.Minute,
+	}}).OwnStreams()
+	if events.MaxAge != time.Hour || events.MaxBytes != 1<<30 || events.Replicas != 3 ||
+		events.Duplicates != 30*time.Second || dead.MaxAge != time.Minute || dead.Replicas != 3 ||
+		dead.Duplicates != time.Minute {
+		t.Fatalf("set: %+v %+v", events, dead)
+	}
+
+	_, dead = broker.New(broker.Params{Service: "mail", Streams: broker.Streams{Replicas: 1}}).OwnStreams()
+	if dead.MaxAge != 0 || dead.Duplicates != 2*time.Minute {
+		t.Fatalf("unlimited dead letters: %+v", dead)
+	}
+}

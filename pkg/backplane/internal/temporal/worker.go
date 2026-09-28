@@ -61,12 +61,7 @@ func (c *Client) startWorker(hooks bool) error {
 		return nil
 	}
 
-	w := worker.New(conn, c.p.Service, worker.Options{
-		WorkerStopTimeout: stopGrace,
-		OnFatalError: func(err error) {
-			c.log.Error("temporal worker stopped on a fatal error", xlog.Err(err))
-		},
-	})
+	w := worker.New(conn, c.p.Service, c.workerOptions())
 
 	for name, h := range c.p.Env.Activities() {
 		w.RegisterActivityWithOptions(c.activity(name, h), activity.RegisterOptions{Name: name})
@@ -99,6 +94,22 @@ func (c *Client) startWorker(hooks bool) error {
 	c.log.Info("temporal worker started", xlog.String("task_queue", c.p.Service))
 
 	return nil
+}
+
+// workerOptions applies the tuning over Temporal's defaults.
+func (c *Client) workerOptions() worker.Options {
+	t := c.p.Worker
+
+	return worker.Options{
+		MaxConcurrentActivityExecutionSize:     t.MaxConcurrentActivities,
+		MaxConcurrentWorkflowTaskExecutionSize: t.MaxConcurrentWorkflowTasks,
+		MaxConcurrentActivityTaskPollers:       t.ActivityPollers,
+		MaxConcurrentWorkflowTaskPollers:       t.WorkflowPollers,
+		WorkerStopTimeout:                      stopGrace,
+		OnFatalError: func(err error) {
+			c.log.Error("temporal worker stopped on a fatal error", xlog.Err(err))
+		},
+	}
 }
 
 // StopWorker stops polling and lets running activities finish within ctx;

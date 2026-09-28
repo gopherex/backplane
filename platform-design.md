@@ -215,8 +215,10 @@ ws-proto несут в манифесте полные имена сервисо
 Именованные сообщения, которые сервис публикует в NATS как CloudEvents с
 JSON-payload (§8). `event.Declare[T](scope, "Greeted")` возвращает
 `event.Ref[T]`; `ref.Publish(ctx, v, event.Key(k))` отправляет. Реактор на
-чужое событие — `event.React[T](scope, "iam.UserRegistered", fn)`; в
-манифесте он — `subscriptions` (`event` и `consumer`, §8).
+чужое событие — `event.React[T](scope, "iam.UserRegistered", fn, opts...)`
+(опции доставки — `event.MaxDeliver`, `Concurrency`, `Timeout`,
+`Redelivery`, `StartAt`, §8); в манифесте он — `subscriptions` (`event` и
+`consumer`, §8).
 
 ### 3.4 Хуки («нужно»)
 
@@ -325,7 +327,14 @@ backplane держит blocking queries на каталог и на префик
 | `BACKPLANE_INTERNAL_SECRET` | секрет платформенного порта (§11.1); пусто — проверка выключена, `Run` пишет предупреждение |
 | `BACKPLANE_PUBLIC_PORT` | публичный порт managed-роутов (8080) |
 | `BACKPLANE_NATS_URL`, `_NATS_CREDS` | события; пусто — без NATS; `_NATS_CREDS` — содержимое `.creds`-файла |
+| `BACKPLANE_NATS_MAX_AGE`, `_NATS_MAX_BYTES` | хранение собственного стрима событий `bp_<service>`: возраст (`168h`) и размер в байтах (`0`); `0` — без ограничения (§8) |
+| `BACKPLANE_NATS_REPLICAS` | реплики стрима событий и стрима dead letters сервиса (`1`, от 1 до 5) |
+| `BACKPLANE_NATS_DEDUP_WINDOW` | окно дедупликации стрима событий (`2m`); `0 < окно ≤ max_age`, иначе ошибка `Open` |
+| `BACKPLANE_NATS_DLQ_MAX_AGE` | хранение dead letters `bp_dlq_<service>` (`720h`); `0` — без ограничения |
 | `BACKPLANE_TEMPORAL_ADDR`, `_TEMPORAL_NS` | хуки, активити, workflows; пусто — без Temporal |
+| `BACKPLANE_TEMPORAL_WORKER_ENABLED` | `false` — реплика без worker'а (§9) |
+| `BACKPLANE_TEMPORAL_WORKER_MAX_CONCURRENT_ACTIVITIES`, `_MAX_CONCURRENT_WORKFLOW_TASKS` | параллелизм worker'а; `0` — умолчание Temporal |
+| `BACKPLANE_TEMPORAL_WORKER_ACTIVITY_POLLERS`, `_WORKFLOW_POLLERS` | поллеры worker'а; `0` — умолчание Temporal |
 | `BACKPLANE_ENVIRONMENT` | `deployment.environment.name` |
 | `BACKPLANE_LOG_LEVEL` | уровень лога (`info`) |
 | `BACKPLANE_SHUTDOWN_TIMEOUT` | бюджет всей остановки (25s); `terminationGracePeriodSeconds` — больше него |
@@ -502,7 +511,7 @@ backplanetest.Answer(h, g.Lookup, fn)           // ответ на хук
 h.Start()                                       // provide, горутины; стоп — в t.Cleanup
 backplanetest.Events(h, greeted)                // что опубликовано в event.Ref
 backplanetest.Activity[In, Out](ctx, h, "Echo", in)          // вызов активити
-backplanetest.React(ctx, h, "greeter", "iam.UserRegistered", v) // доставка реактору
+backplanetest.React(ctx, h, "greeter", "iam.UserRegistered", v) // доставка реактору: один раз, с его Timeout
 backplanetest.SetLive(&cfg.Suffix, "?")         // Live как из консоли; Watch срабатывает
 h.Manifest()                                    // что объявлено
 ```
@@ -701,10 +710,17 @@ for iam.SendEmail`, `transform failed at step render: <CEL>`.
   событие) при старте делает create-or-update — его конфигурация
   побеждает; подписчик создаёт отсутствующий стрим с дефолтами платформы и
   существующий не трогает. Поэтому стрим есть до того, как эмиттер впервые
-  запустился. Дефолты платформы: limits-retention, file storage, discard
-  old, `max_age` 7 суток, окно дедупликации 2 минуты, 1 реплика; в
-  metadata стрима — `bp.service`, `bp.kind` (`events`) и `bp.ensured-by`
-  (`emitter` или `subscriber` — кто создал или обновил последним).
+  запустился. Всегда: limits-retention, file storage, discard old. Лимиты
+  задаёт оператор эмиттера в блоке `nats` (§4.3): `max_age` (7 суток),
+  `max_bytes` (без ограничения; при переполнении уходят старейшие
+  события), `replicas` (1), `dedup_window` (2 минуты, не больше
+  `max_age`); `0` в `max_age`/`max_bytes` — без ограничения. Изменение
+  применяется create-or-update при следующем старте эмиттера. Подписчик
+  создаёт отсутствующий чужой стрим с дефолтами платформы (7 суток, без
+  ограничения размера, 2 минуты, 1 реплика) — эмиттер при старте
+  перезапишет их своими. В metadata стрима — `bp.service`, `bp.kind`
+  (`events`) и `bp.ensured-by` (`emitter` или `subscriber` — кто создал или
+  обновил последним).
 - **Имена в NATS.** Имя сервиса, события и consumer'а становится токеном
   NATS так: ASCII-буквы, цифры и `-` остаются, любой другой байт — `_XX`
   (две заглавные hex-цифры). Отображение взаимно однозначно, и в
@@ -726,8 +742,8 @@ for iam.SendEmail`, `transform failed at step render: <CEL>`.
   `tracestate` (пропагатор OpenTelemetry). `dataschema` в v0 не
   выставляется: схема события — в манифесте. `Nats-Msg-Id` = `ce-id`:
   повтор той же публикации в окне дедупликации JetStream отбрасывает.
-- **Публикация** ждёт PubAck JetStream (в пределах `ctx`; без дедлайна —
-  5 с). Пока NATS недоступен, `Publish` сразу возвращает ошибку
+- **Публикация** ждёт PubAck JetStream в пределах `ctx`; без дедлайна —
+  5 с. Своей опции таймаута у `Publish` нет: срок задаёт `ctx` вызывающего. Пока NATS недоступен, `Publish` сразу возвращает ошибку
   (`ErrUnavailable`): SDK не буферизует и не ждёт переподключения. Если
   собственного стрима нет, SDK создаёт его и повторяет публикацию один раз.
 - **Подключение** не блокирует старт: недоступный NATS — предупреждение,
@@ -738,33 +754,57 @@ for iam.SendEmail`, `transform failed at step render: <CEL>`.
   дренируется в бюджете остановки. На readiness NATS не влияет.
 - **Порядок** — внутри subject. Партиций нет.
 - **Реакторы**: `event.React[UserRegistered](scope, "iam.UserRegistered",
-  handler)` = durable pull consumer, ack/nak, redelivery, `max_deliver` →
-  DLQ. Consumer назван по пути узла и событию (`<путь узла>:<событие>`, на
-  `Root` — само имя события) и уникален в сервисе: у каждого реактора своя
+  handler, opts...)` = durable pull consumer, ack/nak, redelivery,
+  `max_deliver` → DLQ. Consumer назван по пути узла и событию
+  (`<путь узла>:<событие>`, на `Root` — само имя события) и уникален в сервисе: у каждого реактора своя
   позиция, несколько реакторов на одно событие не мешают друг другу.
   Манифест перечисляет их в `subscriptions` (`event`, `consumer`); durable
   consumer в NATS — `<subscriber>__<consumer>` (оба экранированы, см.
   «Имена в NATS»; длиннее 200 символов — обрезается и дополняется хешем),
   на стриме `bp_<src>` с фильтром `bp.<src>.<Event>`. Новый consumer
   начинает с событий, опубликованных после его создания (`deliver_policy
-  new`); дальше позиция хранится в NATS. Подписчик декодирует своим типом
+  new`), или, с `event.StartAt(event.StartAll)`, со всех событий, которые
+  стрим ещё хранит (`deliver_policy all`); дальше позиция хранится в NATS.
+  Точка старта действует только при создании: существующий consumer
+  сохраняет свою позицию, и `StartAll`, добавленный работающему реактору,
+  ничего не переигрывает (для повтора истории — новый consumer, т. е. другой
+  путь узла, или удаление consumer'а оператором). Подписчик декодирует своим типом
   (копия схемы) или динамически. Читать чужие стримы может любой;
   «подписан на всё» = consumer на каждый стрим из каталога манифестов,
   новые — по мере появления. Ограничения доступа, если нужны, — правами
   NATS-пользователя.
-- **Доставка реактору.** Explicit ack; до 4 обработчиков одновременно на
-  реактор; обработчик получает контекст с трассой события и таймаут 30 с;
-  паника — ошибка. Успех — ack. Ошибка — nak с задержкой 1 с, удваивающейся
-  с каждой доставкой до 1 мин. `max_deliver` = 5; `ack_wait` = таймаут
+- **Доставка реактору.** Explicit ack; обработчик получает контекст с
+  трассой события и таймаутом; паника — ошибка. Успех — ack. Ошибка — nak
+  с задержкой, удваивающейся с каждой доставкой от нижней границы до
+  верхней; неуспешная последняя доставка — DLQ. `ack_wait` = таймаут
   обработчика + 15 с — через столько возвращается сообщение, которое никто
   не подтвердил (процесс упал). Свой `BackOff` consumer'а не задан: сервер
   отсчитывает задержку nak от `ack_wait`, и вместе с `BackOff` задержки
   расходились бы. Consumption переживает переподключения NATS.
+- **Опции реактора** — решение автора кода, в `event.React(..., opts...)`;
+  бессмысленное значение — паника при объявлении (как у `deps.Backoff`):
+
+  | Опция | По умолчанию | Смысл |
+  |---|---|---|
+  | `event.MaxDeliver(n)`, `n ≥ 1` | 5 | доставок одного сообщения, первая включительно; `1` — без повторов, первая ошибка — сразу DLQ (`max_deliver` consumer'а) |
+  | `event.Concurrency(n)`, `n ≥ 1` | 4 | обработчиков одновременно на реактор в одном инстансе (и размер выборки); `1` — строго по одному, но упавшее сообщение вернётся после задержки позади следующих |
+  | `event.Timeout(d)`, `d > 0` | 30 с | таймаут одного вызова: контекст отменяется, вызов считается неуспешным; `ack_wait` = `d` + 15 с |
+  | `event.Redelivery(min, max)`, `0 < min ≤ max` | 1 с..1 мин | задержка перед повторной доставкой: `min` после первой ошибки, удваивается до `max` |
+  | `event.StartAt(event.StartNew\|StartAll)` | `StartNew` | откуда начинает **новый** consumer (см. выше) |
+
+  `max_deliver` и `ack_wait` пишутся в конфигурацию consumer'а при каждом
+  старте реакторов (create-or-update), так что изменённые опции действуют
+  после выкатки; точка старта — только при создании. В манифест опции не
+  попадают: их видно в конфигурации consumer'а в NATS. В `backplanetest`
+  `React` вызывает обработчик один раз с `Timeout` реактора на контексте;
+  повторов и DLQ там нет.
 - **DLQ.** Если последняя доставка (`max_deliver`) тоже неуспешна,
   сообщение с исходными payload и заголовками (кроме служебных `Nats-*`)
   публикуется в `bp.dlq.<subscriber>.<consumer>` — стрим
-  `bp_dlq_<subscriber>` (subjects `bp.dlq.<subscriber>.>`, создаёт
-  подписчик при старте реакторов, `max_age` 30 суток) — с заголовками
+  `bp_dlq_<subscriber>` (subjects `bp.dlq.<subscriber>.>`; подписчик
+  создаёт или обновляет его при старте реакторов; хранение —
+  `dlq_max_age` блока `nats`, 30 суток, `0` — без ограничения; реплики —
+  `replicas`) — с заголовками
   `bp-error` (текст последней ошибки, до 4 KiB), `bp-consumer` (имя
   consumer'а из манифеста) и `bp-delivered`; `Nats-Msg-Id` =
   `<durable>:<стрим>:<seq>`, так что повтор не дублирует dead letter.
@@ -810,20 +850,102 @@ on iam.UserRegistered when event.email != "" :=
 Сервис описывает свои workflows и activities как хочет; с proto —
 `protoc-gen-go-temporal` даёт стабы и типизированные клиенты. Task queue =
 имя сервиса, namespace один (`BACKPLANE_TEMPORAL_NS`, по умолчанию
-`default`). SDK даёт подключение и регистрацию worker'а; больше ничего
-своего. Worker (identity = id инстанса) несёт активити (§3.5) и
-`backplane.CallHook` (§7.2), стартует после дерева автора и
-останавливается до него: `Stop` перестаёт брать задачи и ждёт идущие
-активити в пределах бюджета остановки. Логи Temporal SDK идут в логгер
+`default`). SDK даёт подключение, worker, расписания и настройку worker'а
+из конфигурации; больше ничего своего. Логи Temporal SDK идут в логгер
 сервиса, метрики и трейсы — в OTel сервиса.
 
-- внутри сервиса — обычный Temporal: retry, таймеры, сигналы, cron
-  (Temporal Schedules);
+- внутри сервиса — обычный Temporal: retry, таймеры, сигналы, расписания;
 - между сервисами — только через хуки (§7): activity вызывает `Call` хука,
   реализация — биндинг; чужих очередей и типов сервис не знает;
 - из консоли — запустить любой workflow, хук или активити с входом: форма
   по схеме, если есть, иначе JSON; запуски, история, отмена, повтор —
   Temporal API в карточке.
+
+**Регистрация и клиент.** `workflows.Register(scope, func(r
+worker.Registry))` добавляет workflows и activities автора в worker
+сервиса; объявление — до `Run`, после него — паника.
+`workflows.Client(scope)` — Temporal-клиент сервиса (пока Temporal не
+задан или не подключён — ошибка с `hook.ErrUnavailable`),
+`workflows.Queue(scope)` — его task queue. Запуск своего workflow —
+`ExecuteWorkflow` клиента на `Queue`.
+
+**Worker** (identity = id инстанса) несёт activities и workflows автора,
+активити (§3.5) и `backplane.CallHook` (§7.2); создаётся, если сервис
+объявил что-то из этого. Стартует после дерева автора, как только есть
+соединение (неудачный старт повторяется с backoff), и останавливается до
+него: `Stop` перестаёт брать задачи и ждёт идущие активити в пределах
+бюджета остановки. Настройка — эксплуатационная, из блока
+`backplane.temporal.worker` (env `BACKPLANE_TEMPORAL_WORKER_*`, §4.3), код
+тот же при любой:
+
+| поле | смысл |
+|---|---|
+| `enabled` | `false` — реплика без worker'а: очередь обслуживают другие реплики (отдельный деплоймент-воркер), а эта держит клиент, `Call` хуков и сверку расписаний (по умолчанию `true`) |
+| `max_concurrent_activities` | activities, исполняемых одновременно |
+| `max_concurrent_workflow_tasks` | workflow task'ов одновременно |
+| `activity_pollers`, `workflow_pollers` | поллеры очередей activity и workflow task'ов |
+
+`0` — умолчание Temporal SDK; отрицательное — ошибка `Open`.
+
+**Расписания** — Temporal Schedules, объявленные в коде:
+
+```go
+workflows.Schedule(root, "NightlyReport", workflows.Cron("0 3 * * *"), reports.Nightly,
+    workflows.Args(reports.Daily), workflows.TimeZone("Europe/Moscow"),
+    workflows.Overlap(workflows.OverlapBufferOne))
+workflows.Schedule(root, "Poll", workflows.Every(time.Minute), "poller.Poll")
+```
+
+- Когда — `Cron(expr)` (как читает Temporal: 5–7 полей, `@daily` и т. п.;
+  минутная точность, секунды — только 7 полями) или `Every(d)` (интервал
+  от Unix-эпохи, не меньше секунды).
+- Что — workflow функцией или зарегистрированным именем типа; для функции
+  имя — как у `RegisterWorkflow` (короткое имя функции). `Schedule` его не
+  регистрирует: workflow обязан быть в `Register` — регистрацию и
+  расписание держит один автор, двойная регистрация в Temporal — паника.
+- Опции: `Args(...)` — аргументы запуска (JSON; proto — protojson);
+  `Overlap(p)` — что делать, если прошлый запуск ещё идёт: `OverlapSkip`
+  (по умолчанию), `BufferOne`, `BufferAll`, `CancelOther`,
+  `TerminateOther`, `AllowAll`; `CatchupWindow(d)` — насколько поздно
+  догонять пропущенное, пока Temporal лежал (по умолчанию год);
+  `Jitter(d)`; `TimeZone(iana)` (по умолчанию UTC); `Paused()` — создать на
+  паузе; `PauseOnFailure()`; для запущенного workflow — `Timeout(d)`
+  (execution), `RunTimeout(d)`, `Retry(policy)`.
+- Имя — `[A-Za-z][A-Za-z0-9_]*`, уникально в сервисе. Плохое имя, spec,
+  workflow, опция или неуникальное имя — ошибка `Run` до старта
+  (`workflows.ErrSchedule`, `ErrDuplicate` манифеста); объявление после
+  `Run` — паника. Манифест несёт `schedules[]`: имя, `cron` или `every`,
+  тип workflow, overlap, paused, часовой пояс, jitter.
+- Id расписания — `<service>/<Name>`; оно запускает workflow на очереди
+  сервиса с id `<service>/<Name>-<время запуска>` (время дописывает
+  Temporal), по префиксу консоль и находит запуски. Memo расписания
+  `backplane.service=<service>` — владелец; memo запускаемого workflow —
+  владелец и отпечаток объявления `backplane.schedule` (sha256 spec,
+  workflow, аргументов, политик и таймаутов).
+
+**Сверка расписаний.** Каждая реплика при старте, в фоне после
+подключения к Temporal (узел `schedules` после worker'а; readiness не
+ждёт), приводит расписания сервиса к объявленным:
+
+- нет расписания — создаётся;
+- есть — отпечаток сравнивается с объявленным; отличается — spec, действие,
+  политики и пауза заменяются целиком; совпадает — не трогается, так что
+  ручная пауза или снятие паузы оператором живут до изменения объявления;
+- расписание с id `<service>/…` и memo-владельцем `<service>`, которого нет
+  в объявлениях, удаляется; без memo-владельца (заведено руками) — не
+  трогается. Сверка идёт и когда сервис не объявил ни одного расписания —
+  так удаляются оставшиеся от прошлой версии; и без worker'а на реплике.
+
+Реплики стартуют одновременно без координации: создание, наткнувшееся на
+существующее расписание, превращается в сравнение отпечатков, удаление
+уже удалённого — не ошибка. Временный сбой — повтор всего прохода с
+backoff (1–30 с) до успеха или остановки; расписание, которое Temporal
+отверг как невалидное (кривой cron, неизвестный часовой пояс), — ошибка в
+лог и пропуск, остальные сверяются. Список расписаний в Temporal
+eventually consistent: расписание, созданное секунды назад, сверка может
+ещё не увидеть и удалит его при следующем старте. Во время раскатки
+последней применяется версия той реплики, что стартовала последней.
+Без Temporal объявления остаются в манифесте, в лог — предупреждение.
 
 ## 10. Прямые вызовы и mesh
 
@@ -1176,7 +1298,7 @@ case в SDK ради них — дефект модели.
 | файл | `BACKPLANE_CONFIG_FILE` (YAML/JSON) той же формы, что структура конфигурации |
 | блок SDK | `BACKPLANE_*` — таблица §4.3 |
 | NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>`; durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста, `<путь узла>:<событие>`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; имена экранируются (§8); правила `backplane__rule_<id>` |
-| Temporal | namespace один; task queue `<service>`; очередь backplane `backplane`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow вызова хука вне workflow `backplane.CallHook`, id `hook/<service>/<Name>/<uuid>`; workflow id правила `rule/<id>/<ce-id>`; тип ошибки «нет биндинга» `backplane.NoBinding` |
+| Temporal | namespace один; task queue `<service>`; очередь backplane `backplane`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow вызова хука вне workflow `backplane.CallHook`, id `hook/<service>/<Name>/<uuid>`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; workflow id правила `rule/<id>/<ce-id>`; тип ошибки «нет биндинга» `backplane.NoBinding` |
 | имена хуков, активити, событий | `<service>.<Name>`, `Name` — CamelCase |
 | proto-пакеты | внутреннее API `<service>.console.v1`; хуки `<service>.hooks.v1`; активити `<service>.activities.v1`; события `<service>.events.v1` |
 | консоль | `/s/<service>/...` — плагин; `/plugins/<service>/<hash>/...` — бандл |

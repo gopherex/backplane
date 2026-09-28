@@ -195,6 +195,15 @@ func (b *Builder) Subscription(s *backplanev1.Subscription) {
 	})
 }
 
+// Schedule records a Temporal Schedule.
+func (b *Builder) Schedule(s *backplanev1.Schedule) {
+	b.with("schedule", func(m *backplanev1.Manifest) error {
+		m.Schedules = append(m.Schedules, s)
+
+		return b.unique("schedule", s.GetName())
+	})
+}
+
 // UI records the bundle hash and sdk_major from plugin.json.
 func (b *Builder) UI(bundle fs.FS) {
 	b.with("ui", func(m *backplanev1.Manifest) error {

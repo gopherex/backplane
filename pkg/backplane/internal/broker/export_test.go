@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
+	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 )
 
 // Fast shortens the timings for tests; maxDeliver bounds deliveries.
@@ -39,4 +41,33 @@ func Credentials(content string) error {
 	_, err := credentials(content)
 
 	return err
+}
+
+// Settings is what a reactor runs with.
+type Settings struct {
+	Consumer    jetstream.ConsumerConfig
+	Concurrency int
+	Timeout     time.Duration
+	Nak         backoff.Policy
+	StartAll    bool
+}
+
+// ReactorSettings resolves r over the broker's defaults.
+func (b *Broker) ReactorSettings(r env.Reactor) (Settings, error) {
+	re, err := b.reactorOf(r)
+	if err != nil {
+		return Settings{}, err
+	}
+
+	d := re.delivery
+
+	return Settings{
+		Consumer: b.consumerConfig(re), Concurrency: d.concurrency, Timeout: d.timeout, Nak: d.nak, StartAll: d.startAll,
+	}, nil
+}
+
+// OwnStreams are the configurations of the service's event and dead-letter
+// streams.
+func (b *Broker) OwnStreams() (jetstream.StreamConfig, jetstream.StreamConfig) {
+	return eventStream(b.p.Service, byEmitter, b.p.Streams), deadStream(b.p.Service, b.p.Streams)
 }

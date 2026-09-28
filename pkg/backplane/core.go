@@ -122,6 +122,10 @@ func (c *core) connect() {
 		c.broker = broker.New(broker.Params{
 			URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds.Reveal(),
 			Service: c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
+			Streams: broker.Streams{
+				MaxAge: c.cfg.NATS.MaxAge, MaxBytes: c.cfg.NATS.MaxBytes, Replicas: int(c.cfg.NATS.Replicas),
+				Duplicates: c.cfg.NATS.DedupWindow, DeadMaxAge: c.cfg.NATS.DLQMaxAge,
+			},
 		})
 		n := c.svc.Child("nats", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.broker.Connect(ctx, n) })
@@ -133,12 +137,23 @@ func (c *core) connect() {
 		c.temporal = temporal.New(temporal.Params{
 			Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace,
 			Service: c.id.Service, Instance: c.id.Instance, Log: c.log, Env: c.env,
+			Worker: tuning(c.cfg.Temporal.Worker),
 		})
 		n := c.svc.Child("temporal", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.Connect(ctx, n) })
 		n.OnStop(c.temporal.Close)
 		c.env.SetCaller(c.temporal)
 		c.env.SetWorkflowClient(func() (any, error) { return c.temporal.SDK() })
+	}
+}
+
+// tuning of the Temporal worker from its configuration block.
+func tuning(w config.Worker) temporal.Tuning {
+	return temporal.Tuning{
+		MaxConcurrentActivities:    int(w.MaxConcurrentActivities),
+		MaxConcurrentWorkflowTasks: int(w.MaxConcurrentWorkflowTasks),
+		ActivityPollers:            int(w.ActivityPollers),
+		WorkflowPollers:            int(w.WorkflowPollers),
 	}
 }
 

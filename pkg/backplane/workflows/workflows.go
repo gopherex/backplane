@@ -4,15 +4,25 @@
 // services go through hooks, never through another service's queue.
 //
 //	workflows.Register(root, func(r worker.Registry) {
-//	    r.RegisterWorkflow(orders.Fulfil)
+//	    r.RegisterWorkflow(orders.Ship)
 //	    r.RegisterActivity(orders.Charge)
 //	})
 //
 //	c, err := workflows.Client(scope)
-//	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: workflows.Queue(scope)}, orders.Fulfil, in)
+//	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{TaskQueue: workflows.Queue(scope)}, orders.Ship, in)
+//
+// Schedule declares a Temporal Schedule of a registered workflow; the SDK
+// creates, updates and deletes the service's schedules to match the
+// declarations at every start:
+//
+//	workflows.Schedule(root, "NightlyReport", workflows.Cron("0 3 * * *"), reports.Nightly)
+//
+// The worker is tuned by configuration, not code: BACKPLANE_TEMPORAL_WORKER_*
+// (config.Worker).
 package workflows
 
 import (
+	"errors"
 	"fmt"
 
 	"go.temporal.io/sdk/client"
@@ -21,6 +31,8 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 )
+
+var errClient = errors.New("workflows: unexpected Temporal client")
 
 // Register adds fn's workflows and activities to the service's worker.
 // Declare it before Run, like any declaration.
@@ -39,7 +51,7 @@ func Register(scope deps.Scope, fn func(r worker.Registry)) {
 
 // Client is the service's Temporal client. It fails with an error wrapping
 // hook.ErrUnavailable while Temporal is not configured or not connected.
-func Client(scope deps.Scope) (client.Client, error) { //nolint:ireturn // the Temporal client is an interface
+func Client(scope deps.Scope) (client.Client, error) {
 	e, _ := decl.Env(scope, "workflows client")
 
 	c, err := e.WorkflowClient()
@@ -49,7 +61,7 @@ func Client(scope deps.Scope) (client.Client, error) { //nolint:ireturn // the T
 
 	tc, ok := c.(client.Client)
 	if !ok {
-		return nil, fmt.Errorf("workflows: unexpected client %T", c)
+		return nil, fmt.Errorf("%w: %T", errClient, c)
 	}
 
 	return tc, nil

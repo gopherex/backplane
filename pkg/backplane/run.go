@@ -135,7 +135,8 @@ func (c *core) tail(m *backplanev1.Manifest) {
 }
 
 // work adds the event reactors and the Temporal worker when the service
-// declared something for them; without the transport it warns.
+// declared something for them, and the reconciliation of its Temporal
+// schedules; without the transport it warns.
 func (c *core) work(m *backplanev1.Manifest) {
 	switch {
 	case len(m.GetSubscriptions()) == 0:
@@ -151,10 +152,22 @@ func (c *core) work(m *backplanev1.Manifest) {
 	case len(m.GetActivities()) == 0 && len(m.GetHooks()) == 0 && len(c.env.WorkerRegistrations()) == 0:
 	case c.temporal == nil:
 		c.log.Warn("activities, hooks or workflows declared but Temporal is not configured: they are unavailable")
+	case !c.cfg.Temporal.Worker.Enabled:
+		c.log.Info("temporal worker disabled on this replica: other replicas serve the task queue")
 	default:
 		n := c.svc.Child("worker", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.StartWorker(ctx, n) })
 		n.OnStop(c.temporal.StopWorker)
+	}
+
+	switch {
+	case c.temporal != nil:
+		// Also with nothing declared: schedules left by an earlier version
+		// are deleted.
+		n := c.svc.Child("schedules", node.System, false)
+		n.OnStart(func(ctx context.Context) error { return c.temporal.ReconcileSchedules(ctx, n) })
+	case len(m.GetSchedules()) > 0:
+		c.log.Warn("schedules declared but Temporal is not configured: they are not created")
 	}
 }
 

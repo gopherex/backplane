@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gopherex/backplane/pkg/backplane/activity"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
@@ -202,5 +203,27 @@ func TestHarnessMisses(t *testing.T) {
 	// Declared on the root: the consumer is the bare event name.
 	if err := backplanetest.React(t.Context(), h, "", "iam.UserDeleted", UserRegistered{}); err != nil {
 		t.Fatalf("root reactor: %v", err)
+	}
+}
+
+func TestHarnessReactOptions(t *testing.T) {
+	t.Parallel()
+
+	h := backplanetest.New(t)
+	event.React(h.Root(), "iam.UserRegistered", func(ctx context.Context, _ UserRegistered) error {
+		if _, has := ctx.Deadline(); !has {
+			return errors.New("no deadline from event.Timeout")
+		}
+
+		<-ctx.Done()
+
+		return ctx.Err()
+	}, event.Timeout(20*time.Millisecond), event.MaxDeliver(1), event.Concurrency(1),
+		event.Redelivery(time.Millisecond, time.Second), event.StartAt(event.StartAll))
+	h.Start()
+
+	err := backplanetest.React(t.Context(), h, "", "iam.UserRegistered", UserRegistered{ID: "u1"})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want the Timeout to end the handler, got %v", err)
 	}
 }

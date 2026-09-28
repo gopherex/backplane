@@ -10,6 +10,7 @@ import (
 	schemapb "github.com/gopherex/schemapb/go/schemapb"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -132,6 +133,74 @@ func (RouteKind) EnumDescriptor() ([]byte, []int) {
 	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{1}
 }
 
+// What a start does while the previous run is still going.
+type ScheduleOverlap int32
+
+const (
+	ScheduleOverlap_SCHEDULE_OVERLAP_UNSPECIFIED ScheduleOverlap = 0
+	// Do not start (the default).
+	ScheduleOverlap_SCHEDULE_OVERLAP_SKIP ScheduleOverlap = 1
+	// Start once the running one ends; at most one waits.
+	ScheduleOverlap_SCHEDULE_OVERLAP_BUFFER_ONE ScheduleOverlap = 2
+	// Start every missed one after the running one ends.
+	ScheduleOverlap_SCHEDULE_OVERLAP_BUFFER_ALL ScheduleOverlap = 3
+	// Cancel the running one, then start.
+	ScheduleOverlap_SCHEDULE_OVERLAP_CANCEL_OTHER ScheduleOverlap = 4
+	// Terminate the running one, then start.
+	ScheduleOverlap_SCHEDULE_OVERLAP_TERMINATE_OTHER ScheduleOverlap = 5
+	// Start regardless.
+	ScheduleOverlap_SCHEDULE_OVERLAP_ALLOW_ALL ScheduleOverlap = 6
+)
+
+// Enum value maps for ScheduleOverlap.
+var (
+	ScheduleOverlap_name = map[int32]string{
+		0: "SCHEDULE_OVERLAP_UNSPECIFIED",
+		1: "SCHEDULE_OVERLAP_SKIP",
+		2: "SCHEDULE_OVERLAP_BUFFER_ONE",
+		3: "SCHEDULE_OVERLAP_BUFFER_ALL",
+		4: "SCHEDULE_OVERLAP_CANCEL_OTHER",
+		5: "SCHEDULE_OVERLAP_TERMINATE_OTHER",
+		6: "SCHEDULE_OVERLAP_ALLOW_ALL",
+	}
+	ScheduleOverlap_value = map[string]int32{
+		"SCHEDULE_OVERLAP_UNSPECIFIED":     0,
+		"SCHEDULE_OVERLAP_SKIP":            1,
+		"SCHEDULE_OVERLAP_BUFFER_ONE":      2,
+		"SCHEDULE_OVERLAP_BUFFER_ALL":      3,
+		"SCHEDULE_OVERLAP_CANCEL_OTHER":    4,
+		"SCHEDULE_OVERLAP_TERMINATE_OTHER": 5,
+		"SCHEDULE_OVERLAP_ALLOW_ALL":       6,
+	}
+)
+
+func (x ScheduleOverlap) Enum() *ScheduleOverlap {
+	p := new(ScheduleOverlap)
+	*p = x
+	return p
+}
+
+func (x ScheduleOverlap) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ScheduleOverlap) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_v1_manifest_proto_enumTypes[2].Descriptor()
+}
+
+func (ScheduleOverlap) Type() protoreflect.EnumType {
+	return &file_backplanepb_v1_manifest_proto_enumTypes[2]
+}
+
+func (x ScheduleOverlap) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ScheduleOverlap.Descriptor instead.
+func (ScheduleOverlap) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{2}
+}
+
 // Manifest is everything a service declares. The SDK assembles it at start
 // and writes it to Consul KV `backplane/services/<service>/manifests/<version>`
 // as protobuf binary. Names are mandatory; schemas are optional.
@@ -161,6 +230,8 @@ type Manifest struct {
 	Descriptors []byte `protobuf:"bytes,13,opt,name=descriptors,proto3" json:"descriptors,omitempty"`
 	// Events the service reacts to.
 	Subscriptions []*Subscription `protobuf:"bytes,14,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
+	// Temporal Schedules of the service's own workflows.
+	Schedules     []*Schedule `protobuf:"bytes,15,rep,name=schedules,proto3" json:"schedules,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -282,6 +353,13 @@ func (x *Manifest) GetDescriptors() []byte {
 func (x *Manifest) GetSubscriptions() []*Subscription {
 	if x != nil {
 		return x.Subscriptions
+	}
+	return nil
+}
+
+func (x *Manifest) GetSchedules() []*Schedule {
+	if x != nil {
+		return x.Schedules
 	}
 	return nil
 }
@@ -883,11 +961,153 @@ func (x *UI) GetSdkMajor() uint32 {
 	return 0
 }
 
+// A Temporal Schedule the service declares; the SDK reconciles it at start.
+// Schedule id "<service>/<name>"; it starts the workflow on the service's
+// task queue with workflow id "<service>/<name>-<time>".
+type Schedule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Unique within the service: [A-Za-z][A-Za-z0-9_]*.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// When the workflow starts.
+	//
+	// Types that are valid to be assigned to Spec:
+	//
+	//	*Schedule_Cron
+	//	*Schedule_Every
+	Spec isSchedule_Spec `protobuf_oneof:"spec"`
+	// Workflow type started.
+	Workflow string          `protobuf:"bytes,4,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	Overlap  ScheduleOverlap `protobuf:"varint,5,opt,name=overlap,proto3,enum=backplane.v1.ScheduleOverlap" json:"overlap,omitempty"`
+	// Created paused.
+	Paused bool `protobuf:"varint,6,opt,name=paused,proto3" json:"paused,omitempty"`
+	// IANA time zone of a cron spec; empty is UTC.
+	TimeZone string `protobuf:"bytes,7,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
+	// Random delay up to this added to every start.
+	Jitter        *durationpb.Duration `protobuf:"bytes,8,opt,name=jitter,proto3" json:"jitter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Schedule) Reset() {
+	*x = Schedule{}
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Schedule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Schedule) ProtoMessage() {}
+
+func (x *Schedule) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Schedule.ProtoReflect.Descriptor instead.
+func (*Schedule) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *Schedule) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Schedule) GetSpec() isSchedule_Spec {
+	if x != nil {
+		return x.Spec
+	}
+	return nil
+}
+
+func (x *Schedule) GetCron() string {
+	if x != nil {
+		if x, ok := x.Spec.(*Schedule_Cron); ok {
+			return x.Cron
+		}
+	}
+	return ""
+}
+
+func (x *Schedule) GetEvery() *durationpb.Duration {
+	if x != nil {
+		if x, ok := x.Spec.(*Schedule_Every); ok {
+			return x.Every
+		}
+	}
+	return nil
+}
+
+func (x *Schedule) GetWorkflow() string {
+	if x != nil {
+		return x.Workflow
+	}
+	return ""
+}
+
+func (x *Schedule) GetOverlap() ScheduleOverlap {
+	if x != nil {
+		return x.Overlap
+	}
+	return ScheduleOverlap_SCHEDULE_OVERLAP_UNSPECIFIED
+}
+
+func (x *Schedule) GetPaused() bool {
+	if x != nil {
+		return x.Paused
+	}
+	return false
+}
+
+func (x *Schedule) GetTimeZone() string {
+	if x != nil {
+		return x.TimeZone
+	}
+	return ""
+}
+
+func (x *Schedule) GetJitter() *durationpb.Duration {
+	if x != nil {
+		return x.Jitter
+	}
+	return nil
+}
+
+type isSchedule_Spec interface {
+	isSchedule_Spec()
+}
+
+type Schedule_Cron struct {
+	// Cron expression as Temporal reads it (5-7 fields, @daily, ...).
+	Cron string `protobuf:"bytes,2,opt,name=cron,proto3,oneof"`
+}
+
+type Schedule_Every struct {
+	// Fixed interval.
+	Every *durationpb.Duration `protobuf:"bytes,3,opt,name=every,proto3,oneof"`
+}
+
+func (*Schedule_Cron) isSchedule_Spec() {}
+
+func (*Schedule_Every) isSchedule_Spec() {}
+
 var File_backplanepb_v1_manifest_proto protoreflect.FileDescriptor
 
 const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x15schemapb/schema.proto\"\xc4\x04\n" +
+	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x15schemapb/schema.proto\"\xfa\x04\n" +
 	"\bManifest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1f\n" +
@@ -905,7 +1125,8 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\x02ui\x18\v \x01(\v2\x10.backplane.v1.UIR\x02ui\x12(\n" +
 	"\x05nodes\x18\f \x03(\v2\x12.backplane.v1.NodeR\x05nodes\x12 \n" +
 	"\vdescriptors\x18\r \x01(\fR\vdescriptors\x12@\n" +
-	"\rsubscriptions\x18\x0e \x03(\v2\x1a.backplane.v1.SubscriptionR\rsubscriptionsJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"a\n" +
+	"\rsubscriptions\x18\x0e \x03(\v2\x1a.backplane.v1.SubscriptionR\rsubscriptions\x124\n" +
+	"\tschedules\x18\x0f \x03(\v2\x16.backplane.v1.ScheduleR\tschedulesJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"a\n" +
 	"\rConfigSection\x12\x12\n" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\x12(\n" +
 	"\x06schema\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x06schema\x12\x12\n" +
@@ -942,7 +1163,17 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\x06output\x18\x03 \x01(\v2\x10.schemapb.SchemaR\x06output\"5\n" +
 	"\x02UI\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x1b\n" +
-	"\tsdk_major\x18\x02 \x01(\rR\bsdkMajor*q\n" +
+	"\tsdk_major\x18\x02 \x01(\rR\bsdkMajor\"\xac\x02\n" +
+	"\bSchedule\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x04cron\x18\x02 \x01(\tH\x00R\x04cron\x121\n" +
+	"\x05every\x18\x03 \x01(\v2\x19.google.protobuf.DurationH\x00R\x05every\x12\x1a\n" +
+	"\bworkflow\x18\x04 \x01(\tR\bworkflow\x127\n" +
+	"\aoverlap\x18\x05 \x01(\x0e2\x1d.backplane.v1.ScheduleOverlapR\aoverlap\x12\x16\n" +
+	"\x06paused\x18\x06 \x01(\bR\x06paused\x12\x1b\n" +
+	"\ttime_zone\x18\a \x01(\tR\btimeZone\x121\n" +
+	"\x06jitter\x18\b \x01(\v2\x19.google.protobuf.DurationR\x06jitterB\x06\n" +
+	"\x04spec*q\n" +
 	"\bNodeKind\x12\x19\n" +
 	"\x15NODE_KIND_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13NODE_KIND_COMPONENT\x10\x01\x12\x18\n" +
@@ -954,7 +1185,15 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\x0fROUTE_KIND_GRPC\x10\x02\x12\x16\n" +
 	"\x12ROUTE_KIND_CONNECT\x10\x03\x12\x17\n" +
 	"\x13ROUTE_KIND_WS_PROTO\x10\x04\x12\x16\n" +
-	"\x12ROUTE_KIND_GRAPHQL\x10\x05B:Z8github.com/gopherex/backplane/backplanepb/v1;backplanev1b\x06proto3"
+	"\x12ROUTE_KIND_GRAPHQL\x10\x05*\xf9\x01\n" +
+	"\x0fScheduleOverlap\x12 \n" +
+	"\x1cSCHEDULE_OVERLAP_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15SCHEDULE_OVERLAP_SKIP\x10\x01\x12\x1f\n" +
+	"\x1bSCHEDULE_OVERLAP_BUFFER_ONE\x10\x02\x12\x1f\n" +
+	"\x1bSCHEDULE_OVERLAP_BUFFER_ALL\x10\x03\x12!\n" +
+	"\x1dSCHEDULE_OVERLAP_CANCEL_OTHER\x10\x04\x12$\n" +
+	" SCHEDULE_OVERLAP_TERMINATE_OTHER\x10\x05\x12\x1e\n" +
+	"\x1aSCHEDULE_OVERLAP_ALLOW_ALL\x10\x06B:Z8github.com/gopherex/backplane/backplanepb/v1;backplanev1b\x06proto3"
 
 var (
 	file_backplanepb_v1_manifest_proto_rawDescOnce sync.Once
@@ -968,44 +1207,51 @@ func file_backplanepb_v1_manifest_proto_rawDescGZIP() []byte {
 	return file_backplanepb_v1_manifest_proto_rawDescData
 }
 
-var file_backplanepb_v1_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_backplanepb_v1_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_backplanepb_v1_manifest_proto_goTypes = []any{
-	(NodeKind)(0),           // 0: backplane.v1.NodeKind
-	(RouteKind)(0),          // 1: backplane.v1.RouteKind
-	(*Manifest)(nil),        // 2: backplane.v1.Manifest
-	(*ConfigSection)(nil),   // 3: backplane.v1.ConfigSection
-	(*Node)(nil),            // 4: backplane.v1.Node
-	(*Route)(nil),           // 5: backplane.v1.Route
-	(*Event)(nil),           // 6: backplane.v1.Event
-	(*Subscription)(nil),    // 7: backplane.v1.Subscription
-	(*Hook)(nil),            // 8: backplane.v1.Hook
-	(*Activity)(nil),        // 9: backplane.v1.Activity
-	(*UI)(nil),              // 10: backplane.v1.UI
-	(*schemapb.Schema)(nil), // 11: schemapb.Schema
+	(NodeKind)(0),               // 0: backplane.v1.NodeKind
+	(RouteKind)(0),              // 1: backplane.v1.RouteKind
+	(ScheduleOverlap)(0),        // 2: backplane.v1.ScheduleOverlap
+	(*Manifest)(nil),            // 3: backplane.v1.Manifest
+	(*ConfigSection)(nil),       // 4: backplane.v1.ConfigSection
+	(*Node)(nil),                // 5: backplane.v1.Node
+	(*Route)(nil),               // 6: backplane.v1.Route
+	(*Event)(nil),               // 7: backplane.v1.Event
+	(*Subscription)(nil),        // 8: backplane.v1.Subscription
+	(*Hook)(nil),                // 9: backplane.v1.Hook
+	(*Activity)(nil),            // 10: backplane.v1.Activity
+	(*UI)(nil),                  // 11: backplane.v1.UI
+	(*Schedule)(nil),            // 12: backplane.v1.Schedule
+	(*schemapb.Schema)(nil),     // 13: schemapb.Schema
+	(*durationpb.Duration)(nil), // 14: google.protobuf.Duration
 }
 var file_backplanepb_v1_manifest_proto_depIdxs = []int32{
-	3,  // 0: backplane.v1.Manifest.config:type_name -> backplane.v1.ConfigSection
-	5,  // 1: backplane.v1.Manifest.routes:type_name -> backplane.v1.Route
-	6,  // 2: backplane.v1.Manifest.events:type_name -> backplane.v1.Event
-	8,  // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
-	9,  // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
-	10, // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
-	4,  // 6: backplane.v1.Manifest.nodes:type_name -> backplane.v1.Node
-	7,  // 7: backplane.v1.Manifest.subscriptions:type_name -> backplane.v1.Subscription
-	11, // 8: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
-	0,  // 9: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
-	1,  // 10: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
-	11, // 11: backplane.v1.Event.schema:type_name -> schemapb.Schema
-	11, // 12: backplane.v1.Hook.input:type_name -> schemapb.Schema
-	11, // 13: backplane.v1.Hook.output:type_name -> schemapb.Schema
-	11, // 14: backplane.v1.Activity.input:type_name -> schemapb.Schema
-	11, // 15: backplane.v1.Activity.output:type_name -> schemapb.Schema
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	4,  // 0: backplane.v1.Manifest.config:type_name -> backplane.v1.ConfigSection
+	6,  // 1: backplane.v1.Manifest.routes:type_name -> backplane.v1.Route
+	7,  // 2: backplane.v1.Manifest.events:type_name -> backplane.v1.Event
+	9,  // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
+	10, // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
+	11, // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
+	5,  // 6: backplane.v1.Manifest.nodes:type_name -> backplane.v1.Node
+	8,  // 7: backplane.v1.Manifest.subscriptions:type_name -> backplane.v1.Subscription
+	12, // 8: backplane.v1.Manifest.schedules:type_name -> backplane.v1.Schedule
+	13, // 9: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
+	0,  // 10: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
+	1,  // 11: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
+	13, // 12: backplane.v1.Event.schema:type_name -> schemapb.Schema
+	13, // 13: backplane.v1.Hook.input:type_name -> schemapb.Schema
+	13, // 14: backplane.v1.Hook.output:type_name -> schemapb.Schema
+	13, // 15: backplane.v1.Activity.input:type_name -> schemapb.Schema
+	13, // 16: backplane.v1.Activity.output:type_name -> schemapb.Schema
+	14, // 17: backplane.v1.Schedule.every:type_name -> google.protobuf.Duration
+	2,  // 18: backplane.v1.Schedule.overlap:type_name -> backplane.v1.ScheduleOverlap
+	14, // 19: backplane.v1.Schedule.jitter:type_name -> google.protobuf.Duration
+	20, // [20:20] is the sub-list for method output_type
+	20, // [20:20] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_v1_manifest_proto_init() }
@@ -1020,13 +1266,17 @@ func file_backplanepb_v1_manifest_proto_init() {
 		(*Route_Descriptors)(nil),
 		(*Route_Graphql)(nil),
 	}
+	file_backplanepb_v1_manifest_proto_msgTypes[9].OneofWrappers = []any{
+		(*Schedule_Cron)(nil),
+		(*Schedule_Every)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_v1_manifest_proto_rawDesc), len(file_backplanepb_v1_manifest_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   9,
+			NumEnums:      3,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

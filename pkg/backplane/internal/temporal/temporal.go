@@ -60,6 +60,15 @@ type Params struct {
 	Instance  string
 	Log       *xlog.Logger
 	Env       *env.Env
+	Worker    Tuning
+}
+
+// Tuning of the worker; a zero field is Temporal's default.
+type Tuning struct {
+	MaxConcurrentActivities    int
+	MaxConcurrentWorkflowTasks int
+	ActivityPollers            int
+	WorkflowPollers            int
 }
 
 // Client is the service's Temporal connection and worker.
