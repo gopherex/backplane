@@ -23,18 +23,18 @@ verbatim. The local reference is
 ## Working copy
 
 Work in `/home/yaroher/devel/github/gopherex/backplane`, not in the umbrella
-directory as a Go module. The local handoff branch is `handoff/ui-foundation`;
-its checkpoint includes backend, docs and frontend work accumulated after
-`d3bb94a`. Use the checkpoint, not the old base, when creating the UI worktree:
+directory as a Go module. The repository's main branch is named `master` and
+includes backend, docs and frontend work accumulated after `d3bb94a`.
+Create the UI worktree from that branch:
 
 ```sh
-rtk proxy git worktree add -b ui/console ../backplane-ui handoff/ui-foundation
+rtk proxy git worktree add -b ui/console ../backplane-ui master
 ```
 
 Install/build dependencies in the new worktree; ignored `node_modules`, `dist`
 and Go binaries are not part of the checkpoint. Preserve unrelated working-tree
-changes; do not reset or clean the shared checkout. This is a local checkpoint,
-not a pushed branch or release. Its [validation limits](handoff-baseline.md)
+changes; do not reset or clean the shared checkout. This is a development
+baseline, not a tagged release. Its [validation limits](handoff-baseline.md)
 must be retained in the handoff.
 
 Read applicable user/repository instructions. Do not spawn agents, publish,

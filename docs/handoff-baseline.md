@@ -36,9 +36,9 @@ draft shell/login, documentation and the console development proxy. It is a
 development starting point, not a production release or visual acceptance.
 CI, production packaging/publication and application modules remain deferred.
 
-The local branch `handoff/ui-foundation` contains this checkpoint. It is not
-pushed or tagged. Create UI worktrees from that branch rather than the older
-`d3bb94a` base.
+The repository's main branch is named `master` and contains this foundation.
+Create UI worktrees from `master` rather than the older `d3bb94a` base.
+This is a development baseline, not a tagged release.
 
 Review covers transaction/audit wiring, session errors, telemetry boundaries,
 generated contracts, package/runtime ownership, acceptance tests and accidental
