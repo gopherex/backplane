@@ -27,7 +27,7 @@ credentials, a path or query. `BACKPLANE_CONSOLE_BASE` defaults to `/backplane/`
 and must match the backend prefix. After the initial package build,
 `rtk proxy yarn workspace @backplane/embedding dev` starts Vite directly.
 This command requires a running backend; it does not start Docker or seed data.
-See [handoff validation status](handoff-baseline.md) for pending live checks.
+See [handoff validation status](handoff-baseline.md) for completed checks and scope.
 
 Run `make dev` at the repository root. Requirements: Docker Compose, Go 1.26,
 Node >=22.12, Yarn 1.22.22 and GitHub Packages read credentials in the user's
@@ -65,6 +65,12 @@ The console asset prefix is configured at build time with
 `make dev-logs` follows service logs. `make test-dev` runs live API/component and
 console navigation acceptance, including both themes, keyboard/mobile behavior
 and axe accessibility checks on the shell.
+To run it through Vite, use
+`rtk proxy env BACKPLANE_DEV_URL=http://127.0.0.1:5173 BACKPLANE_DEV_TARGET=http://127.0.0.1:10000 make test-dev`.
+The second origin is used for direct service requests such as `/hello/`, which
+are outside the console proxy. From `web/`, `yarn test:console-dev` checks HMR;
+it temporarily edits and restores shell TSX/CSS, so do not edit those files
+concurrently.
 `make dev-down` stops the installation and keeps database/telemetry volumes.
 Running `make dev` again rebuilds the services and reapplies the named example
 binding/rule; it does not delete stored data. Configuration edits made in the

@@ -22,7 +22,7 @@ import { consoleEnglish } from './console/locales';
 import { Login } from './console/Login';
 import { loginEnglish } from './console/login-locales';
 
-const Console = lazy(() => import('./console/Console'));
+const Console = lazy(() => import('./console/ConsoleRuntime'));
 
 const Development = lazy(() => import('./dev'));
 const live = document.querySelector('meta[name=backplane-fixture]')?.getAttribute('content') === 'live';

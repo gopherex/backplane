@@ -63,6 +63,7 @@ do not change publication to public npm. Use Yarn and the pinned lockfile.
 | Path | Responsibility |
 | --- | --- |
 | `web/apps/embedding/src/main.tsx` | Runtime/session/theme/i18n bootstrap; live console vs compatibility fixture |
+| `web/apps/embedding/src/console/ConsoleRuntime.tsx` | Catalog/module registry lifetime outside shell Fast Refresh |
 | `web/apps/embedding/src/console/Console.tsx` | Product routes, header, Services and service administration composition |
 | `web/apps/embedding/src/console/Sidebar.tsx` | Service/page navigation, rail/pinning/resizing/mobile behavior |
 | `web/apps/embedding/src/console/registry.ts` | Catalog watch, module descriptors/loading and isolation |
@@ -106,8 +107,9 @@ rtk proxy yarn workspace @backplane/embedding build --mode live --outDir dist-li
 For hot shell iteration, run `rtk proxy yarn dev:console` from `web/` and open
 `http://127.0.0.1:5173/backplane/`. It connects to the existing backend through
 the local proxy. See [development](development.md) and the exact
-[validation status](handoff-baseline.md); live HMR acceptance is still pending
-under the restricted execution sandbox.
+[validation status](handoff-baseline.md). Live CSS/React HMR preserves module
+drafts, the cookie session and the shared platform socket. Keep catalog ownership
+in `ConsoleRuntime` when editing the shell.
 
 The dev container mounts `dist-live`; refresh the browser after rebuilding.
 If changing a shared package, rebuild that package first. Rebuild all packages
@@ -166,11 +168,11 @@ all required interactions are finished. See [platform compositions](platform-ui.
 
 ## Verification
 
-Recent completed checks include typecheck, seven standalone/embedding browser
-scenarios, live API/component acceptance, live shell navigation/axe in both
-themes, and login rejection/pending/deep-link/logout/outage recovery. Earlier
-foundation checks are recorded in [implementation scope](implementation-plan.md).
-Those are previous results, not a fresh full-suite run at handoff.
+The handoff verification includes a fresh `make web-check`: builds, typecheck,
+49 unit cases, seven browser scenarios, 72 Storybook cases and the isolated
+Go console/browser test. External packed consumers and live proxy/HMR checks
+also passed. See [validation details](handoff-baseline.md) for the live workflow
+checks and backend verification limits; automation is not visual acceptance.
 
 - Root: `rtk proxy make test-dev` against the running installation; covers
   `login-browser.mjs`, `dev-browser.mjs` and `console-browser.mjs`.
@@ -195,8 +197,6 @@ Shared API/SDK baselines and file ownership are recorded in
 [engineering baseline](handoff-baseline.md). Useful later work, to be scoped
 before implementation:
 
-- Complete the pending live dev-proxy/HMR and browser checks once localhost
-  access is available; the contracts and local checkpoint are already prepared.
 - Prepare CI for code generation drift, Go checks, package builds, browser,
   packed-consumer and integration tests. No repository `.github` workflows or
   platform Dockerfile currently exist; the module template has its own Dockerfile.

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { chromium, expect } from '@playwright/test';
 const origin = process.env.BACKPLANE_DEV_URL ?? 'http://127.0.0.1:10000', base = `${origin}/backplane`;
+// Direct service traffic goes to Envoy, not the console-only Vite proxy.
+const serviceOrigin = process.env.BACKPLANE_DEV_TARGET ?? origin;
 const browser = await chromium.launch();
 try {
   const context = await browser.newContext(), page = await context.newPage(), failures = [], sockets = [];
@@ -12,7 +14,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Hello module' })).toBeVisible();
   await expect(page.getByTestId('greetings')).toHaveText(/^\d+$/);
   const before = BigInt(await page.getByTestId('greetings').innerText());
-  const greeting = await fetch(`${origin}/hello/?name=BrowserAcceptance`);
+  const greeting = await fetch(`${serviceOrigin}/hello/?name=BrowserAcceptance`);
   assert.equal(greeting.status, 200); assert.match(await greeting.text(), /Welcome, BrowserAcceptance!/);
   await expect(async () => {
     await page.getByRole('button', { name: 'Refresh statistics' }).click();
@@ -21,14 +23,24 @@ try {
   }).toPass({ timeout: 15000 });
   assert.equal(sockets.length, 1, 'platform and module clients must use one host socket');
   await page.goto(`${base}/dev`);
+  await page.evaluate(() => { window.__backplaneWorkflowDocument = 'same-document'; });
   await page.getByRole('button', { name: 'Configuration', exact: true }).click();
   const override = page.getByRole('checkbox', { name: 'Override greeter.suffix', exact: true });
   await expect(override).toBeVisible();
   const hadOverride = await override.isChecked();
   const previousSuffix = hadOverride ? await page.getByRole('textbox', { name: 'greeter.suffix', exact: true }).innerText() : undefined;
+  if (hadOverride) JSON.parse(previousSuffix);
+  async function replaceSuffix(value) {
+    const editor = page.getByRole('textbox', { name: 'greeter.suffix', exact: true });
+    // Use CodeMirror's keymap instead of native contenteditable replacement.
+    await editor.click();
+    await editor.press('ControlOrMeta+A');
+    await page.keyboard.insertText(value);
+    await expect(editor).toHaveText(value);
+  }
   if (!hadOverride) await override.check();
   const suffix = `b${Date.now().toString(36).slice(-6)}`;
-  await page.getByRole('textbox', { name: 'greeter.suffix', exact: true }).fill(JSON.stringify(suffix));
+  await replaceSuffix(JSON.stringify(suffix));
   await page.getByLabel('Comment', { exact: true }).fill(`acceptance ${suffix}`);
   await page.getByRole('button', { name: 'Validate', exact: true }).click();
   await expect(page.getByText('Validation passed.', { exact: true })).toBeVisible();
@@ -41,7 +53,7 @@ try {
   await expect(instance.locator('td').nth(1)).toHaveText(revision, { timeout: 20000 });
   await expect(instance.locator('td').nth(2)).toHaveText('0');
   // Leave the development installation's prior override intact.
-  if (hadOverride) await page.getByRole('textbox', { name: 'greeter.suffix', exact: true }).fill(previousSuffix);
+  if (hadOverride) await replaceSuffix(previousSuffix);
   else await override.uncheck();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
@@ -62,6 +74,7 @@ try {
   await page.getByRole('textbox', { name: 'Query', exact: true }).fill('{__name__!=""}');
   await page.getByRole('button', { name: 'Run query', exact: true }).click();
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });
+  assert.equal(await page.evaluate(() => window.__backplaneWorkflowDocument), 'same-document', 'Lazy editors/charts must not reload the page');
   await page.getByRole('button', { name: 'Light theme', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByRole('button', { name: 'Log out', exact: true }).click();

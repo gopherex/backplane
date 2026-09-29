@@ -58,18 +58,26 @@ product workflow or load scenario.
 - Generation completed for Go, TypeScript, hello, store queries and the
   72-method API reference; all 66 captured generated/contract files matched their
   pre-generation content (no drift).
-- The full browser/Storybook run passed seven browser cases and 70/72 Storybook
-  cases. Two failures came from a binding test expecting an invalid empty-step
-  draft to validate successfully. The corrected test asserts rejection first,
-  then validates/saves a nonempty definition. Browser rerun is pending.
-- Live proxy/HMR acceptance is implemented in `web/tests/console-dev.mjs`, but
-  pending: the current execution sandbox rejects localhost listening with
-  `EPERM` and cannot reach the already-running installation.
+- `make web-check` passed: builds, TypeScript, 49 unit cases, seven browser
+  cases, all 72 Storybook cases and the isolated Go console/browser integration.
+  The Go integration uses its own server, operator token and catalog fixture;
+  it cannot silently fall back to a running development installation.
+- Live proxy/HMR acceptance passed in `web/tests/console-dev.mjs`: cookie login,
+  module assets/RPC, deep links, CSS/React updates with the same document,
+  preserved module draft and platform socket, foreign-origin rejection, logout.
+  `ConsoleRuntime` keeps catalog subscriptions outside shell Fast Refresh so
+  editing `Console.tsx` does not briefly unmount module pages.
+- All twelve packed packages passed installation/build checks in external
+  consumers, including standalone dev/build and embedded browser acceptance.
+- The live API workflow passed through Vite after a fresh dependency
+  optimization: service relay, configuration apply/restore, binding/hook,
+  audit and stored logs/metrics. Lazy editor/chart dependencies are prebundled
+  so their first navigation does not reload the page.
+- `make test-dev` also passed through Vite: login rejection/outage recovery,
+  the complete live API workflow, module navigation, sidebar resizing/pinning,
+  both themes, mobile/keyboard behavior and accessibility checks.
 
-Do not describe pending browser checks as passed. Restore local network access
-and run the checks below before calling the baseline fully verified.
-
-## Remaining verification
+## Reproduce verification
 
 At repository root, `rtk proxy make dev` prepares the installation. From `web/`
 in another terminal, start `rtk proxy yarn dev:console`. Then from `web/`:
@@ -78,12 +86,12 @@ in another terminal, start `rtk proxy yarn dev:console`. Then from `web/`:
 rtk proxy yarn test:console-dev
 rtk proxy env BACKPLANE_DEV_URL=http://127.0.0.1:5173 node tests/login-browser.mjs
 rtk proxy env BACKPLANE_DEV_URL=http://127.0.0.1:5173 node tests/console-browser.mjs
-rtk proxy env BACKPLANE_DEV_URL=http://127.0.0.1:5173 node tests/dev-browser.mjs
+rtk proxy env BACKPLANE_DEV_URL=http://127.0.0.1:5173 BACKPLANE_DEV_TARGET=http://127.0.0.1:10000 node tests/dev-browser.mjs
 rtk proxy yarn test:packed
 ```
 
-At repository root, run `rtk proxy make web-check` for the corrected Storybook
-scenario and real Go console/browser integration. Do not run host conformance
+At repository root, run `rtk proxy make web-check` for Storybook scenarios
+and real Go console/browser integration. Do not run host conformance
 sharing xDS/example identities alongside the same dev installation.
 
 The HMR check verifies real cookie login, module assets/RPC, deep links,

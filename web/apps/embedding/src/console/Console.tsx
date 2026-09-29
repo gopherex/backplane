@@ -9,7 +9,7 @@ import { AuditFeed, ExplorePanel, ServiceInspector, ConfigurationPanel, ServiceO
 import type { ServiceSummary } from '@gopherex/backplane-api';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import Sidebar from './Sidebar';
-import { useRegistry, type ModuleEntry } from './registry';
+import type { useRegistry, ModuleEntry } from './registry';
 import './console.css';
 
 const Development = lazy(() => import('../dev'));
@@ -59,9 +59,9 @@ function ModulePage({ modules, mode, retry, loading }: { modules: Record<string,
   return <PluginProvider context={{ service, basePath: `/s/${service}`, mode, environment: 'embedded' }}><ErrorBoundary resetKey={plugin} fallback={(error, reset) => <div role="alert"><h1>{t('failed')}</h1><p>{error.message}</p><Button onClick={reset}>{t('retry')}</Button></div>}><plugin.Routes /></ErrorBoundary></PluginProvider>;
 }
 
-export default function Console({ mode, onThemeChange, onLogout }: { mode: ThemeMode; onThemeChange: (mode: ThemeMode) => void; onLogout: () => Promise<void> }) {
+export default function Console({ mode, onThemeChange, onLogout, registry }: { mode: ThemeMode; onThemeChange: (mode: ThemeMode) => void; onLogout: () => Promise<void>; registry: ReturnType<typeof useRegistry> }) {
   const { t } = useTranslation('console'), location = useLocation(), connection = useConnection();
-  const registry = useRegistry(), services = registry.catalog.value?.services ?? [];
+  const services = registry.catalog.value?.services ?? [];
   const [mobile, setMobile] = useState(false);
   const [logoutPending, setLogoutPending] = useState(false), [logoutFailed, setLogoutFailed] = useState(false);
   const parts = location.pathname.split('/').filter(Boolean), section = parts[0] === 's' ? parts[1] : t(parts[0] || 'services');

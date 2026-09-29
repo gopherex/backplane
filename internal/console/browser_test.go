@@ -93,7 +93,7 @@ func TestBrowserConsole(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "node", "tests/console-browser.mjs", srv.URL, adminToken)
+	cmd := exec.CommandContext(ctx, "node", "tests/console-integration.mjs", srv.URL, adminToken)
 	cmd.Dir = web
 
 	output, err := cmd.CombinedOutput()
