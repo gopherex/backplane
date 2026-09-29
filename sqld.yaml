@@ -1,0 +1,22 @@
+# sqld: backplane's PostgreSQL schema, migrations and typed queries
+# (internal/store). `make db` generates, `make db-migration name=<what>`
+# writes a migration from the schema.sql diff. Paths are relative to the
+# repository root, where make runs.
+version: "1"
+engine: postgresql
+options:
+  defaultSchema: backplane
+schema:
+  - file: internal/store/schema.sql
+queries:
+  - dir: internal/store/queries
+migrations:
+  - dir: internal/store/migrations
+plugins:
+  - name: go
+    binary: ./bin/sqld-gen-go
+    out: internal/store/db
+    options:
+      package: db
+      overrides:
+        uuid: github.com/google/uuid.UUID

@@ -381,3 +381,27 @@ func TestNATSStreamSettings(t *testing.T) {
 		t.Fatal("7 replicas accepted")
 	}
 }
+
+// A service named "backplane" reads BACKPLANE_* for its own fields and for
+// the block: two env sources over one prefix, each against its schema.
+func TestServiceNamedBackplane(t *testing.T) {
+	type Own struct {
+		config.Backplane `json:"backplane"`
+
+		PG struct {
+			DSN config.Secret `json:"dsn"`
+		} `json:"pg"`
+	}
+
+	t.Setenv("BACKPLANE_PG_DSN", "postgres://x")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "consul:8500")
+
+	cfg, err := config.Load[Own](context.Background(), config.Service("backplane"), config.WithoutFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.PG.DSN.Reveal() != "postgres://x" || cfg.Consul.Addr != "consul:8500" {
+		t.Fatalf("pg %q consul %q", cfg.PG.DSN.Reveal(), cfg.Consul.Addr)
+	}
+}

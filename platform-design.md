@@ -1635,7 +1635,7 @@ v0 — один оператор.
 - **`/ws` upgrade** — только с cookie и только если `Origin` входит в
   `BACKPLANE_CONSOLE_ORIGINS` (по умолчанию свой host).
 - **Brute force** — лимит на адрес + глобальный backoff;
-  `BACKPLANE_TRUSTED_PROXIES` для `X-Forwarded-For` за Envoy.
+  `BACKPLANE_CONSOLE_TRUSTED_PROXIES` для `X-Forwarded-For` за Envoy.
 - **Позже** — вход через identity-сервис по OIDC; сессия остаётся
   абстракцией. Не в v0.
 
@@ -1691,11 +1691,12 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 
 | | |
 |---|---|
-| `BACKPLANE_PG_DSN` | схема `backplane` |
-| `BACKPLANE_XDS_LISTEN` | порт для Envoy |
-| `BACKPLANE_CONSOLE_LISTEN` | HTTP консоли (`/`, `/ws`, `/auth`, `/plugins`) — за Envoy |
+| `BACKPLANE_PG_DSN` | обязателен; схема `backplane` — создаётся и мигрируется при старте |
+| `BACKPLANE_CONSUL_ADDR` | обязателен для backplane (у сервисов — опционален) |
+| `BACKPLANE_XDS_LISTEN` | порт для Envoy (`:18000`) |
+| `BACKPLANE_CONSOLE_LISTEN` | HTTP консоли (`/`, `/ws`, `/auth`, `/plugins`) — за Envoy (`:8081`) |
 | `BACKPLANE_ADMIN_TOKEN` | bootstrap консоли (опционально) |
-| `BACKPLANE_CONSOLE_HOST` или `_PREFIX`, `_ORIGINS`, `_TRUSTED_PROXIES` | консоль |
+| `BACKPLANE_CONSOLE_HOST` или `_PREFIX`, `_ORIGINS`, `_TRUSTED_PROXIES` | консоль; host и prefix взаимоисключающие, списки — JSON |
 | `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | observability (опционально) |
 
 ## 13. Безопасность (v0)
@@ -2004,11 +2005,22 @@ case в SDK ради них — дефект модели.
 ```
 backplane/
   platform-design.md         этот документ
-  Makefile  easyp.yaml  easyp.lock  go.mod  .golangci.yaml
+  Makefile  easyp.yaml  easyp.lock  sqld.yaml  go.mod  .golangci.yaml
   docker-compose.yaml        platform-in-a-box: Consul, Envoy, NATS, Temporal (dev), PostgreSQL
   deployments/               что даёт деплой: README для девопсов (§4.3, §15.3), envoy/envoy.yaml —
                              bootstrap Envoy (admin 9901, xDS ADS от backplane на 18000)
   backplanepb/v1/            proto-контракт backplane.v1 (manifest, instance, call) и сгенерированный Go
+  cmd/
+    backplane/               бинарь платформы: сервис на своём SDK (имя backplane)
+  internal/                  приватное backplane (сервер):
+    server/                  конфигурация сервера (§12.2, Validate) и State: дерево узлов — store,
+                             registry, дальше компоненты; readiness и объявления сервера
+    store/                   PostgreSQL, схема backplane: pgxpool + pgtx (транзакции), миграции sqld
+                             при старте (migrations/, из diff schema.sql), типизированные запросы
+                             (queries/ → db/, sqld-gen-go)
+    registry/                каталог установки из Consul: blocking queries на каталог, health
+                             сервисов и backplane/services/; неизменяемые снапшоты Catalog, Source
+                             (Current, Changes), Hub — источник снапшотов и фейк для тестов
   pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed
     activity/                активити: Handle, Workflow, опции для биндинга, InfoOf, Heartbeat, NonRetryable
     backplanetest/           harness для тестов компонентов без Open/Run/портов/Consul (§4.6)
@@ -2049,15 +2061,13 @@ backplane/
   conformance/               тесты контракта SDK против platform-in-a-box (§16.3)
 ```
 
-**[backplane]** Чего нет — сервер и фронтенд платформы, по плану:
+**[backplane]** Чего нет — остальное сервера и фронтенд платформы, по плану:
 
 ```
   cmd/
-    backplane/               бинарь платформы
     protoc-gen-backplane/    генератор (удобство)
-  internal/                  приватное backplane: registry (Consul watch), config (PG ↔ KV),
-                             xds, nexus (handler и binding-workflow), rules, console (ws-proto
-                             server, relay, auth), store (PostgreSQL), obs (query-proxy)
+  internal/                  config (PG ↔ KV), xds, nexus (handler и binding-workflow), rules,
+                             console (ws-proto server, relay, auth), obs (query-proxy)
   web/                       yarn workspace
     packages/console/        shell (MF-хост)
     packages/ui/             @backplane/ui — UI SDK для плагинов, включая @backplane/ui-build

@@ -17,6 +17,11 @@ EASYP_VERSION              := v0.16.6
 PROTOC_GEN_GO_VERSION      := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
 GOLANGCI_LINT_VERSION      := v2.11.3
+SQLD_VERSION               := v1.1.3
+
+# Scratch database `make db-migration` realizes schemas in: sqld drops every
+# non-system schema in it, so never point it at a real database.
+DB_DEV_URL ?= postgres://backplane:backplane@localhost:5433/backplane_scratch?sslmode=disable
 
 # easyp resolves protoc-gen-* plugins from PATH: put ./bin first.
 EASYP := PATH="$(BIN):$$PATH" "$(BIN)/easyp"
@@ -39,6 +44,9 @@ configure: ## Bring environment to working state: fetch all pinned tools into ./
 	GOBIN="$(BIN)" go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	echo "--- protoc-gen-go-grpc $(PROTOC_GEN_GO_GRPC_VERSION)"
 	GOBIN="$(BIN)" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	echo "--- sqld, sqld-gen-go $(SQLD_VERSION)"
+	GOBIN="$(BIN)" go install github.com/gopherex/sqld/cmd/sqld@$(SQLD_VERSION)
+	GOBIN="$(BIN)" go install github.com/gopherex/sqld/cmd/sqld-gen-go@$(SQLD_VERSION)
 	echo "--- golangci-lint $(GOLANGCI_LINT_VERSION)"
 	GOBIN="$(BIN)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	echo "--- proto deps"
@@ -46,10 +54,21 @@ configure: ## Bring environment to working state: fetch all pinned tools into ./
 	echo "✓ configure done — tools in $(BIN)"
 
 .PHONY: gen
-gen: ## Generate Go code: backplanepb and the hello example
+gen: db ## Generate Go code: backplanepb, the hello example, the store's queries
 	$(EASYP) mod download
 	$(EASYP) generate
 	$(EASYP) --cfg examples/hello/easyp.yaml generate
+
+.PHONY: db
+db: ## Generate the store's typed queries (internal/store/db) from schema and queries
+	"$(BIN)/sqld" generate -c sqld.yaml
+	"$(BIN)/sqld" migrate validate -c sqld.yaml
+
+.PHONY: db-migration
+db-migration: ## Write the next migration from the schema.sql diff: make db-migration name=<what>
+	@[ -n "$(name)" ] || { echo "usage: make db-migration name=<what>"; exit 2; }
+	docker compose exec -T postgres createdb -U backplane backplane_scratch 2>/dev/null || true
+	"$(BIN)/sqld" migrate generate "$(name)" -c sqld.yaml --dev-url "$(DB_DEV_URL)"
 
 .PHONY: lint
 lint: ## Lint proto files and Go code
@@ -73,6 +92,7 @@ test: ## Unit tests with the race detector (integration tests skip without the s
 .PHONY: conformance
 conformance: ## SDK contract and integration tests against platform-in-a-box (make up)
 	BACKPLANE_TEST_CONSUL=localhost:8500 BACKPLANE_TEST_NATS=localhost:4222 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 		go test -race -count=1 ./...
 
 .PHONY: up down
@@ -97,9 +117,20 @@ hello: ## Build examples/hello into ./bin/hello
 run-hello: hello ## Run hello against the local stack
 	BACKPLANE_CONSUL_ADDR=localhost:8500 "$(BIN)/hello"
 
+.PHONY: backplane
+backplane: ## Build the backplane server into ./bin/backplane
+	go build -trimpath -ldflags "$(call ldflags,backplane)" -o "$(BIN)/backplane" ./cmd/backplane
+
+.PHONY: run-backplane
+run-backplane: backplane ## Run backplane against the local stack
+	BACKPLANE_CONSUL_ADDR=localhost:8500 \
+	BACKPLANE_PG_DSN="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
+	BACKPLANE_INTERNAL_PORT=9410 BACKPLANE_PUBLIC_PORT=8090 \
+		"$(BIN)/backplane"
+
 .PHONY: check
 check: lint gen conformance ## Everything a release requires: lint, generated code is current, all tests
-	git diff --exit-code --stat -- '*.pb.go' go.mod go.sum || { echo "✗ generated code or go.mod is stale — commit the result of 'make gen'"; exit 1; }
+	git diff --exit-code --stat -- '*.pb.go' internal/store/db go.mod go.sum || { echo "✗ generated code or go.mod is stale — commit the result of 'make gen'"; exit 1; }
 
 .PHONY: release
 release: ## Interactive tag-driven release (runs `make check` first)

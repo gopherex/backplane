@@ -19,7 +19,7 @@ services:
       POSTGRES_USER: backplane
       POSTGRES_PASSWORD: backplane
       POSTGRES_DB: backplane
-    ports: ["5432:5432"]
+    ports: ["5433:5432"]
     volumes: ["pg:/var/lib/postgresql/data"]
 
   nats:

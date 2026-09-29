@@ -1,9 +1,9 @@
 # Deploying services and backplane
 
 backplane never deploys anything. This is what a deployment provides so that
-services on the SDK work, and later backplane itself (the server is not in
-this repository yet; see `platform-design.md`). `docker-compose.yaml` at the
-repository root is a complete example for development: platform-in-a-box.
+services on the SDK work, and what the backplane server (`cmd/backplane`)
+needs. `docker-compose.yaml` at the repository root is a complete example for
+development: platform-in-a-box.
 
 ## A service on the SDK
 
@@ -93,7 +93,7 @@ it. Ports are published on localhost:
 | Consul | `hashicorp/consul` | 8500 (HTTP), 8600/udp (DNS) | `agent -dev`: in-memory, no ACL |
 | NATS | `nats` | 4222, 8222 (monitoring) | JetStream on (`-js`) |
 | Temporal | `temporalio/temporal` | 7233 (frontend), 8233 (UI) | **dev server** (`server start-dev`): SQLite in memory, Nexus enabled, namespace `default`; enough for development and conformance — production runs a real Temporal cluster |
-| PostgreSQL | `postgres` | 5432 | for backplane (user/password/db `backplane`) |
+| PostgreSQL | `postgres` | 5433 | for backplane (user/password/db `backplane`); `backplane_scratch` is created by `make db-migration` |
 | Envoy | `envoyproxy/envoy` | 10000 (traffic), 9901 (admin) | bootstrap `envoy/envoy.yaml`; routes come over xDS from backplane |
 
 Run the example against it: `make run-hello` (builds `bin/hello` and points
@@ -102,6 +102,49 @@ it at Consul; add `BACKPLANE_NATS_URL=nats://localhost:4222` and
 
 The dev Temporal keeps nothing across restarts: Nexus endpoints, schedules
 and workflow history vanish with the container.
+
+## The backplane server
+
+backplane is a service on its own SDK: the whole SDK block above applies
+(`BACKPLANE_CONSUL_*`, `BACKPLANE_INTERNAL_PORT`, …), plus its own
+variables — the same `BACKPLANE_` prefix, since the service is named
+`backplane`:
+
+| variable | default | meaning |
+|---|---|---|
+| `BACKPLANE_PG_DSN` | — | **required**: PostgreSQL (secret); everything lives in schema `backplane`, created and migrated at start (the role needs `CREATE` on the database) |
+| `BACKPLANE_CONSUL_ADDR` | — | **required** for backplane (optional for services): the registry follows the catalog and `backplane/services/` |
+| `BACKPLANE_XDS_LISTEN` | `:18000` | xDS (ADS) for Envoy |
+| `BACKPLANE_CONSOLE_LISTEN` | `:8081` | console HTTP (`/`, `/ws`, `/auth`, `/plugins`), behind Envoy |
+| `BACKPLANE_CONSOLE_HOST` or `BACKPLANE_CONSOLE_PREFIX` | — | the console on its own host, or under a prefix (`/backplane`) of a shared one; not both |
+| `BACKPLANE_CONSOLE_ORIGINS` | the console's host | origins allowed to open `/ws`, JSON list |
+| `BACKPLANE_CONSOLE_TRUSTED_PROXIES` | — | addresses/CIDRs whose `X-Forwarded-For` is trusted, JSON list |
+| `BACKPLANE_ADMIN_TOKEN` | — | bootstrap admin token of the console (secret); empty: generated at the first start |
+| `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | — | observability backends for the console |
+
+Listen ports must differ from each other and from the platform and public
+ports. Readiness (`/healthz/readiness` on the platform port) waits for
+PostgreSQL (migrated, pinging) and the first registry snapshot from Consul;
+later Consul outages keep the last snapshot and readiness.
+
+Locally, against platform-in-a-box, next to services on their default
+ports:
+
+```sh
+make up
+make run-backplane   # bin/backplane: Consul localhost:8500, PostgreSQL localhost:5433,
+                     # platform port 9410, public port 8090
+make run-hello       # another terminal: the registry logs hello's manifest and instance
+curl localhost:9410/healthz/readiness
+```
+
+Development of the store (`internal/store`, sqld):
+
+| command | does |
+|---|---|
+| `make db` | generates `internal/store/db` from `schema.sql` + `queries/`, validates the migrations (also part of `make gen`) |
+| `make db-migration name=<what>` | writes `internal/store/migrations/<timestamp>_<what>.sql` from the diff of `schema.sql` against the migration history, realized in the scratch database `backplane_scratch` (`DB_DEV_URL`; sqld drops every schema in it — never point it at a real database) |
+| `bin/sqld migrate status -c sqld.yaml --db 'postgres://backplane:backplane@localhost:5433/backplane?search_path=backplane'` | applied / pending / drift of a database (`search_path`: the history table lives in schema `backplane`) |
 
 ## Conformance
 
@@ -113,6 +156,7 @@ without it:
 |---|---|
 | `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`) |
 | `BACKPLANE_TEST_NATS=localhost:4222` | events end to end, reactors: dead letters and redrive, stop without dead letters, schema evolution |
+| `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`) |
 | `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
 
 ```sh
@@ -120,11 +164,13 @@ make up
 BACKPLANE_TEST_CONSUL=localhost:8500 \
 BACKPLANE_TEST_NATS=localhost:4222 \
 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane \
   GOWORK=off go test -race -count=1 ./...
 ```
 
 The same variables enable the SDK's own integration tests under
-`pkg/backplane`. Names of services, streams, queues and endpoints are unique
+`pkg/backplane` and the server's under `internal/` (`BACKPLANE_TEST_CONSUL`:
+the registry against a live Consul). Names of services, streams, queues and endpoints are unique
 per run, so repeated runs do not collide; the `hello` suite refuses to run
 while another `hello` instance is live on the same Consul.
 

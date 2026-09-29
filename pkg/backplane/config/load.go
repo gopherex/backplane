@@ -30,6 +30,9 @@ import (
 // EnvFile names the default configuration file.
 const EnvFile = "BACKPLANE_CONFIG_FILE"
 
+// blockPrefix of the SDK block's environment, the same for every service.
+const blockPrefix = "BACKPLANE_"
+
 // Load reads the configuration once: defaults, file and environment. For
 // tools and tests; services use Open through backplane.Open.
 func Load[C any](ctx context.Context, opts ...Option) (C, error) {
@@ -98,7 +101,10 @@ func (st *settings) baseSources(t reflect.Type) ([]xconf.Source, error) {
 				return nil, err
 			}
 
-			sources = append(sources, nested{inner: st.env("BACKPLANE_"), key: key, schema: block})
+			// Named apart from the service's own env source: a service
+			// named "backplane" reads BACKPLANE_* twice, once per schema.
+			inner := env.New(env.Prefix(blockPrefix), env.Name(configrt.SourceEnv+blockPrefix+" ("+key+")"))
+			sources = append(sources, nested{inner: inner, key: key, schema: block})
 		}
 
 		sources = append(sources, st.env(st.envPrefix))
