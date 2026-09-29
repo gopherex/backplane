@@ -85,32 +85,22 @@ func (s sessionService) RevokeSession(
 	return &consolev1.RevokeSessionResponse{}, nil
 }
 
-// RotateToken implements SessionService.
-func (s sessionService) RotateToken(
-	ctx context.Context, _ *consolev1.RotateTokenRequest,
-) (*consolev1.RotateTokenResponse, error) {
+// RevokeOtherSessions implements SessionService.
+func (s sessionService) RevokeOtherSessions(
+	ctx context.Context, _ *consolev1.RevokeOtherSessionsRequest,
+) (*consolev1.RevokeOtherSessionsResponse, error) {
 	self, err := current(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := newAdminToken()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
-	}
-
-	hash, err := hashToken(token)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "%v", err)
-	}
-
-	revoked, err := s.c.sessions.Rotate(ctx, hash, self)
+	revoked, err := s.c.sessions.DeleteOthers(ctx, self)
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "%v", err)
 	}
 
 	s.c.conns.close(uuid.Nil, self)
-	s.c.Log().Warn("console: admin token rotated", xlog.Int64("revoked_sessions", revoked))
+	s.c.Log().Warn("console: other sessions revoked", xlog.Int64("revoked_sessions", revoked))
 
-	return &consolev1.RotateTokenResponse{Token: token, RevokedSessions: uint32(revoked)}, nil //nolint:gosec // a count
+	return &consolev1.RevokeOtherSessionsResponse{RevokedSessions: uint32(revoked)}, nil //nolint:gosec // a count
 }

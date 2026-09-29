@@ -16,8 +16,6 @@ import (
 
 // Errors of Sessions.
 var (
-	// ErrNoToken: no admin token is stored yet.
-	ErrNoToken = errors.New("console: no admin token")
 	// ErrNoSession: no such session.
 	ErrNoSession = errors.New("console: no such session")
 )
@@ -35,18 +33,9 @@ type Session struct {
 // IsZero reports whether s is the zero Session (no session).
 func (s Session) IsZero() bool { return s.ID == uuid.Nil }
 
-// Sessions is where the admin token hash and the sessions live: PostgreSQL
-// (PG) in the server, memory in tests.
+// Sessions is where the sessions live: PostgreSQL (PG) in the server,
+// memory in tests.
 type Sessions interface {
-	// AdminToken is the stored hash; ErrNoToken when there is none.
-	AdminToken(ctx context.Context) (string, error)
-	// InitAdminToken stores hash unless a token is stored already; false
-	// when one was (another replica won the first start).
-	InitAdminToken(ctx context.Context, hash string) (bool, error)
-	// Rotate replaces the token hash and deletes every session but keep,
-	// atomically; it reports how many were deleted.
-	Rotate(ctx context.Context, hash string, keep uuid.UUID) (int64, error)
-
 	// Create stores a session under the hash of its token; s.ID is ignored
 	// and the new id returned.
 	Create(ctx context.Context, tokenHash []byte, s Session) (uuid.UUID, error)
@@ -60,12 +49,13 @@ type Sessions interface {
 	List(ctx context.Context) ([]Session, error)
 	// Delete removes a session; false when there was none.
 	Delete(ctx context.Context, id uuid.UUID) (bool, error)
+	// DeleteOthers removes every session but keep and reports how many.
+	DeleteOthers(ctx context.Context, keep uuid.UUID) (int64, error)
 	// DeleteStale removes sessions expired at now or idle since idleSince.
 	DeleteStale(ctx context.Context, now, idleSince time.Time) (int64, error)
 }
 
-// PG keeps sessions in PostgreSQL (schema backplane): console_admin and
-// console_session.
+// PG keeps sessions in PostgreSQL (schema backplane): console_session.
 type PG struct {
 	st deps.Dependency[*store.Store]
 }
@@ -77,53 +67,6 @@ var _ Sessions = PG{}
 func NewPG(st deps.Dependency[*store.Store]) PG { return PG{st: st} }
 
 func (p PG) q() *db.Queries { return p.st.Get().Q }
-
-// AdminToken implements Sessions.
-func (p PG) AdminToken(ctx context.Context) (string, error) {
-	row, err := p.q().GetAdminToken(ctx)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrNoToken
-	}
-
-	if err != nil {
-		return "", fmt.Errorf("console: admin token: %w", err)
-	}
-
-	return row.TokenHash, nil
-}
-
-// InitAdminToken implements Sessions.
-func (p PG) InitAdminToken(ctx context.Context, hash string) (bool, error) {
-	n, err := p.q().InitAdminToken(ctx, hash)
-	if err != nil {
-		return false, fmt.Errorf("console: admin token: %w", err)
-	}
-
-	return n == 1, nil
-}
-
-// Rotate implements Sessions.
-func (p PG) Rotate(ctx context.Context, hash string, keep uuid.UUID) (int64, error) {
-	var revoked int64
-
-	st := p.st.Get()
-
-	err := st.InTx(ctx, func(ctx context.Context) error {
-		if err := st.Q.SetAdminToken(ctx, hash); err != nil {
-			return err //nolint:wrapcheck // wrapped below
-		}
-
-		n, err := st.Q.DeleteOtherSessions(ctx, keep)
-		revoked = n
-
-		return err //nolint:wrapcheck // wrapped below
-	})
-	if err != nil {
-		return 0, fmt.Errorf("console: rotate: %w", err)
-	}
-
-	return revoked, nil
-}
 
 // Create implements Sessions.
 func (p PG) Create(ctx context.Context, tokenHash []byte, s Session) (uuid.UUID, error) {
@@ -197,6 +140,16 @@ func (p PG) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
 	}
 
 	return n > 0, nil
+}
+
+// DeleteOthers implements Sessions.
+func (p PG) DeleteOthers(ctx context.Context, keep uuid.UUID) (int64, error) {
+	n, err := p.q().DeleteOtherSessions(ctx, keep)
+	if err != nil {
+		return 0, fmt.Errorf("console: delete other sessions: %w", err)
+	}
+
+	return n, nil
 }
 
 // DeleteStale implements Sessions.

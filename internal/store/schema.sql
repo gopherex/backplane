@@ -39,15 +39,6 @@ CREATE TABLE backplane.config_current (
   FOREIGN KEY (service, revision) REFERENCES backplane.config_revision (service, revision)
 );
 
--- The console's admin token (§11.3): one row, the token's argon2id hash as
--- a PHC string. The first start writes it (BACKPLANE_ADMIN_TOKEN or a
--- generated one); a rotation from the console replaces it.
-CREATE TABLE backplane.console_admin (
-  singleton  boolean     PRIMARY KEY DEFAULT true CHECK (singleton),
-  token_hash text        NOT NULL,
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
 -- Console sessions (§11.3). The cookie carries a random token; only its
 -- SHA-256 is stored. id is the public handle (list, revoke).
 CREATE TABLE backplane.console_session (

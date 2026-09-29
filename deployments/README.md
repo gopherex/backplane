@@ -121,7 +121,7 @@ variables — the same `BACKPLANE_` prefix, since the service is named
 | `BACKPLANE_CONSOLE_ORIGINS` | the request's own host | origins (`scheme://host[:port]`, exact) allowed to open `/ws` and to log in, JSON list |
 | `BACKPLANE_CONSOLE_TRUSTED_PROXIES` | — | addresses/CIDRs whose `X-Forwarded-For` is trusted (Envoy's), JSON list |
 | `BACKPLANE_CONSOLE_INSECURE_COOKIE` | `false` | `true`: the session cookie without `Secure` and no HSTS — plain-HTTP development only (`make run-backplane` sets it) |
-| `BACKPLANE_ADMIN_TOKEN` | — | bootstrap admin token of the console (secret); empty: generated at the first start and printed once to stderr |
+| `BACKPLANE_ADMIN_TOKEN` | — | **required**: the console's admin token (secret), at least 16 characters |
 | `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | — | observability backends for the console |
 
 Listen ports must differ from each other and from the platform and public
@@ -135,7 +135,8 @@ ports:
 ```sh
 make up
 make run-backplane   # bin/backplane: Consul localhost:8500, PostgreSQL localhost:5433,
-                     # platform port 9410, public port 8090
+                     # platform port 9410, public port 8090, console admin token
+                     # dev-admin-token-local-change-me (DEV_ADMIN_TOKEN=... to override)
 make run-hello       # another terminal: the registry logs hello's manifest and instance
 curl localhost:9410/healthz/readiness
 ```
@@ -191,12 +192,12 @@ passed as is. Everything is under that base:
 | `GET /plugins/<service>/<hash>/<path>` | console plugin bundles (with the cookie), fetched from a live instance's platform port and cached by hash |
 | `GET /` | the shell (a placeholder until it is built in) |
 
-The admin token: at the first start of an installation backplane stores
-`BACKPLANE_ADMIN_TOKEN`'s argon2id hash in PostgreSQL, or generates a token
-and prints it **once** to stderr — keep that output. Afterwards the stored
-token wins over the variable (it may have been rotated from the console;
-rotation shows the new token once and revokes every other session). Lost
-it: delete the row of `backplane.console_admin` and restart backplane.
+The admin token is configuration: `BACKPLANE_ADMIN_TOKEN`, a secret of
+the deployment shared by every replica. backplane neither generates nor
+stores it; without it (or with one shorter than 16 characters) backplane
+does not start. To change it, change the secret and roll the replicas;
+sessions opened with the old token stay valid until they expire or are
+revoked (one by one, or all but the current one from the console).
 Sessions last 12 h, end after 1 h without activity, and are listed and
 revoked from the console.
 
@@ -223,6 +224,59 @@ Development of the store (`internal/store`, sqld):
 | `make db-migration name=<what>` | writes `internal/store/migrations/<timestamp>_<what>.sql` from the diff of `schema.sql` against the migration history, realized in the scratch database `backplane_scratch` (`DB_DEV_URL`; sqld drops every schema in it — never point it at a real database) |
 | `bin/sqld migrate status -c sqld.yaml --db 'postgres://backplane:backplane@localhost:5433/backplane?search_path=backplane'` | applied / pending / drift of a database (`search_path`: the history table lives in schema `backplane`) |
 
+### The whole stack locally: backplane, hello, Envoy
+
+Everything of M1 on one machine, against platform-in-a-box. Both
+processes advertise the host's LAN address (Envoy and Consul run in
+containers), share one internal secret (backplane presents it on hello's
+platform port: relay and bundles) and the console sits under `/backplane`
+of Envoy's `:10000`:
+
+```sh
+make up
+ADDR=$(ip -4 route get 192.0.2.1 | awk '{print $7; exit}')
+
+# terminal 1: backplane — xDS :18000, console :8081, platform port 9410,
+# admin token dev-admin-token-local-change-me (make's DEV_ADMIN_TOKEN)
+BACKPLANE_ADVERTISE=$ADDR BACKPLANE_INTERNAL_SECRET=dev-secret \
+BACKPLANE_CONSOLE_PREFIX=/backplane make run-backplane
+
+# terminal 2: hello — platform port 9400, public 8080
+BACKPLANE_ADVERTISE=$ADDR BACKPLANE_INTERNAL_SECRET=dev-secret make run-hello
+```
+
+Then, through Envoy:
+
+```sh
+curl 'localhost:10000/hello/?name=x'                  # Hello, x!
+
+# Login: the admin token for a session cookie (bp_session, Path=/backplane;
+# without Secure because run-backplane sets BACKPLANE_CONSOLE_INSECURE_COOKIE).
+# A browser sends Origin itself; it must be the console's own origin.
+curl -c jar -H 'Origin: http://localhost:10000' -H 'Content-Type: application/json' \
+  -d '{"token":"dev-admin-token-local-change-me"}' localhost:10000/backplane/auth/login
+curl -b jar localhost:10000/backplane/auth/session    # the session, 401 without the cookie
+
+# hello's UI bundle through the console: the hash is the bundle's ETag
+# on hello's platform port (behind the secret) and ui.hash of its manifest.
+HASH=$(curl -sI -H 'Bp-Internal-Secret: dev-secret' localhost:9400/_backplane/ui/plugin.json \
+  | awk -F'"' 'tolower($1) ~ /^etag/ {print $2}')
+curl -i -b jar "localhost:10000/backplane/plugins/hello/$HASH/plugin.json"   # 200, immutable
+
+# What the configuration cycle leaves in Consul (after a save from the console):
+curl 'localhost:8500/v1/kv/config/hello/?recurse'     # values and _revision
+curl localhost:9410/healthz/readiness                 # backplane's readiness
+```
+
+Everything else of the console — the catalog, Live configuration
+(validate, save, rollback), sessions and the relay to hello's
+`AdminService` — is ws-proto on `ws://localhost:10000/backplane/ws` with
+the cookie and `Origin: http://localhost:10000`; until the shell is built
+in, `conformance/m1_test.go` is the executable walk-through of those
+calls (`make test-m1`, below). A revision saved there lands in
+`config/hello/` and changes the greeting: `?!` as `greeter.suffix` gives
+`Hello, x?!`.
+
 ## Conformance
 
 The contract tests in `conformance/` run the SDK from outside, against
@@ -233,9 +287,10 @@ without it:
 |---|---|
 | `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`); the console's relay to hello's `AdminService` and its bundle through `/plugins/` (`internal/console`: builds and runs its own `hello` without Consul, so it never meets the conformance one) |
 | `BACKPLANE_TEST_NATS=localhost:4222` | events end to end, reactors: dead letters and redrive, stop without dead letters, schema evolution |
-| `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`); console sessions and the admin token (`internal/console`, in a scratch database it creates and drops — the role needs `CREATEDB`) |
+| `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`); console sessions (`internal/console`, in a scratch database it creates and drops — the role needs `CREATEDB`) |
 | `BACKPLANE_TEST_ENVOY=localhost:9901` with `BACKPLANE_TEST_CONSUL` | xDS end to end (`internal/xds`, `make test-envoy`): the control plane on `:18000` against the live catalog, `examples/hello` through the compose Envoy — HTTP, gRPC and a stream, gRPC-Web, REST-JSON, ws-proto, CORS, a route on its own port, the console under a prefix — and no NACK; needs `:18000` free (no `make run-backplane`) and waits for a running conformance `hello` to go |
 | `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
+| `BACKPLANE_TEST_ENVOY` with `BACKPLANE_TEST_CONSUL` and `BACKPLANE_TEST_PG` | M1 end to end (`conformance/m1_test.go`, `make test-m1`): the built `backplane` and `hello` behind the compose Envoy — console login and `/ws` through Envoy and directly, the catalog, Live configuration (validation, revisions in Consul KV applied by hello, reconciler repairs, rollback), the relay, the plugin bundle, hello leaving and rejoining Envoy's routes |
 
 ```sh
 make up
@@ -245,6 +300,26 @@ BACKPLANE_TEST_TEMPORAL=localhost:7233 \
 BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane \
   GOWORK=off go test -race -count=1 ./...
 ```
+
+`make test-envoy` and `make test-m1` need Envoy's ADS port `:18000` to
+themselves (no `make run-backplane`, not both at once) and run alone:
+
+```sh
+make up
+make test-m1   # BACKPLANE_TEST_{CONSUL,PG,ENVOY} set; -run '^TestM1$' ./conformance/
+```
+
+`make test-m1` builds `cmd/backplane` and `examples/hello` and runs both
+on free ports next to the compose containers: backplane in a scratch
+database it creates on the compose PostgreSQL and drops afterwards (the
+role needs `CREATEDB`), with a random admin token and internal secret,
+the console under `/backplane`, a 500ms reconcile interval; hello with
+the same secret, registered in Consul at the host's LAN address. It waits
+for a `hello` of another run to leave Consul first, and removes what it
+wrote: `config/hello/`, `backplane/services/hello/`, its backplane
+instance and manifest (version `0.0.0-m1`). On failure it prints both
+processes' logs. Envoy's ADS reconnect backoff may take up to 30s after
+`:18000` was idle.
 
 The same variables enable the SDK's own integration tests under
 `pkg/backplane` and the server's under `internal/` (`BACKPLANE_TEST_CONSUL`:

@@ -414,7 +414,8 @@ func TestListener(t *testing.T) {
 	}
 
 	if hcm.GetRds().GetRouteConfigName() != xds.RouteConfigName || hcm.GetRds().GetConfigSource().GetAds() == nil ||
-		hcm.GetCodecType() != hcmv3.HttpConnectionManager_AUTO || !hcm.GetStripAnyHostPort() {
+		hcm.GetCodecType() != hcmv3.HttpConnectionManager_AUTO || !hcm.GetStripAnyHostPort() ||
+		!hcm.GetAppendXForwardedPort() {
 		t.Errorf("hcm %v", &hcm)
 	}
 

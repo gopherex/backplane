@@ -1,43 +1,50 @@
 package console_test
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gopherex/backplane/internal/console"
+	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
-func TestBootstrapGenerated(t *testing.T) {
+// The admin token is configuration: login compares against it, and a
+// console without one (or with a short one) does not start.
+func TestAdminTokenSettings(t *testing.T) {
 	t.Parallel()
 
-	sessions := newMemSessions()
-	e := newEnv(t, sessions, func(s *console.Settings) { s.AdminToken = "" })
-
-	out := e.out.String()
-
-	i := strings.Index(out, "bpat_")
-	if i < 0 {
-		t.Fatalf("no token printed: %q", out)
+	cases := map[string]struct {
+		token string
+		want  error
+	}{
+		"configured": {adminToken, nil},
+		"missing":    {"", console.ErrNoAdminToken},
+		"short":      {"short", console.ErrShortAdminToken},
 	}
 
-	token := strings.Fields(out[i:])[0]
-	if res, c := e.login(token); res.StatusCode != http.StatusOK || c == nil {
-		t.Fatalf("login with the printed token: %s", res.Status)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			err := console.Settings{AdminToken: config.Secret(tc.token)}.Validate()
+			if !errors.Is(err, tc.want) || (tc.want == nil) != (err == nil) {
+				t.Fatalf("want %v, got %v", tc.want, err)
+			}
+		})
 	}
 
-	// Another replica (or a restart) finds the token: nothing is printed.
-	again := newEnv(t, sessions, func(s *console.Settings) { s.AdminToken = "" })
-	if again.out.Len() != 0 {
-		t.Fatalf("printed again: %q", again.out)
+	e := newEnv(t, nil, func(s *console.Settings) { s.AdminToken = "another-admin-token-42" })
+	if res, c := e.login("another-admin-token-42"); res.StatusCode != http.StatusOK || c == nil {
+		t.Fatalf("configured token: %s", res.Status)
 	}
 
-	// The environment does not override a stored token.
-	env := newEnv(t, sessions)
-	if res, _ := env.login(adminToken); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("env token over a stored one: %s", res.Status)
+	for _, wrong := range []string{adminToken, "another-admin-token-4", "another-admin-token-42 "} {
+		if res, c := e.login(wrong); res.StatusCode != http.StatusUnauthorized || c != nil {
+			t.Fatalf("wrong token %q: %s", wrong, res.Status)
+		}
 	}
 }
 

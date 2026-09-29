@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -87,8 +88,29 @@ func (c *Console) originAllowed(r *http.Request) bool {
 	}
 
 	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return false
+	}
 
-	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && strings.EqualFold(u.Host, r.Host)
+	return strings.EqualFold(u.Host, r.Host) || strings.EqualFold(u.Host, forwardedAuthority(r))
+}
+
+// forwardedAuthority is the request's host with the port the client
+// connected to, when a proxy stripped the port from Host and passed it in
+// X-Forwarded-Port — backplane's Envoy does both (§6), so a console on a
+// non-default port (localhost:10000) still recognizes its own origin.
+// Empty when Host has a port or X-Forwarded-Port is absent.
+func forwardedAuthority(r *http.Request) string {
+	port := r.Header.Get("X-Forwarded-Port")
+	if port == "" {
+		return ""
+	}
+
+	if _, _, err := net.SplitHostPort(r.Host); err == nil {
+		return ""
+	}
+
+	return net.JoinHostPort(strings.Trim(r.Host, "[]"), port)
 }
 
 // crossSite rejects a state-changing request from another site: an Origin
@@ -166,16 +188,7 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stored, err := c.sessions.AdminToken(r.Context())
-	if err != nil {
-		c.Log().Warn("console: login: admin token", xlog.Err(err))
-		httpError(w, http.StatusServiceUnavailable, "console storage unavailable")
-
-		return
-	}
-
-	ok, err := verifyToken(stored, req.Token)
-	if err != nil || !ok {
+	if !c.token.match(req.Token) {
 		c.limiter.failed(now)
 		c.Log().Warn("console: failed login", xlog.String("address", addr))
 		httpError(w, http.StatusUnauthorized, "wrong token")

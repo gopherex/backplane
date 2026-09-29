@@ -279,26 +279,26 @@ func (*RevokeSessionResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_session_proto_rawDescGZIP(), []int{4}
 }
 
-type RotateTokenRequest struct {
+type RevokeOtherSessionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *RotateTokenRequest) Reset() {
-	*x = RotateTokenRequest{}
+func (x *RevokeOtherSessionsRequest) Reset() {
+	*x = RevokeOtherSessionsRequest{}
 	mi := &file_backplanepb_console_v1_session_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RotateTokenRequest) String() string {
+func (x *RevokeOtherSessionsRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RotateTokenRequest) ProtoMessage() {}
+func (*RevokeOtherSessionsRequest) ProtoMessage() {}
 
-func (x *RotateTokenRequest) ProtoReflect() protoreflect.Message {
+func (x *RevokeOtherSessionsRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_session_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -310,35 +310,33 @@ func (x *RotateTokenRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RotateTokenRequest.ProtoReflect.Descriptor instead.
-func (*RotateTokenRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use RevokeOtherSessionsRequest.ProtoReflect.Descriptor instead.
+func (*RevokeOtherSessionsRequest) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_session_proto_rawDescGZIP(), []int{5}
 }
 
-type RotateTokenResponse struct {
+type RevokeOtherSessionsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The new admin token: shown once, stored as a hash only.
-	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
-	// Sessions revoked by the rotation.
-	RevokedSessions uint32 `protobuf:"varint,2,opt,name=revoked_sessions,json=revokedSessions,proto3" json:"revoked_sessions,omitempty"`
+	// Sessions revoked.
+	RevokedSessions uint32 `protobuf:"varint,1,opt,name=revoked_sessions,json=revokedSessions,proto3" json:"revoked_sessions,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
-func (x *RotateTokenResponse) Reset() {
-	*x = RotateTokenResponse{}
+func (x *RevokeOtherSessionsResponse) Reset() {
+	*x = RevokeOtherSessionsResponse{}
 	mi := &file_backplanepb_console_v1_session_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RotateTokenResponse) String() string {
+func (x *RevokeOtherSessionsResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RotateTokenResponse) ProtoMessage() {}
+func (*RevokeOtherSessionsResponse) ProtoMessage() {}
 
-func (x *RotateTokenResponse) ProtoReflect() protoreflect.Message {
+func (x *RevokeOtherSessionsResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_session_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -350,19 +348,12 @@ func (x *RotateTokenResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use RotateTokenResponse.ProtoReflect.Descriptor instead.
-func (*RotateTokenResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use RevokeOtherSessionsResponse.ProtoReflect.Descriptor instead.
+func (*RevokeOtherSessionsResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_session_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *RotateTokenResponse) GetToken() string {
-	if x != nil {
-		return x.Token
-	}
-	return ""
-}
-
-func (x *RotateTokenResponse) GetRevokedSessions() uint32 {
+func (x *RevokeOtherSessionsResponse) GetRevokedSessions() uint32 {
 	if x != nil {
 		return x.RevokedSessions
 	}
@@ -391,15 +382,14 @@ const file_backplanepb_console_v1_session_proto_rawDesc = "" +
 	"\bsessions\x18\x01 \x03(\v2\x1d.backplane.console.v1.SessionR\bsessions\"&\n" +
 	"\x14RevokeSessionRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x17\n" +
-	"\x15RevokeSessionResponse\"\x14\n" +
-	"\x12RotateTokenRequest\"V\n" +
-	"\x13RotateTokenResponse\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\x12)\n" +
-	"\x10revoked_sessions\x18\x02 \x01(\rR\x0frevokedSessions2\xc5\x02\n" +
+	"\x15RevokeSessionResponse\"\x1c\n" +
+	"\x1aRevokeOtherSessionsRequest\"H\n" +
+	"\x1bRevokeOtherSessionsResponse\x12)\n" +
+	"\x10revoked_sessions\x18\x01 \x01(\rR\x0frevokedSessions2\xdd\x02\n" +
 	"\x0eSessionService\x12e\n" +
 	"\fListSessions\x12).backplane.console.v1.ListSessionsRequest\x1a*.backplane.console.v1.ListSessionsResponse\x12h\n" +
-	"\rRevokeSession\x12*.backplane.console.v1.RevokeSessionRequest\x1a+.backplane.console.v1.RevokeSessionResponse\x12b\n" +
-	"\vRotateToken\x12(.backplane.console.v1.RotateTokenRequest\x1a).backplane.console.v1.RotateTokenResponseB@Z>github.com/gopherex/backplane/backplanepb/console/v1;consolev1b\x06proto3"
+	"\rRevokeSession\x12*.backplane.console.v1.RevokeSessionRequest\x1a+.backplane.console.v1.RevokeSessionResponse\x12z\n" +
+	"\x13RevokeOtherSessions\x120.backplane.console.v1.RevokeOtherSessionsRequest\x1a1.backplane.console.v1.RevokeOtherSessionsResponseB@Z>github.com/gopherex/backplane/backplanepb/console/v1;consolev1b\x06proto3"
 
 var (
 	file_backplanepb_console_v1_session_proto_rawDescOnce sync.Once
@@ -415,14 +405,14 @@ func file_backplanepb_console_v1_session_proto_rawDescGZIP() []byte {
 
 var file_backplanepb_console_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_backplanepb_console_v1_session_proto_goTypes = []any{
-	(*Session)(nil),               // 0: backplane.console.v1.Session
-	(*ListSessionsRequest)(nil),   // 1: backplane.console.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),  // 2: backplane.console.v1.ListSessionsResponse
-	(*RevokeSessionRequest)(nil),  // 3: backplane.console.v1.RevokeSessionRequest
-	(*RevokeSessionResponse)(nil), // 4: backplane.console.v1.RevokeSessionResponse
-	(*RotateTokenRequest)(nil),    // 5: backplane.console.v1.RotateTokenRequest
-	(*RotateTokenResponse)(nil),   // 6: backplane.console.v1.RotateTokenResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(*Session)(nil),                     // 0: backplane.console.v1.Session
+	(*ListSessionsRequest)(nil),         // 1: backplane.console.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),        // 2: backplane.console.v1.ListSessionsResponse
+	(*RevokeSessionRequest)(nil),        // 3: backplane.console.v1.RevokeSessionRequest
+	(*RevokeSessionResponse)(nil),       // 4: backplane.console.v1.RevokeSessionResponse
+	(*RevokeOtherSessionsRequest)(nil),  // 5: backplane.console.v1.RevokeOtherSessionsRequest
+	(*RevokeOtherSessionsResponse)(nil), // 6: backplane.console.v1.RevokeOtherSessionsResponse
+	(*timestamppb.Timestamp)(nil),       // 7: google.protobuf.Timestamp
 }
 var file_backplanepb_console_v1_session_proto_depIdxs = []int32{
 	7, // 0: backplane.console.v1.Session.created_at:type_name -> google.protobuf.Timestamp
@@ -431,10 +421,10 @@ var file_backplanepb_console_v1_session_proto_depIdxs = []int32{
 	0, // 3: backplane.console.v1.ListSessionsResponse.sessions:type_name -> backplane.console.v1.Session
 	1, // 4: backplane.console.v1.SessionService.ListSessions:input_type -> backplane.console.v1.ListSessionsRequest
 	3, // 5: backplane.console.v1.SessionService.RevokeSession:input_type -> backplane.console.v1.RevokeSessionRequest
-	5, // 6: backplane.console.v1.SessionService.RotateToken:input_type -> backplane.console.v1.RotateTokenRequest
+	5, // 6: backplane.console.v1.SessionService.RevokeOtherSessions:input_type -> backplane.console.v1.RevokeOtherSessionsRequest
 	2, // 7: backplane.console.v1.SessionService.ListSessions:output_type -> backplane.console.v1.ListSessionsResponse
 	4, // 8: backplane.console.v1.SessionService.RevokeSession:output_type -> backplane.console.v1.RevokeSessionResponse
-	6, // 9: backplane.console.v1.SessionService.RotateToken:output_type -> backplane.console.v1.RotateTokenResponse
+	6, // 9: backplane.console.v1.SessionService.RevokeOtherSessions:output_type -> backplane.console.v1.RevokeOtherSessionsResponse
 	7, // [7:10] is the sub-list for method output_type
 	4, // [4:7] is the sub-list for method input_type
 	4, // [4:4] is the sub-list for extension type_name

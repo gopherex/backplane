@@ -1,14 +1,3 @@
--- name: GetAdminToken :one
-SELECT token_hash FROM backplane.console_admin;
-
--- name: InitAdminToken :execrows
-INSERT INTO backplane.console_admin (token_hash) VALUES (@token_hash)
-ON CONFLICT (singleton) DO NOTHING;
-
--- name: SetAdminToken :exec
-INSERT INTO backplane.console_admin (token_hash) VALUES (@token_hash)
-ON CONFLICT (singleton) DO UPDATE SET token_hash = EXCLUDED.token_hash, updated_at = now();
-
 -- name: CreateSession :one
 INSERT INTO backplane.console_session (token_hash, created_at, expires_at, last_seen_at, address, user_agent)
 VALUES (@token_hash, @created_at, @expires_at, @created_at, @address, @user_agent)

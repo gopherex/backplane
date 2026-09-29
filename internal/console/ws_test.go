@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,6 +73,46 @@ func TestUpgradeRequiresSessionAndOrigin(t *testing.T) {
 	}
 
 	own.mustDial(ownCookie)
+}
+
+// Behind backplane's Envoy Host arrives without its port (strip_any_host_port)
+// and the port comes in X-Forwarded-Port: the console still knows its own
+// origin on a non-default port, and only that one.
+func TestOwnOriginBehindEnvoy(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, nil)
+
+	login := func(origin, port string) int {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost/auth/login",
+			strings.NewReader(`{"token":"`+adminToken+`"}`))
+		req.Host = "localhost"
+		req.Header.Set("Origin", origin)
+
+		if port != "" {
+			req.Header.Set("X-Forwarded-Port", port)
+		}
+
+		rec := httptest.NewRecorder()
+		e.console.Handler().ServeHTTP(rec, req)
+
+		return rec.Code
+	}
+
+	for name, tc := range map[string]struct {
+		origin, port string
+		want         int
+	}{
+		"forwarded port":         {"http://localhost:10000", "10000", http.StatusOK},
+		"default port":           {"https://localhost", "443", http.StatusOK},
+		"no forwarded port":      {"http://localhost:10000", "", http.StatusForbidden},
+		"another port":           {"http://localhost:9999", "10000", http.StatusForbidden},
+		"another host, its port": {"http://evil.example.com:10000", "10000", http.StatusForbidden},
+	} {
+		if got := login(tc.origin, tc.port); got != tc.want {
+			t.Errorf("%s: login %d, want %d", name, got, tc.want)
+		}
+	}
 }
 
 func manifest(name, version string, internal ...string) *backplanev1.Manifest {
@@ -204,28 +245,41 @@ func TestSessionService(t *testing.T) {
 		t.Fatalf("sessions: %v", list.GetSessions())
 	}
 
-	var rot consolev1.RotateTokenResponse
-	if err := call(ctx, cc, "/backplane.console.v1.SessionService/RotateToken", &consolev1.RotateTokenRequest{}, &rot); err != nil {
+	// RevokeOtherSessions ends every session but the caller's.
+	third := e.mustLogin()
+	thirdConn := e.mustDial(third)
+
+	var revoked consolev1.RevokeOtherSessionsResponse
+	if err := call(ctx, cc, "/backplane.console.v1.SessionService/RevokeOtherSessions",
+		&consolev1.RevokeOtherSessionsRequest{}, &revoked); err != nil {
 		t.Fatal(err)
 	}
 
-	if rot.GetToken() == "" || rot.GetRevokedSessions() != 1 {
-		t.Fatalf("rotate: %v", &rot)
+	if revoked.GetRevokedSessions() != 2 {
+		t.Fatalf("revoke others: %v", &revoked)
 	}
 
-	if res, _ := e.login(adminToken); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("old token after rotation: %s", res.Status)
-	}
-
-	if res, _ := e.login(rot.GetToken()); res.StatusCode != http.StatusOK {
-		t.Fatalf("new token: %s", res.Status)
-	}
-
-	// The other session's connection is closed; this one lives on.
+	// The other sessions' connections are closed; this one lives on.
 	closed(t, otherConn)
+	closed(t, thirdConn)
+
+	if res := e.request(http.MethodGet, "/auth/session", nil, "Cookie", cookieHeader(other)); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("revoked session: %s", res.Status)
+	}
 
 	if err := call(ctx, cc, "/backplane.console.v1.SessionService/ListSessions", &consolev1.ListSessionsRequest{}, &list); err != nil {
-		t.Fatalf("own connection after rotation: %v", err)
+		t.Fatalf("own connection after revoking the others: %v", err)
+	}
+
+	if len(list.GetSessions()) != 1 || !list.GetSessions()[0].GetCurrent() {
+		t.Fatalf("after revoking the others: %v", list.GetSessions())
+	}
+
+	// RevokeSession ends one.
+	e.mustLogin()
+
+	if err := call(ctx, cc, "/backplane.console.v1.SessionService/ListSessions", &consolev1.ListSessionsRequest{}, &list); err != nil {
+		t.Fatal(err)
 	}
 
 	var id string

@@ -60,6 +60,18 @@ func (e *engines) get(s *sp.Schema) (*sp.Engine, error) {
 // that its configuration has without the override too (a masked secret
 // failing its own constraint, "***" being all backplane sees) is dropped,
 // so masked values count as present and valid.
+// check parses values and validates the valid part: paths rejected by
+// parse are left out of the override and the rest still goes through the
+// schemas, so one answer lists every problem.
+func (e *engines) check(svc registry.Service, values map[string]string) (override, []Violation, error) {
+	latest := svc.Latest()
+	o, violations := parse(latest.GetConfig(), values)
+
+	schema, err := e.validate(svc, latest, o)
+
+	return o, append(violations, schema...), err
+}
+
 func (e *engines) validate(svc registry.Service, latest *backplanev1.Manifest, o override) ([]Violation, error) {
 	var bases []base
 

@@ -6,16 +6,17 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
 
-// SessionService manages the console's sessions and its admin token.
+// SessionService manages the console's sessions. The admin token itself is
+// configuration of the deployment (BACKPLANE_ADMIN_TOKEN), not an API.
 // Served on the console's ws-proto connection (/ws).
 service SessionService {
   // Every live session, newest first.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   // Ends a session: its connections close, its cookie stops working.
   rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
-  // Replaces the admin token with a new random one, shown once in the
-  // response; every other session is revoked.
-  rpc RotateToken(RotateTokenRequest) returns (RotateTokenResponse);
+  // Ends every session but the caller's: after the admin token is
+  // rotated in the deployment, the sessions opened with the old one.
+  rpc RevokeOtherSessions(RevokeOtherSessionsRequest) returns (RevokeOtherSessionsResponse);
 }
 
 message Session {
@@ -45,11 +46,9 @@ message RevokeSessionRequest {
 
 message RevokeSessionResponse {}
 
-message RotateTokenRequest {}
+message RevokeOtherSessionsRequest {}
 
-message RotateTokenResponse {
-  // The new admin token: shown once, stored as a hash only.
-  string token = 1;
-  // Sessions revoked by the rotation.
-  uint32 revoked_sessions = 2;
+message RevokeOtherSessionsResponse {
+  // Sessions revoked.
+  uint32 revoked_sessions = 1;
 }

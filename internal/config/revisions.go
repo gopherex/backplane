@@ -179,16 +179,7 @@ func (m *Manager) check(service string, values map[string]string) (override, []V
 		return override{}, nil, err
 	}
 
-	latest := svc.Latest()
-
-	o, violations := parse(latest.GetConfig(), values)
-	if len(violations) > 0 {
-		return o, violations, nil
-	}
-
-	violations, err = m.engines.validate(svc, latest, o)
-
-	return o, violations, err
+	return m.engines.check(svc, values)
 }
 
 // Save validates the override and saves it as the service's next

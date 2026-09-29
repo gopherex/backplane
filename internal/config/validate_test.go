@@ -168,3 +168,20 @@ func TestValidateWithoutSchema(t *testing.T) {
 		t.Fatalf("scalar without schema: %q", kv["greeter.suffix"])
 	}
 }
+
+// One answer lists every problem: a path that is not Live and a value the
+// schema rejects are reported together.
+func TestValidateReportsEverything(t *testing.T) {
+	t.Parallel()
+
+	m := testManifest(t, "svc", "1.0.0")
+	svc := service(m)
+	svc.Instances = []registry.Instance{instance(t, m, "svc-a", map[string]any{"password": "secret-password"})}
+
+	v := check(t, svc, map[string]string{"nope": `1`, "limits.max": `"many"`})
+	if !has(v, "", "nope", config.CodeNotLive) || !slices.ContainsFunc(v, func(x config.Violation) bool {
+		return x.Path == "limits.max"
+	}) {
+		t.Fatalf("want both violations, got %v", v)
+	}
+}

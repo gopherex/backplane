@@ -30,16 +30,11 @@ func Parse(sec *backplanev1.ConfigSection, in map[string]string) (map[string]jso
 
 // Check parses and validates in against svc, as Manager.Validate does.
 func Check(svc registry.Service, in map[string]string) ([]Violation, error) {
-	latest := svc.Latest()
-
-	o, violations := parse(latest.GetConfig(), in)
-	if len(violations) > 0 {
-		return violations, nil
-	}
-
 	var e engines
 
-	return e.validate(svc, latest, o)
+	_, violations, err := e.check(svc, in)
+
+	return violations, err
 }
 
 // Drift is why the service's pairs differ from its revision's values.

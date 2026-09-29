@@ -23,11 +23,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -83,12 +81,25 @@ type Settings struct {
 	// InsecureCookie drops Secure from the session cookie and HSTS from the
 	// responses: plain-HTTP development only.
 	InsecureCookie bool
-	// AdminToken bootstraps the admin token at the first start; empty:
-	// one is generated and printed once.
+	// AdminToken is what /auth/login accepts: configuration of the
+	// deployment, at least MinAdminTokenLen characters.
 	AdminToken config.Secret
 	// InternalSecret is presented to the services' platform ports
 	// (relay and bundles).
 	InternalSecret config.Secret
+}
+
+// Validate checks the admin token: required, at least MinAdminTokenLen
+// characters.
+func (s Settings) Validate() error {
+	switch token := s.AdminToken.Reveal(); {
+	case token == "":
+		return ErrNoAdminToken
+	case len(token) < MinAdminTokenLen:
+		return ErrShortAdminToken
+	}
+
+	return nil
 }
 
 // Option configures New.
@@ -96,7 +107,6 @@ type Option func(o *options)
 
 type options struct {
 	now        func() time.Time
-	out        io.Writer
 	services   []func(grpc.ServiceRegistrar)
 	cacheBytes int64
 	shell      fs.FS
@@ -104,10 +114,6 @@ type options struct {
 
 // WithClock replaces time.Now (tests).
 func WithClock(now func() time.Time) Option { return func(o *options) { o.now = now } }
-
-// WithTokenOutput is where a generated admin token is printed once
-// (default os.Stderr).
-func WithTokenOutput(w io.Writer) Option { return func(o *options) { o.out = w } }
 
 // WithServices registers more of backplane's own API on /ws (another
 // component's gRPC services, e.g. configuration).
@@ -122,8 +128,8 @@ func WithCacheBytes(n int64) Option { return func(o *options) { o.cacheBytes = n
 // path that is not a file); without it "/" answers a placeholder.
 func WithShell(fsys fs.FS) Option { return func(o *options) { o.shell = fsys } }
 
-// Console is the console server: a component whose start writes the admin
-// token at the first start of the installation and opens the listener,
+// Console is the console server: a component whose start checks the admin
+// token is configured and opens the listener,
 // whose goroutine deletes stale sessions and closes relay connections of
 // gone instances, and whose stop shuts the listener down and closes the
 // open /ws connections.
@@ -140,7 +146,7 @@ type Console struct {
 	sessions Sessions
 	src      registry.Source
 	now      func() time.Time
-	out      io.Writer
+	token    adminToken
 
 	limiter *limiter
 	conns   *connections
@@ -153,10 +159,10 @@ type Console struct {
 	ln  net.Listener
 }
 
-// New creates the console under parent: sessions keep the token and the
-// sessions, src is the installation.
+// New creates the console under parent: sessions keep the sessions, src is
+// the installation. Its start fails when s does not pass Validate.
 func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, opts ...Option) *Console {
-	o := options{now: time.Now, out: os.Stderr, cacheBytes: defaultCacheBytes}
+	o := options{now: time.Now, cacheBytes: defaultCacheBytes}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -169,7 +175,7 @@ func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, 
 		sessions:  sessions,
 		src:       src,
 		now:       o.now,
-		out:       o.out,
+		token:     newAdminToken(s.AdminToken.Reveal()),
 		limiter:   newLimiter(),
 		conns:     newConnections(),
 	}
@@ -182,7 +188,7 @@ func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, 
 	c.bundles = newBundles(s.InternalSecret, o.cacheBytes)
 	c.handler = c.routes(c.newWS(o.services), o.shell)
 
-	c.OnStart(c.bootstrap)
+	c.OnStart(func(context.Context) error { return s.Validate() })
 	c.OnStart(c.listen)
 	c.OnStop(c.shutdown)
 	c.Go(c.housekeeping)
@@ -259,69 +265,6 @@ func (c *Console) shutdown(ctx context.Context) error {
 
 		return fmt.Errorf("console: shutdown: %w", err)
 	}
-
-	return nil
-}
-
-// bootstrap writes the admin token at the first start of the
-// installation: BACKPLANE_ADMIN_TOKEN, or a generated one printed once. A
-// stored token wins over the environment afterwards (it may have been
-// rotated from the console).
-func (c *Console) bootstrap(ctx context.Context) error {
-	env := c.settings.AdminToken.Reveal()
-
-	stored, err := c.sessions.AdminToken(ctx)
-	switch {
-	case err == nil:
-		if env != "" {
-			if ok, verr := verifyToken(stored, env); verr != nil || !ok {
-				c.Log().Warn("admin_token is ignored: the stored token (rotated from the console) wins; " +
-					"delete the row of backplane.console_admin to bootstrap again")
-			}
-		}
-
-		return nil
-	case !errors.Is(err, ErrNoToken):
-		return fmt.Errorf("console: bootstrap: %w", err)
-	}
-
-	token, generated := env, false
-	if token == "" {
-		if token, err = newAdminToken(); err != nil {
-			return err
-		}
-
-		generated = true
-	}
-
-	hash, err := hashToken(token)
-	if err != nil {
-		return err
-	}
-
-	won, err := c.sessions.InitAdminToken(ctx, hash)
-	if err != nil {
-		return fmt.Errorf("console: bootstrap: %w", err)
-	}
-
-	if !won {
-		return nil // another replica bootstrapped first
-	}
-
-	if !generated {
-		c.Log().Info("console admin token set from admin_token")
-
-		return nil
-	}
-
-	if _, err := fmt.Fprintf(c.out, "\n"+
-		"  backplane console admin token (shown once, stored as a hash):\n\n"+
-		"      %s\n\n"+
-		"  Log in with it, then rotate it from the console if it was seen by anyone else.\n\n", token); err != nil {
-		return fmt.Errorf("console: print the admin token: %w", err)
-	}
-
-	c.Log().Warn("console admin token generated and printed once to the process output")
 
 	return nil
 }

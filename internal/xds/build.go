@@ -520,6 +520,8 @@ func (b *builder) listener() *listenerv3.Listener {
 		}},
 		UseRemoteAddress: wrapperspb.Bool(true),
 		StripPortMode:    &hcmv3.HttpConnectionManager_StripAnyHostPort{StripAnyHostPort: true},
+		// The port Host loses: the console's same-origin check needs it.
+		AppendXForwardedPort: true,
 		UpgradeConfigs: []*hcmv3.HttpConnectionManager_UpgradeConfig{
 			{UpgradeType: websocket, Enabled: wrapperspb.Bool(false)},
 		},

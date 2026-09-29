@@ -19,25 +19,26 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SessionService_ListSessions_FullMethodName  = "/backplane.console.v1.SessionService/ListSessions"
-	SessionService_RevokeSession_FullMethodName = "/backplane.console.v1.SessionService/RevokeSession"
-	SessionService_RotateToken_FullMethodName   = "/backplane.console.v1.SessionService/RotateToken"
+	SessionService_ListSessions_FullMethodName        = "/backplane.console.v1.SessionService/ListSessions"
+	SessionService_RevokeSession_FullMethodName       = "/backplane.console.v1.SessionService/RevokeSession"
+	SessionService_RevokeOtherSessions_FullMethodName = "/backplane.console.v1.SessionService/RevokeOtherSessions"
 )
 
 // SessionServiceClient is the client API for SessionService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// SessionService manages the console's sessions and its admin token.
+// SessionService manages the console's sessions. The admin token itself is
+// configuration of the deployment (BACKPLANE_ADMIN_TOKEN), not an API.
 // Served on the console's ws-proto connection (/ws).
 type SessionServiceClient interface {
 	// Every live session, newest first.
 	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 	// Ends a session: its connections close, its cookie stops working.
 	RevokeSession(ctx context.Context, in *RevokeSessionRequest, opts ...grpc.CallOption) (*RevokeSessionResponse, error)
-	// Replaces the admin token with a new random one, shown once in the
-	// response; every other session is revoked.
-	RotateToken(ctx context.Context, in *RotateTokenRequest, opts ...grpc.CallOption) (*RotateTokenResponse, error)
+	// Ends every session but the caller's: after the admin token is
+	// rotated in the deployment, the sessions opened with the old one.
+	RevokeOtherSessions(ctx context.Context, in *RevokeOtherSessionsRequest, opts ...grpc.CallOption) (*RevokeOtherSessionsResponse, error)
 }
 
 type sessionServiceClient struct {
@@ -68,10 +69,10 @@ func (c *sessionServiceClient) RevokeSession(ctx context.Context, in *RevokeSess
 	return out, nil
 }
 
-func (c *sessionServiceClient) RotateToken(ctx context.Context, in *RotateTokenRequest, opts ...grpc.CallOption) (*RotateTokenResponse, error) {
+func (c *sessionServiceClient) RevokeOtherSessions(ctx context.Context, in *RevokeOtherSessionsRequest, opts ...grpc.CallOption) (*RevokeOtherSessionsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RotateTokenResponse)
-	err := c.cc.Invoke(ctx, SessionService_RotateToken_FullMethodName, in, out, cOpts...)
+	out := new(RevokeOtherSessionsResponse)
+	err := c.cc.Invoke(ctx, SessionService_RevokeOtherSessions_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,16 +83,17 @@ func (c *sessionServiceClient) RotateToken(ctx context.Context, in *RotateTokenR
 // All implementations must embed UnimplementedSessionServiceServer
 // for forward compatibility.
 //
-// SessionService manages the console's sessions and its admin token.
+// SessionService manages the console's sessions. The admin token itself is
+// configuration of the deployment (BACKPLANE_ADMIN_TOKEN), not an API.
 // Served on the console's ws-proto connection (/ws).
 type SessionServiceServer interface {
 	// Every live session, newest first.
 	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	// Ends a session: its connections close, its cookie stops working.
 	RevokeSession(context.Context, *RevokeSessionRequest) (*RevokeSessionResponse, error)
-	// Replaces the admin token with a new random one, shown once in the
-	// response; every other session is revoked.
-	RotateToken(context.Context, *RotateTokenRequest) (*RotateTokenResponse, error)
+	// Ends every session but the caller's: after the admin token is
+	// rotated in the deployment, the sessions opened with the old one.
+	RevokeOtherSessions(context.Context, *RevokeOtherSessionsRequest) (*RevokeOtherSessionsResponse, error)
 	mustEmbedUnimplementedSessionServiceServer()
 }
 
@@ -108,8 +110,8 @@ func (UnimplementedSessionServiceServer) ListSessions(context.Context, *ListSess
 func (UnimplementedSessionServiceServer) RevokeSession(context.Context, *RevokeSessionRequest) (*RevokeSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevokeSession not implemented")
 }
-func (UnimplementedSessionServiceServer) RotateToken(context.Context, *RotateTokenRequest) (*RotateTokenResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RotateToken not implemented")
+func (UnimplementedSessionServiceServer) RevokeOtherSessions(context.Context, *RevokeOtherSessionsRequest) (*RevokeOtherSessionsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RevokeOtherSessions not implemented")
 }
 func (UnimplementedSessionServiceServer) mustEmbedUnimplementedSessionServiceServer() {}
 func (UnimplementedSessionServiceServer) testEmbeddedByValue()                        {}
@@ -168,20 +170,20 @@ func _SessionService_RevokeSession_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionService_RotateToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RotateTokenRequest)
+func _SessionService_RevokeOtherSessions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevokeOtherSessionsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionServiceServer).RotateToken(ctx, in)
+		return srv.(SessionServiceServer).RevokeOtherSessions(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionService_RotateToken_FullMethodName,
+		FullMethod: SessionService_RevokeOtherSessions_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionServiceServer).RotateToken(ctx, req.(*RotateTokenRequest))
+		return srv.(SessionServiceServer).RevokeOtherSessions(ctx, req.(*RevokeOtherSessionsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -202,8 +204,8 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SessionService_RevokeSession_Handler,
 		},
 		{
-			MethodName: "RotateToken",
-			Handler:    _SessionService_RotateToken_Handler,
+			MethodName: "RevokeOtherSessions",
+			Handler:    _SessionService_RevokeOtherSessions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

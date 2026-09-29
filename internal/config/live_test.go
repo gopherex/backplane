@@ -172,12 +172,18 @@ func TestLiveCycle(t *testing.T) {
 	client, addr, dsn := liveEnv(t)
 	name := randomName(t)
 
-	m, reg, st := backplaneSide(t, client, dsn)
-
+	// Consul last, once the reconciler has stopped: a pass in flight would
+	// write config/<name>/ back.
 	t.Cleanup(func() {
-		ctx := context.Background()
 		_, _ = client.KV().DeleteTree(config.Prefix(name), nil)
 		_, _ = client.KV().DeleteTree(registry.Prefix+name+"/", nil)
+	})
+
+	m, reg, st := backplaneSide(t, client, dsn)
+
+	// The rows while the store is open: no pass syncs the service after.
+	t.Cleanup(func() {
+		ctx := context.Background()
 		_, _ = st.Pool.Exec(ctx, "DELETE FROM backplane.config_current WHERE service = $1", name)
 		_, _ = st.Pool.Exec(ctx, "DELETE FROM backplane.config_revision WHERE service = $1", name)
 	})
@@ -398,12 +404,14 @@ func TestLiveReplicas(t *testing.T) {
 		Name: name, Manifests: map[string]*backplanev1.Manifest{"1.0.0": testManifest(t, name, "1.0.0")},
 	}})
 
+	// Consul last, once both reconcilers have stopped (see TestLiveCycle).
+	t.Cleanup(func() { _, _ = client.KV().DeleteTree(config.Prefix(name), nil) })
+
 	one, st := replica(t, client, dsn, hub)
 	two, _ := replica(t, client, dsn, hub)
 
 	t.Cleanup(func() {
 		ctx := context.Background()
-		_, _ = client.KV().DeleteTree(config.Prefix(name), nil)
 		_, _ = st.Pool.Exec(ctx, "DELETE FROM backplane.config_current WHERE service = $1", name)
 		_, _ = st.Pool.Exec(ctx, "DELETE FROM backplane.config_revision WHERE service = $1", name)
 	})

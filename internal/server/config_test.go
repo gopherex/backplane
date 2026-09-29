@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gopherex/backplane/internal/server"
@@ -19,7 +20,7 @@ func load(t *testing.T) (server.Config, error) {
 func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("BACKPLANE_PG_DSN", "postgres://pg/backplane")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "consul:8500")
-	t.Setenv("BACKPLANE_ADMIN_TOKEN", "token")
+	t.Setenv("BACKPLANE_ADMIN_TOKEN", "admin-token-0123456789")
 	t.Setenv("BACKPLANE_CONSOLE_HOST", "console.example.com")
 	t.Setenv("BACKPLANE_CONSOLE_ORIGINS", `["https://console.example.com"]`)
 	t.Setenv("BACKPLANE_CONSOLE_TRUSTED_PROXIES", `["10.0.0.0/8","192.168.1.1"]`)
@@ -31,7 +32,7 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 
 	if cfg.PG.DSN.Reveal() != "postgres://pg/backplane" || cfg.Consul.Addr != "consul:8500" ||
-		cfg.AdminToken.Reveal() != "token" || cfg.Console.Host != "console.example.com" ||
+		cfg.AdminToken.Reveal() != "admin-token-0123456789" || cfg.Console.Host != "console.example.com" ||
 		len(cfg.Console.Origins) != 1 || len(cfg.Console.TrustedProxies) != 2 ||
 		cfg.Obs.MetricsURL != "http://grafana:3000" {
 		t.Fatalf("env: %+v", cfg)
@@ -46,6 +47,22 @@ func TestConfigFromEnv(t *testing.T) {
 	}
 }
 
+// Without BACKPLANE_ADMIN_TOKEN the configuration does not open, and the
+// error names the variable.
+func TestConfigNoAdminToken(t *testing.T) {
+	t.Setenv("BACKPLANE_PG_DSN", "postgres://pg/backplane")
+	t.Setenv("BACKPLANE_CONSUL_ADDR", "consul:8500")
+
+	cfg, err := load(t)
+	if err == nil {
+		err = cfg.Validate()
+	}
+
+	if !errors.Is(err, server.ErrNoAdminToken) || !strings.Contains(err.Error(), "BACKPLANE_ADMIN_TOKEN") {
+		t.Fatalf("want %v, got %v", server.ErrNoAdminToken, err)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +71,7 @@ func TestValidate(t *testing.T) {
 
 		c.PG.DSN = "postgres://pg/backplane"
 		c.Consul.Addr = "consul:8500"
+		c.AdminToken = "admin-token-0123456789"
 		c.InternalPort, c.PublicPort = 9400, 8080
 		c.XDS.Listen, c.Console.Listen = ":18000", ":8081"
 
@@ -68,18 +86,20 @@ func TestValidate(t *testing.T) {
 		edit func(c *server.Config)
 		want error
 	}{
-		"no dsn":        {func(c *server.Config) { c.PG.DSN = "" }, server.ErrNoPG},
-		"no consul":     {func(c *server.Config) { c.Consul.Addr = "" }, server.ErrNoConsul},
-		"bad listen":    {func(c *server.Config) { c.XDS.Listen = "18000" }, server.ErrAddr},
-		"port 0":        {func(c *server.Config) { c.Console.Listen = ":0" }, server.ErrAddr},
-		"xds on public": {func(c *server.Config) { c.XDS.Listen = ":8080" }, server.ErrPortTaken},
-		"same ports":    {func(c *server.Config) { c.Console.Listen = "127.0.0.1:18000" }, server.ErrPortTaken},
-		"host+prefix":   {func(c *server.Config) { c.Console.Host, c.Console.Prefix = "c.example.com", "/bp" }, server.ErrHostOrPrefix},
-		"prefix slash":  {func(c *server.Config) { c.Console.Prefix = "/bp/" }, server.ErrPrefix},
-		"origin path":   {func(c *server.Config) { c.Console.Origins = []string{"https://c.example.com/x"} }, server.ErrOrigin},
-		"origin scheme": {func(c *server.Config) { c.Console.Origins = []string{"c.example.com"} }, server.ErrOrigin},
-		"proxy":         {func(c *server.Config) { c.Console.TrustedProxies = []string{"10.0.0.0/33"} }, server.ErrProxy},
-		"obs not a url": {func(c *server.Config) { c.Obs.TracesURL = "tempo:3200" }, server.ErrURL},
+		"no dsn":            {func(c *server.Config) { c.PG.DSN = "" }, server.ErrNoPG},
+		"no consul":         {func(c *server.Config) { c.Consul.Addr = "" }, server.ErrNoConsul},
+		"no admin token":    {func(c *server.Config) { c.AdminToken = "" }, server.ErrNoAdminToken},
+		"short admin token": {func(c *server.Config) { c.AdminToken = "short" }, server.ErrShortAdminToken},
+		"bad listen":        {func(c *server.Config) { c.XDS.Listen = "18000" }, server.ErrAddr},
+		"port 0":            {func(c *server.Config) { c.Console.Listen = ":0" }, server.ErrAddr},
+		"xds on public":     {func(c *server.Config) { c.XDS.Listen = ":8080" }, server.ErrPortTaken},
+		"same ports":        {func(c *server.Config) { c.Console.Listen = "127.0.0.1:18000" }, server.ErrPortTaken},
+		"host+prefix":       {func(c *server.Config) { c.Console.Host, c.Console.Prefix = "c.example.com", "/bp" }, server.ErrHostOrPrefix},
+		"prefix slash":      {func(c *server.Config) { c.Console.Prefix = "/bp/" }, server.ErrPrefix},
+		"origin path":       {func(c *server.Config) { c.Console.Origins = []string{"https://c.example.com/x"} }, server.ErrOrigin},
+		"origin scheme":     {func(c *server.Config) { c.Console.Origins = []string{"c.example.com"} }, server.ErrOrigin},
+		"proxy":             {func(c *server.Config) { c.Console.TrustedProxies = []string{"10.0.0.0/33"} }, server.ErrProxy},
+		"obs not a url":     {func(c *server.Config) { c.Obs.TracesURL = "tempo:3200" }, server.ErrURL},
 	}
 
 	for name, tc := range cases {

@@ -477,16 +477,27 @@ func (c *Client) checkEndpoint(ctx context.Context, conn client.Client) error {
 
 // callError: the caller's deadline or cancellation wins over whatever
 // Temporal reported at that moment.
+// deadlineSlack absorbs the clock skew between the server's view of the
+// deadline and ours.
+const deadlineSlack = 50 * time.Millisecond
+
+func deadlineReached(ctx context.Context) bool {
+	dl, ok := ctx.Deadline()
+
+	return ok && !time.Now().Before(dl.Add(-deadlineSlack))
+}
+
 func callError(ctx context.Context, err error) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("%w", context.Cause(ctx))
 	}
 
 	// The server can report the deadline a moment before ctx notices it,
-	// and a run timed out at the same deadline surfaces as a timeout error.
+	// in any wrapping (gRPC status, workflow or Nexus timeout): once the
+	// call's deadline is (all but) reached, that is what happened.
 	var timeout *temporal.TimeoutError
 	if status.Code(err) == codes.DeadlineExceeded || errors.Is(err, context.DeadlineExceeded) ||
-		errors.As(err, &timeout) {
+		errors.As(err, &timeout) || deadlineReached(ctx) {
 		return fmt.Errorf("%w", context.DeadlineExceeded)
 	}
 

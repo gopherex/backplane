@@ -4,11 +4,19 @@
 
 **Что из этого есть в коде.** Репозиторий содержит Go SDK
 (`pkg/backplane`, proto-контракт `backplanepb`), эталонный сервис
-`examples/hello`, conformance-тесты и platform-in-a-box
-(`docker-compose.yaml`). Сервера backplane (бинарь `cmd/backplane`,
-консоль, UI SDK, генератор `protoc-gen-backplane`) в репозитории нет:
-разделы и абзацы, помеченные **[backplane]**, — дизайн сервера платформы,
-а не поведение SDK. Всё непомеченное про SDK описывает код как он есть;
+`examples/hello`, conformance-тесты, platform-in-a-box
+(`docker-compose.yaml`) и серверную часть backplane этапа M1 — бинарь
+`cmd/backplane` (сборка дерева — `internal/server`): registry (снапшоты
+каталога Consul и `backplane/services/`, `internal/registry`),
+Live-конфигурация с ревизиями в PostgreSQL, доставкой в Consul KV и
+reconciler'ом (`internal/config`), control-plane Envoy по xDS
+(`internal/xds`) и бэкенд консоли — вход по admin-токену, `/ws` с
+собственным API и relay во внутреннее API сервисов, кэш плагин-бандлов
+(`internal/console`). Фронтенда консоли (shell с карточками), UI SDK,
+генератора `protoc-gen-backplane`, серверной стороны M2 и M3 в
+репозитории нет. Разделы и абзацы, помеченные **[backplane]**, — дизайн
+сервера платформы, а не поведение SDK; то из них, что уже реализовано,
+названо по пакету. Всё непомеченное про SDK описывает код как он есть;
 статус по этапам — §16.2.
 
 ## 0. Что такое backplane
@@ -1083,7 +1091,7 @@ registry (`xds.Build` — чистая функция каталога) посл
 - **LDS** — один listener `public` на `0.0.0.0:BACKPLANE_XDS_HTTP_PORT`
   (10000, как в compose): HTTP connection manager (HTTP/1.1 и h2c,
   `use_remote_address`, порт в Host отбрасывается перед выбором virtual
-  host), RDS `public` по ADS. HTTP-фильтры по порядку: `cors`,
+  host и передаётся апстриму в `X-Forwarded-Port`), RDS `public` по ADS. HTTP-фильтры по порядку: `cors`,
   `grpc_web`, `grpc_json_transcoder`, `buffer`, `router`. `cors` и
   `router` работают всегда; `grpc_web` — везде, кроме роутов, где он
   выключен (все, кроме Connect: Envoy не принимает пустой per-route
@@ -1733,8 +1741,8 @@ Shell — собственный UI backplane. Два слоя:
     версий, инстансы с состоянием и health; нет сервиса — `NOT_FOUND`),
     `WatchCatalog` (сводка сразу и после каждого нового снапшота registry;
     медленный читатель пропускает промежуточные), `ListPlugins` (§11.2);
-  - `SessionService` — `ListSessions`, `RevokeSession`, `RotateToken`
-    (§11.3);
+  - `SessionService` — `ListSessions`, `RevokeSession`,
+    `RevokeOtherSessions` (§11.3);
   - `ConfigService` — Live-конфигурация (§5), компонент `internal/config`;
 - **всё остальное — relay**: `WithUnknownHandler` по полному имени метода
   находит сервис, чей **последний** манифест (`registry.Service.Latest`)
@@ -1817,18 +1825,19 @@ Shell — собственный UI backplane. Два слоя:
 
 v0 — один оператор.
 
-- **Admin-токен** — единственная учётка, хранится в
-  `backplane.console_admin` (одна строка) хэшем argon2id (PHC-строка;
-  m=19 MiB, t=2, p=1). Bootstrap при старте компонента консоли, когда
-  строки нет: `BACKPLANE_ADMIN_TOKEN`, либо генерируется (`bpat_` + 32
-  случайных байта, base64url) и печатается один раз в stderr процесса.
-  Реплики стартуют конкурентно: пишет первая (`ON CONFLICT DO NOTHING`),
-  печатает только она. Записанный токен главнее env: `BACKPLANE_ADMIN_TOKEN`,
-  не совпадающий с ним, игнорируется с предупреждением в лог. Сброс —
-  удалить строку `backplane.console_admin` и перезапустить.
-- **Ротация** — `SessionService.RotateToken`: новый случайный токен,
-  показывается один раз в ответе; в одной транзакции заменяет хэш и
-  удаляет все сессии, кроме текущей; их соединения закрываются.
+- **Admin-токен** — единственная учётка; это конфигурация backplane, а не
+  данные: `BACKPLANE_ADMIN_TOKEN` (`config.Secret`, в деплое — секрет),
+  обязателен, не короче 16 символов. Нет или короче — конфигурация не
+  проходит валидацию, backplane не стартует. backplane токен не генерирует
+  и не хранит в PostgreSQL; все реплики берут его из одного секрета.
+  `POST /auth/login` сравнивает SHA-256 присланного и настроенного токена
+  за постоянное время (`crypto/subtle`), поэтому не утекают ни содержимое,
+  ни длина.
+- **Смена токена** — оператор меняет секрет в деплое и перекатывает
+  реплики. Сессии в PostgreSQL от смены не зависят: открытые старым
+  токеном живут до своего истечения или отзыва — `RevokeSession` по одной
+  либо `SessionService.RevokeOtherSessions`, который удаляет все сессии,
+  кроме текущей, и закрывает их соединения.
 - **Вход** — `POST /auth/login` с `{"token": "..."}` → `200` с
   `{id, created_at, expires_at, idle_timeout_seconds}` и cookie
   `bp_session` (`HttpOnly; Secure; SameSite=Strict; Path=<база консоли>`).
@@ -1843,7 +1852,10 @@ v0 — один оператор.
   сессии удаляются раз в 10 минут.
 - **`/ws` upgrade** — только с живой сессией и только если `Origin` входит
   в `BACKPLANE_CONSOLE_ORIGINS` (точное `scheme://host[:port]`), а без
-  списка — если host `Origin` равен `Host` запроса. Без `Origin` —
+  списка — если host `Origin` равен `Host` запроса либо, когда в `Host`
+  нет порта, `Host` с портом из `X-Forwarded-Port` (Envoy backplane
+  отбрасывает порт из `Host`, §6: так консоль на нестандартном порту,
+  `localhost:10000`, узнаёт свой origin). Без `Origin` —
   отказ (`403`). Соединение живёт, пока жива сессия: отзыв на этой
   реплике закрывает его сразу, на другой — перечитывание сессии раз в
   30 с.
@@ -1912,7 +1924,7 @@ Consul KV персистентен (Raft, снапшоты), но это не Б
 
 | где | что |
 |---|---|
-| **PostgreSQL**, схема `backplane` | биндинги, правила; ревизии Live-значений; сессии консоли; хэш admin-токена; аудит |
+| **PostgreSQL**, схема `backplane` | биндинги, правила; ревизии Live-значений; сессии консоли; аудит |
 | **Consul KV** | манифесты и состояние инстансов — proto binary (пишет SDK); `config/<service>/` — доставка Live-значений: скаляр — текстом, контейнер — JSON, плюс `_revision` (пишет backplane, §5.3) |
 | **Temporal** | запуски хуков, биндингов, правил с историей — не дублируются |
 
@@ -1933,7 +1945,7 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 | `BACKPLANE_XDS_LISTEN` | ADS для Envoy (`:18000`) |
 | `BACKPLANE_XDS_HTTP_PORT` | порт публичного listener'а, который описывает снапшот (Envoy его слушает; `10000`) |
 | `BACKPLANE_CONSOLE_LISTEN` | HTTP консоли (`/`, `/ws`, `/auth`, `/plugins`) — за Envoy (`:8081`) |
-| `BACKPLANE_ADMIN_TOKEN` | bootstrap консоли (опционально) |
+| `BACKPLANE_ADMIN_TOKEN` | обязателен: admin-токен консоли (секрет деплоя, не короче 16 символов; §11.3) |
 | `BACKPLANE_CONSOLE_HOST` или `_PREFIX`, `_ORIGINS`, `_TRUSTED_PROXIES` | консоль; host и prefix взаимоисключающие, списки — JSON |
 | `BACKPLANE_CONSOLE_INSECURE_COOKIE` | `true` — cookie сессии без `Secure` и без HSTS: только разработка по HTTP (`false`) |
 | `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | observability (опционально) |
@@ -1983,7 +1995,9 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
    истории — по пометке `secret` в схеме, без схемы — предупреждение и
    показ как есть. Live-значения лежат в PostgreSQL и KV открытым текстом
    под защитой доступа; шифрование at rest — не в v0.
-7. **[backplane] Консоль** — §11.3; CSP `script-src 'self'`, без inline.
+7. **[backplane] Консоль** — §11.3: admin-токен — секрет деплоя
+   (`BACKPLANE_ADMIN_TOKEN`), в базе не хранится; сессии — только SHA-256
+   их токенов; CSP `script-src 'self'`, без inline.
 8. **[backplane] Хуки** — авторизация = биндинг: вызывается только
    привязанное.
 
@@ -2006,7 +2020,7 @@ per-service auth в Temporal, шифрование at rest.
 
 Добавляет backplane — действия оператора и системы: биндинг/правило
 создано, изменено, удалено (с diff); ревизия конфига, откат; вход,
-неудачный вход, logout, отзыв сессии, ротация admin-токена; вызов
+неудачный вход, logout, отзыв сессии; вызов
 внутреннего API через relay — сервис, метод, сессия, статус, длительность,
 **без тел**; ручной запуск из консоли; сервис появился / исчез / сменил
 манифест.
@@ -2126,8 +2140,9 @@ identity-сервис; CaC/CLI/GitOps-канал доставки конфига
 
 ### 16.2 Milestones
 
-Статус: M0 сделан; из M2 сделана сторона SDK; сервер backplane (M1, M2,
-M3) не начат.
+Статус: M0 сделан; M1 сделан на стороне сервера, кроме фронтенда
+консоли; из M2 сделана сторона SDK, сторона сервера не начата; M3 — только
+доставка бандла консолью.
 
 **M0 — SDK и `hello`, без backplane. Сделано.** Platform-in-a-box:
 compose с Consul, NATS, Temporal (dev-сервер с Nexus), PostgreSQL и Envoy
@@ -2140,12 +2155,22 @@ Envoy, OTel (resource, серверы, логи с trace_id), `backplanetest`.
 `hello` объявляет все разделы манифеста. Доказывает: сервис живёт без
 backplane; манифест и слои конфига верны.
 
-**M1 — backplane: конфиг, gateway, консоль. Не начат.** Watch каталога
-и KV; схема PostgreSQL, ревизии, репликация в KV (hot reload в SDK уже
-есть); xDS из роутов `hello`; shell с карточками (инстансы, конфигурация
-по инстансам с историей Live-значений, внешнее API); relay ws-proto →
-внутреннее API; auth консоли. Доказывает: цикл «форма → ревизия → KV →
-сервис» и вход через Envoy.
+**M1 — backplane: конфиг, gateway, консоль. Сервер сделан, фронтенда
+консоли нет.** Есть (`cmd/backplane`, §12.2): registry — blocking queries
+к каталогу Consul, health и `backplane/services/`, снапшот `Catalog` после
+каждого изменения (`internal/registry`); схема PostgreSQL со своими
+миграциями (`internal/store`); Live-конфигурация — ревизии в PostgreSQL,
+валидация override схемой на каждом живом инстансе, доставка в
+`config/<service>/` с `_revision`, откат, reconciler (§5.2, §5.3,
+`internal/config`); xDS из роутов всех сервисов и маршрут консоли
+(§6, `internal/xds`); бэкенд консоли — вход по admin-токену и сессии,
+`/ws` с `CatalogService`, `SessionService`, `ConfigService` и relay
+ws-proto → внутреннее API, `/plugins/` с кэшем по хэшу (§11,
+`internal/console`). Нет: shell с карточками (инстансы, конфигурация по
+инстансам с историей Live-значений, внешнее API) — `GET /` консоли
+отдаёт заглушку. Доказательство — `conformance/m1_test.go` (`make
+test-m1`, §16.3): цикл «форма → ревизия → KV → сервис» и вход через Envoy
+на настоящих бинарях `backplane` и `hello`.
 
 **M2 — хуки, биндинги, правила, события.** Сторона SDK **сделана**:
 Temporal в SDK — хуки (`Call` через `backplane.CallHook.v1` на очереди
@@ -2160,10 +2185,10 @@ HTTP-handler'а и из workflow), активити `Echo` и событие `Gr
 hello.Echo` — на стороне backplane. Доказывает: развязка end-to-end, один
 trace через всё.
 
-**M3 — плагины, observability, аудит. Не начат.** UI SDK, MF-хост,
-доставка бандла консолью (отдача с платформенного порта в SDK есть),
-плагин `hello`; драйвер `victoria`; аудит и событие
-`backplane.AuditEntry`.
+**M3 — плагины, observability, аудит.** Сделана доставка бандла:
+отдача с платформенного порта в SDK и `/plugins/<service>/<hash>/` консоли
+с кэшем по хэшу (§11.2). Не начаты: UI SDK, MF-хост, плагин `hello`;
+драйвер `victoria`; аудит и событие `backplane.AuditEntry`.
 
 **Дальше, вне репозитория** — Kratos-wrapper, `template`, `smtp` (courier
 режется на атомарные способности), биндинг `iam.SendEmail`. Любой special
@@ -2200,9 +2225,38 @@ case в SDK ради них — дефект модели.
   - workflows и расписания: клиент, создание, обновление, удаление
     неописанного на реплике без worker'а.
 
-  **[backplane]** Не проверяется, потому что это сторона сервера: relay
-  внутреннего API через консоль, правило и его дедупликация по `ce-id`.
   Другой язык SDK проходит этот же набор.
+- **M1 end-to-end** (`conformance/m1_test.go`, `make test-m1`; нужны
+  `BACKPLANE_TEST_CONSUL`, `BACKPLANE_TEST_PG`, `BACKPLANE_TEST_ENVOY`) —
+  сторона сервера: собирает и запускает настоящие `backplane` (своя
+  scratch-база PostgreSQL, создаётся и удаляется тестом; admin-токен и
+  секрет платформенного порта — случайные на прогон; ADS на `:18000`,
+  консоль под префиксом `/backplane`) и `hello` (тот же секрет, Consul,
+  адрес, достижимый из Envoy), Envoy — из platform-in-a-box. Занимает
+  `:18000` и маршруты Envoy, поэтому идёт отдельным таргетом. Проверяется:
+  - вход в консоль (`/auth/login`, cookie) и `/ws` через маршрут консоли
+    в Envoy и напрямую; `CatalogService` видит `hello` со здоровым
+    инстансом и UI-бандлом;
+  - `GET /hello/` через Envoy отдаёт приветствие с текущим суффиксом;
+  - `ValidateOverride` и `SaveRevision` с неверным типом и не-Live путём —
+    нарушения, в KV ничего; сохранённые ревизии лежат в
+    `config/hello/` с `_revision`, `hello` применяет их горячо:
+    приветствие через Envoy меняется, состояние инстанса в KV и
+    `GetConfig` по инстансу — применённая ревизия, источник KV;
+  - reconciler: удалённый вручную `config/hello/` восстанавливается,
+    ручная правка ключа перетирается;
+  - `Rollback` — новая ревизия со старым значением, приветствие
+    возвращается;
+  - relay: `AdminService.GetStats` через `/ws` отвечает, публичный метод
+    `hello` — `PERMISSION_DENIED`;
+  - плагин-бандл через консоль в Envoy: `200`, `ETag` = хэш,
+    `Cache-Control: immutable`; без сессии — `401`;
+  - остановленный `hello` уходит из маршрутов Envoy (`503`), запущенный
+    снова — возвращается с текущей ревизией; Envoy не отверг ни одного
+    обновления xDS.
+
+  **[backplane]** Не проверяется: правило и его дедупликация по `ce-id`
+  (сторона сервера M2).
 - **Шаблон сервиса** — один (не реализован); генерирует `proto/`,
   `internal/`, `cmd/`, `ui/`, Makefile, Dockerfile, conformance-таргет;
   версия шаблона записывается; `template upgrade` — v1.
@@ -2268,7 +2322,7 @@ backplane/
     xds/                     control-plane Envoy (§6): ADS-сервер на своём адресе, снапшот из Catalog
                              (Build: listener, маршруты, cluster'ы, endpoints), метрики, NACK в лог
     console/                 консоль (§11): компонент со своим listener'ом — вход по
-                             admin-токену (argon2id), сессии (Sessions: PostgreSQL, PG), brute force,
+                             admin-токену из конфигурации, сессии (Sessions: PostgreSQL, PG), brute force,
                              /ws (ws-proto: CatalogService, SessionService, ConfigService; relay во
                              внутреннее API сервисов), бандлы плагинов с LRU-кэшем, заголовки безопасности
   pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed

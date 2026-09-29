@@ -100,6 +100,12 @@ test-envoy: ## xDS end to end: backplane's control plane on :18000, hello throug
 	BACKPLANE_TEST_ENVOY=localhost:9901 BACKPLANE_TEST_CONSUL=localhost:8500 \
 		GOWORK=off go test -race -count=1 -run TestEnvoy -v ./internal/xds/
 
+.PHONY: test-m1
+test-m1: ## M1 end to end: bin backplane + hello behind the compose Envoy — config revisions, reconciler, console, relay (make up)
+	BACKPLANE_TEST_ENVOY=localhost:9901 BACKPLANE_TEST_CONSUL=localhost:8500 \
+	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
+		GOWORK=off go test -race -count=1 -run '^TestM1$$' -v ./conformance/
+
 .PHONY: up down
 up: ## Start platform-in-a-box (docker compose)
 	docker compose up -d --wait
@@ -127,8 +133,13 @@ backplane: ## Build the backplane server into ./bin/backplane
 	go build -trimpath -ldflags "$(call ldflags,backplane)" -o "$(BIN)/backplane" ./cmd/backplane
 
 .PHONY: run-backplane
-run-backplane: backplane ## Run backplane against the local stack
+# Console admin token of `make run-backplane` (log in with it at the
+# console): a development value; a deployment sets its own secret.
+DEV_ADMIN_TOKEN ?= dev-admin-token-change-me
+
+run-backplane: backplane ## Run backplane against the local stack (console token: DEV_ADMIN_TOKEN)
 	BACKPLANE_CONSUL_ADDR=localhost:8500 \
+	BACKPLANE_ADMIN_TOKEN="$(DEV_ADMIN_TOKEN)" \
 	BACKPLANE_PG_DSN="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 	BACKPLANE_INTERNAL_PORT=9410 BACKPLANE_PUBLIC_PORT=8090 \
 	BACKPLANE_CONSOLE_INSECURE_COOKIE=true \

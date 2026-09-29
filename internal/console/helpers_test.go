@@ -19,14 +19,13 @@ import (
 
 	"github.com/gopherex/ws-proto/wsrpc"
 
-	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	"github.com/gopherex/backplane/internal/console"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 )
 
-// adminToken is the bootstrap token of most tests.
-const adminToken = "test-admin-token"
+// adminToken is the configured admin token of the tests.
+const adminToken = "test-admin-token-0123"
 
 // clock is a settable time.
 type clock struct {
@@ -54,7 +53,6 @@ func (c *clock) Advance(d time.Duration) {
 // behavior.
 type memSessions struct {
 	mu     sync.Mutex
-	admin  string
 	byID   map[uuid.UUID]console.Session
 	tokens map[uuid.UUID]string // id -> token hash
 }
@@ -63,50 +61,6 @@ var _ console.Sessions = (*memSessions)(nil)
 
 func newMemSessions() *memSessions {
 	return &memSessions{byID: map[uuid.UUID]console.Session{}, tokens: map[uuid.UUID]string{}}
-}
-
-func (m *memSessions) AdminToken(context.Context) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.admin == "" {
-		return "", console.ErrNoToken
-	}
-
-	return m.admin, nil
-}
-
-func (m *memSessions) InitAdminToken(_ context.Context, hash string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.admin != "" {
-		return false, nil
-	}
-
-	m.admin = hash
-
-	return true, nil
-}
-
-func (m *memSessions) Rotate(_ context.Context, hash string, keep uuid.UUID) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.admin = hash
-
-	var n int64
-
-	for id := range m.byID {
-		if id != keep {
-			delete(m.byID, id)
-			delete(m.tokens, id)
-
-			n++
-		}
-	}
-
-	return n, nil
 }
 
 func (m *memSessions) Create(_ context.Context, tokenHash []byte, s console.Session) (uuid.UUID, error) {
@@ -183,6 +137,24 @@ func (m *memSessions) Delete(_ context.Context, id uuid.UUID) (bool, error) {
 	return ok, nil
 }
 
+func (m *memSessions) DeleteOthers(_ context.Context, keep uuid.UUID) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var n int64
+
+	for id := range m.byID {
+		if id != keep {
+			delete(m.byID, id)
+			delete(m.tokens, id)
+
+			n++
+		}
+	}
+
+	return n, nil
+}
+
 func (m *memSessions) DeleteStale(_ context.Context, now, idleSince time.Time) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -209,7 +181,6 @@ type env struct {
 	hub      *registry.Hub
 	clock    *clock
 	srv      *httptest.Server
-	out      *bytes.Buffer
 }
 
 type envOption func(s *console.Settings)
@@ -223,7 +194,7 @@ func newEnv(t *testing.T, sessions console.Sessions, opts ...envOption) *env {
 		sessions = newMemSessions()
 	}
 
-	e := &env{t: t, sessions: sessions, hub: registry.NewHub(), clock: newClock(), out: &bytes.Buffer{}}
+	e := &env{t: t, sessions: sessions, hub: registry.NewHub(), clock: newClock()}
 	settings := console.Settings{AdminToken: adminToken, InternalSecret: "relay-secret"}
 
 	for _, o := range opts {
@@ -231,8 +202,7 @@ func newEnv(t *testing.T, sessions console.Sessions, opts ...envOption) *env {
 	}
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	e.console = console.New(h.Root(), settings, sessions, e.hub,
-		console.WithClock(e.clock.Now), console.WithTokenOutput(e.out))
+	e.console = console.New(h.Root(), settings, sessions, e.hub, console.WithClock(e.clock.Now))
 	h.Start()
 
 	e.srv = httptest.NewServer(e.console.Handler())
@@ -365,12 +335,3 @@ func call(ctx context.Context, cc *wsrpc.ClientConn, method string, req, res pro
 
 	return nil
 }
-
-// consoleRotate holds a RotateToken call.
-type consoleRotate struct {
-	response consolev1.RotateTokenResponse
-}
-
-func (*consoleRotate) req() *consolev1.RotateTokenRequest    { return &consolev1.RotateTokenRequest{} }
-func (r *consoleRotate) res() *consolev1.RotateTokenResponse { return &r.response }
-func (r *consoleRotate) token() string                       { return r.response.GetToken() }

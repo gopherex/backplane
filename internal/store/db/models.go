@@ -31,12 +31,6 @@ type BackplaneConfigCurrent struct {
 	UpdatedAt time.Time
 }
 
-type BackplaneConsoleAdmin struct {
-	Singleton bool
-	TokenHash string
-	UpdatedAt time.Time
-}
-
 type BackplaneConsoleSession struct {
 	ID         uuid.UUID
 	TokenHash  []byte

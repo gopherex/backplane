@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc/codes"
 
+	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	helloconsolev1 "github.com/gopherex/backplane/examples/hello/proto/hello/console/v1"
 	"github.com/gopherex/backplane/internal/console"
@@ -31,8 +32,8 @@ import (
 )
 
 // pgSessions starts a store on a database of its own, created on the
-// server of BACKPLANE_TEST_PG and dropped after the test: the console's
-// singleton admin token must not touch a database someone uses.
+// server of BACKPLANE_TEST_PG and dropped after the test: deleting every
+// other session must not touch a database someone uses.
 func pgSessions(t *testing.T) console.PG {
 	t.Helper()
 
@@ -95,35 +96,15 @@ func contract(t *testing.T, s console.Sessions) {
 
 	ctx := t.Context()
 
-	if _, err := s.AdminToken(ctx); !errors.Is(err, console.ErrNoToken) {
-		t.Fatalf("no token: %v", err)
-	}
-
-	if won, err := s.InitAdminToken(ctx, "h1"); err != nil || !won {
-		t.Fatalf("init: %v %v", won, err)
-	}
-
-	if won, err := s.InitAdminToken(ctx, "h2"); err != nil || won {
-		t.Fatalf("init again: %v %v", won, err)
-	}
-
-	if h, err := s.AdminToken(ctx); err != nil || h != "h1" {
-		t.Fatalf("token: %q %v", h, err)
-	}
-
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	a, b := contractSessions(t, s, start)
 
-	if n, err := s.Rotate(ctx, "h3", a); err != nil || n != 1 {
-		t.Fatalf("rotate: %d %v", n, err)
-	}
-
-	if h, _ := s.AdminToken(ctx); h != "h3" {
-		t.Fatalf("rotated token %q", h)
+	if n, err := s.DeleteOthers(ctx, a); err != nil || n != 1 {
+		t.Fatalf("delete others: %d %v", n, err)
 	}
 
 	if list, _ := s.List(ctx); len(list) != 1 || list[0].ID != a || list[0].ID == b {
-		t.Fatalf("after rotate: %+v", list)
+		t.Fatalf("after delete others: %+v", list)
 	}
 }
 
@@ -190,7 +171,7 @@ func contractSessions(t *testing.T, s console.Sessions, start time.Time) (uuid.U
 	return a, b
 }
 
-// The whole flow over PostgreSQL: bootstrap, login, /ws.
+// The whole flow over PostgreSQL: login, /ws, revoking the other sessions.
 func TestLivePostgresFlow(t *testing.T) {
 	t.Parallel()
 
@@ -203,13 +184,12 @@ func TestLivePostgresFlow(t *testing.T) {
 
 	cc := e.mustDial(c)
 
-	rot := new(consoleRotate)
-	if err := call(t.Context(), cc, "/backplane.console.v1.SessionService/RotateToken", rot.req(), rot.res()); err != nil {
-		t.Fatal(err)
-	}
+	e.mustLogin()
 
-	if res, _ := e.login(rot.token()); res.StatusCode != http.StatusOK {
-		t.Fatalf("rotated token: %s", res.Status)
+	var revoked consolev1.RevokeOtherSessionsResponse
+	if err := call(t.Context(), cc, "/backplane.console.v1.SessionService/RevokeOtherSessions",
+		&consolev1.RevokeOtherSessionsRequest{}, &revoked); err != nil || revoked.GetRevokedSessions() != 1 {
+		t.Fatalf("revoke others: %v %v", &revoked, err)
 	}
 }
 

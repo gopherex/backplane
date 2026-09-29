@@ -34,8 +34,10 @@ type Config struct {
 	XDS XDS `json:"xds"`
 	// Console HTTP: `/`, `/ws`, `/auth`, `/plugins`, served behind Envoy.
 	Console Console `json:"console"`
-	// Bootstrap admin token of the console; empty: generated at the first
-	// start and printed once (§11.3).
+	// Admin token of the console (§11.3): the secret /auth/login accepts,
+	// set in the deployment; required, at least 16 characters. Changing it
+	// is changing the secret and rolling the replicas; sessions opened with
+	// the old one last until they expire or are revoked.
 	AdminToken config.Secret `json:"admin_token,omitempty"`
 	// Observability backends the console links and proxies to (§15.2).
 	Obs Obs `json:"obs"`
@@ -101,6 +103,9 @@ var (
 	ErrOrigin       = errors.New("console.origins: want scheme://host[:port]")
 	ErrProxy        = errors.New("console.trusted_proxies: want an address or CIDR")
 	ErrURL          = errors.New("want an absolute http(s) URL")
+	ErrNoAdminToken = errors.New("admin_token is required (BACKPLANE_ADMIN_TOKEN): " +
+		"the console's login secret, set in the deployment")
+	ErrShortAdminToken = fmt.Errorf("want at least %d characters", console.MinAdminTokenLen)
 )
 
 // Validate checks what the schema cannot: required connections, listen
@@ -116,6 +121,10 @@ func (c Config) Validate() error {
 		errs = append(errs, ErrNoConsul)
 	}
 
+	if err := c.adminToken(); err != nil {
+		errs = append(errs, err)
+	}
+
 	errs = append(errs, c.ports()...)
 	errs = append(errs, c.Console.validate()...)
 
@@ -128,6 +137,18 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// adminToken: the console's admin token is set and long enough.
+func (c Config) adminToken() error {
+	switch token := c.AdminToken.Reveal(); {
+	case token == "":
+		return ErrNoAdminToken
+	case len(token) < console.MinAdminTokenLen:
+		return fmt.Errorf("admin_token (BACKPLANE_ADMIN_TOKEN): %w", ErrShortAdminToken)
+	}
+
+	return nil
 }
 
 // ports: the listen addresses parse, and no two listeners of the process

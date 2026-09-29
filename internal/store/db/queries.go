@@ -208,35 +208,6 @@ func (q *Queries) ListConfigRevisions(ctx context.Context, arg ListConfigRevisio
 	return items, nil
 }
 
-const getAdminTokenSQL = `SELECT token_hash FROM backplane.console_admin;`
-
-type GetAdminTokenRow struct {
-	TokenHash string
-}
-
-func (q *Queries) GetAdminToken(ctx context.Context) (GetAdminTokenRow, error) {
-	row := q.db.QueryRow(ctx, getAdminTokenSQL)
-	var i GetAdminTokenRow
-	err := row.Scan(&i.TokenHash)
-	return i, err
-}
-
-const initAdminTokenSQL = `INSERT INTO backplane.console_admin (token_hash) VALUES ($1)
-ON CONFLICT (singleton) DO NOTHING;`
-
-func (q *Queries) InitAdminToken(ctx context.Context, tokenHash string) (int64, error) {
-	tag, err := q.db.Exec(ctx, initAdminTokenSQL, tokenHash)
-	return tag.RowsAffected(), err
-}
-
-const setAdminTokenSQL = `INSERT INTO backplane.console_admin (token_hash) VALUES ($1)
-ON CONFLICT (singleton) DO UPDATE SET token_hash = EXCLUDED.token_hash, updated_at = now();`
-
-func (q *Queries) SetAdminToken(ctx context.Context, tokenHash string) error {
-	_, err := q.db.Exec(ctx, setAdminTokenSQL, tokenHash)
-	return err
-}
-
 const createSessionSQL = `INSERT INTO backplane.console_session (token_hash, created_at, expires_at, last_seen_at, address, user_agent)
 VALUES ($1, $2, $3, $2, $4, $5)
 RETURNING id;`
