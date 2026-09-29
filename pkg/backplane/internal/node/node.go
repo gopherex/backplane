@@ -15,25 +15,21 @@ package node
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gopherex/xlog"
 	"github.com/gopherex/xprobe/pkg/probe"
+	"github.com/gopherex/xshutdown/lifecycle"
 	"github.com/gopherex/xtrace"
 )
 
-// Errors.
+// Lifecycle errors are shared with xshutdown.
 var (
-	// ErrStopTimeout: a node's goroutines did not return within the stop
-	// budget.
-	ErrStopTimeout = errors.New("node: goroutines did not stop in time")
-	// ErrPanic: a node's goroutine panicked.
-	ErrPanic = errors.New("node: goroutine panicked")
+	ErrStopTimeout = lifecycle.ErrStopTimeout
+	ErrPanic       = lifecycle.ErrPanic
 )
 
 // Kind of node.
@@ -48,34 +44,13 @@ const (
 	Singleton
 )
 
-type status int
-
-const (
-	pending status = iota
-	starting
-	started
-	failed
-	stopping
-	stopped
-)
-
-type phase int
-
-const (
-	building phase = iota
-	running        // Start was called; nodes may be created only by a starting parent
-	done           // Stop was called
-)
-
 // Tree is shared by every node of one service.
 type Tree struct {
 	service string
 	log     *xlog.Logger
 	env     any
-	failed  chan error
 
 	mu       sync.Mutex
-	phase    phase
 	interval time.Duration
 }
 
@@ -95,17 +70,10 @@ type Node struct {
 	scope    *xtrace.Scope
 
 	mu        sync.Mutex
-	status    status
 	children  []*Node
-	starts    []func(ctx context.Context) error
-	stops     []func(ctx context.Context) error
-	jobs      []func(ctx context.Context) error
 	ready     probe.Probe
 	condition func() Condition
-	budget    func(ctx context.Context) (context.Context, context.CancelFunc)
-	ctx       context.Context //nolint:containedctx // the node's lifetime, handed to its goroutines
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	life      *lifecycle.Node
 }
 
 // namespace keeps paths unique under a Root (or under the service root for
@@ -118,11 +86,11 @@ type namespace struct {
 // New creates a tree and returns its service root. env is service-wide data
 // any node can reach through Env.
 func New(service string, log *xlog.Logger, env any) *Node {
-	t := &Tree{service: service, log: log, env: env, failed: make(chan error, 1)}
+	t := &Tree{service: service, log: log, env: env}
 
 	return &Node{
 		tree: t, ns: &namespace{paths: map[string]bool{}}, name: service, kind: System,
-		log: log, scope: xtrace.New(service),
+		log: log, scope: xtrace.New(service), life: lifecycle.New(service),
 	}
 }
 
@@ -133,16 +101,8 @@ func New(service string, log *xlog.Logger, env any) *Node {
 func (n *Node) Child(name string, kind Kind, optional bool) *Node {
 	t := n.tree
 
-	t.mu.Lock()
-	ph := t.phase
-	t.mu.Unlock()
-
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
-	if ph != building && n.status != starting {
-		panic(fmt.Sprintf("backplane: node %q created under %q after the service started", name, n.label()))
-	}
 
 	ns, path := n.ns, name
 	switch {
@@ -173,6 +133,7 @@ func (n *Node) Child(name string, kind Kind, optional bool) *Node {
 		child.log = t.log.With(xlog.String("node", path))
 	}
 
+	child.life = n.life.Child(child.label())
 	n.children = append(n.children, child)
 
 	return child
@@ -244,80 +205,17 @@ func (n *Node) label() string {
 	}
 }
 
-// OnStart adds fn to the node's start. Only before the node starts.
-func (n *Node) OnStart(fn func(ctx context.Context) error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+// OnStart adds a startup hook.
+func (n *Node) OnStart(fn func(context.Context) error) { n.life.OnStart(fn) }
 
-	if n.status != pending && n.status != starting {
-		panic(fmt.Sprintf("backplane: OnStart on %q after it started", n.label()))
-	}
+// OnStop adds a cleanup hook, invoked in reverse order.
+func (n *Node) OnStop(fn func(context.Context) error) { n.life.OnStop(fn) }
 
-	n.starts = append(n.starts, fn)
-}
+// Go registers work owned by this node's lifetime.
+func (n *Node) Go(fn func(context.Context) error) { n.life.Go(fn) }
 
-// OnStop adds fn to the node's stop; stop hooks run in reverse.
-func (n *Node) OnStop(fn func(ctx context.Context) error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	if n.status >= stopping {
-		panic(fmt.Sprintf("backplane: OnStop on %q after it stopped", n.label()))
-	}
-
-	n.stops = append(n.stops, fn)
-}
-
-// Go runs fn on the node's context once the node has started; it is
-// cancelled when the node stops, and the stop waits for it. A non-nil error
-// (or a panic) stops the service. After the node stopped, fn is dropped.
-func (n *Node) Go(fn func(ctx context.Context) error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	switch n.status {
-	case pending, starting:
-		n.jobs = append(n.jobs, fn)
-	case started:
-		n.launch(fn)
-	default:
-		n.log.Warn("goroutine dropped: node is stopping")
-	}
-}
-
-// launch runs fn; n.mu is held.
-func (n *Node) launch(fn func(ctx context.Context) error) {
-	n.wg.Add(1)
-
-	go func() {
-		defer n.wg.Done()
-
-		if err := n.guard(fn); err != nil && n.ctx.Err() == nil {
-			n.log.Error("goroutine failed", xlog.Err(err))
-			n.tree.fail(fmt.Errorf("%s: %w", n.label(), err))
-		}
-	}()
-}
-
-func (n *Node) guard(fn func(ctx context.Context) error) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("%w: %v\n%s", ErrPanic, r, debug.Stack())
-		}
-	}()
-
-	return fn(n.ctx)
-}
-
-func (t *Tree) fail(err error) {
-	select {
-	case t.failed <- err:
-	default:
-	}
-}
-
-// Failed delivers the first goroutine failure of the tree.
-func (n *Node) Failed() <-chan error { return n.tree.failed }
+// Failed delivers the first background failure of the tree.
+func (n *Node) Failed() <-chan error { return n.life.Failed() }
 
 // Ready makes p part of the service readiness.
 func (n *Node) Ready(p probe.Probe) {
@@ -354,68 +252,27 @@ func (n *Node) Condition() (Condition, bool) {
 	return fn(), true
 }
 
-// Budget narrows the node's own stop (its stop hooks and the wait for its
-// goroutines) to the context fn derives from the tree's stop context: a
-// per-node sub-deadline within the shutdown budget. Its children keep the
-// tree's context.
-func (n *Node) Budget(fn func(ctx context.Context) (context.Context, context.CancelFunc)) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	n.budget = fn
+// Budget narrows this node's shutdown deadline without changing its children.
+func (n *Node) Budget(fn func(context.Context) (context.Context, context.CancelFunc)) {
+	n.life.Budget(fn)
 }
 
-// Start starts n's subtree depth-first in creation order. ctx bounds the
-// start hooks; node lifetimes are detached from it. On error the caller
-// must still call Stop, which unwinds whatever started.
+// Start starts the lifecycle tree.
 func (n *Node) Start(ctx context.Context) error {
-	n.tree.mu.Lock()
-	n.tree.phase = running
-	n.tree.mu.Unlock()
-
-	return n.start(ctx)
-}
-
-func (n *Node) start(ctx context.Context) error {
-	n.mu.Lock()
-	n.ctx, n.cancel = context.WithCancel(context.WithoutCancel(ctx))
-	n.status = starting
-	starts := n.starts
-	n.mu.Unlock()
-
-	for _, fn := range starts {
-		if err := fn(ctx); err != nil {
-			n.setStatus(failed)
-
-			return fmt.Errorf("%s: %w", n.label(), err)
-		}
-	}
-
-	n.mu.Lock()
-	n.status = started
-	jobs := n.jobs
-	n.jobs = nil
-
-	for _, fn := range jobs {
-		n.launch(fn)
-	}
-
-	n.mu.Unlock()
-
-	for _, c := range n.snapshot() {
-		if err := c.start(ctx); err != nil {
-			return err
-		}
+	if err := n.life.Start(ctx); err != nil {
+		return fmt.Errorf("node: start: %w", err)
 	}
 
 	return nil
 }
 
-func (n *Node) setStatus(s status) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+// Stop unwinds the lifecycle tree.
+func (n *Node) Stop(ctx context.Context) error {
+	if err := n.life.Stop(ctx); err != nil {
+		return fmt.Errorf("node: stop: %w", err)
+	}
 
-	n.status = s
+	return nil
 }
 
 func (n *Node) snapshot() []*Node {
@@ -423,77 +280,6 @@ func (n *Node) snapshot() []*Node {
 	defer n.mu.Unlock()
 
 	return append([]*Node(nil), n.children...)
-}
-
-// Stop stops n's subtree in exact reverse of Start within ctx. Nodes that
-// never started are skipped.
-func (n *Node) Stop(ctx context.Context) error {
-	n.tree.mu.Lock()
-	n.tree.phase = done
-	n.tree.mu.Unlock()
-
-	return n.stop(ctx)
-}
-
-func (n *Node) stop(ctx context.Context) error {
-	var errs []error
-
-	children := n.snapshot()
-	for i := len(children) - 1; i >= 0; i-- {
-		errs = append(errs, children[i].stop(ctx))
-	}
-
-	n.mu.Lock()
-
-	st := n.status
-	if st == started || st == failed {
-		n.status = stopping
-	} else {
-		n.status = stopped
-	}
-
-	stops, budget := n.stops, n.budget
-	n.mu.Unlock()
-
-	if st != started && st != failed {
-		return errors.Join(errs...)
-	}
-
-	n.cancel()
-
-	if budget != nil {
-		var cancel context.CancelFunc
-
-		ctx, cancel = budget(ctx)
-		defer cancel()
-	}
-
-	for i := len(stops) - 1; i >= 0; i-- {
-		if err := stops[i](ctx); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", n.label(), err))
-		}
-	}
-
-	errs = append(errs, n.wait(ctx))
-	n.setStatus(stopped)
-
-	return errors.Join(errs...)
-}
-
-func (n *Node) wait(ctx context.Context) error {
-	drained := make(chan struct{})
-
-	go func() {
-		n.wg.Wait()
-		close(drained)
-	}()
-
-	select {
-	case <-drained:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("%s: %w", n.label(), ErrStopTimeout)
-	}
 }
 
 // Children are n's direct children in creation (start) order.
@@ -511,18 +297,18 @@ func (n *Node) Walk(fn func(*Node)) {
 // Readiness is the readiness of n's subtree, evaluated on every check so
 // nodes created during start count too.
 func (n *Node) Readiness() probe.Probe {
-	return probe.Func(func(ctx context.Context) probe.Status {
+	return probe.ResultFunc(func(ctx context.Context) probe.Result {
 		var probes []probe.Probe
 
 		n.Walk(func(c *Node) {
 			c.mu.Lock()
 			if c.ready != nil {
-				probes = append(probes, c.ready)
+				probes = append(probes, probe.WithName(c.label(), c.ready))
 			}
 			c.mu.Unlock()
 		})
 
-		return probe.All(probes...).Check(ctx)
+		return probe.All(probes...).CheckResult(ctx)
 	})
 }
 

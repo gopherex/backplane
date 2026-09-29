@@ -21,8 +21,9 @@ const Prefix = "/legacy/"
 
 // Config of the listener.
 type Config struct {
-	// Listen address; port 0 picks a free one.
-	Listen string `json:"listen" schemapb:"default=:0"`
+	// Listen address. Keep its port stable across restarts and replicas:
+	// declarative routes are part of the immutable per-version manifest.
+	Listen string `json:"listen" schemapb:"default=:8083"`
 }
 
 // Server is a component owning its own listener, open from New so that the

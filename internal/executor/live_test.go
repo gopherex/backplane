@@ -98,7 +98,7 @@ func newStack(t *testing.T) *stack {
 	runs := ops.Detached(s.hub, ops.WithTemporal(func() (client.Client, error) { return tc, nil }, s.queue)).Workflows()
 	s.x = executor.New(h.Root(), s.mgr, s.hub,
 		executor.WithTemporal(func() (client.Client, error) { return tc, nil }, s.queue),
-		executor.Settle(0), executor.Resync(time.Second), executor.Runs(runs))
+		executor.Settle(0), executor.Resync(time.Second), executor.AbsenceGrace(0), executor.Runs(runs))
 
 	h.Start()
 
@@ -184,6 +184,7 @@ func (s *stack) publish(ms ...*backplanev1.Manifest) {
 	for _, m := range ms {
 		s.services[m.GetService()] = registry.Service{
 			Name: m.GetService(), Manifests: map[string]*backplanev1.Manifest{m.GetVersion(): m},
+			Instances: []registry.Instance{{ID: "live", Registered: true}},
 		}
 	}
 
@@ -376,5 +377,48 @@ func TestLiveNewHookService(t *testing.T) {
 		}
 
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+//nolint:paralleltest // live Temporal and PostgreSQL
+func TestLiveRetiredHookServiceReturns(t *testing.T) {
+	s := newStack(t)
+	s.endpoint(t, s.caller)
+	s.mu.Lock()
+	gone := s.services[s.caller]
+	gone.Instances = nil
+	s.services[s.caller] = gone
+	s.hub.Publish(clone(s.services))
+	s.mu.Unlock()
+
+	deadline := time.Now().Add(20 * time.Second)
+
+	for {
+		res, err := s.tc.OperatorService().ListNexusEndpoints(t.Context(), &operatorservice.ListNexusEndpointsRequest{Name: s.caller, PageSize: 1})
+		if err == nil && len(res.GetEndpoints()) == 0 {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("endpoint not retired: %v %v", res, err)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+	// The old manifest stays. The absence must not cause delete/recreate loops.
+	if err := s.x.Sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := s.tc.OperatorService().ListNexusEndpoints(t.Context(), &operatorservice.ListNexusEndpointsRequest{Name: s.caller, PageSize: 1})
+	if err != nil || len(res.GetEndpoints()) != 0 {
+		t.Fatalf("retained manifest recreated endpoint: %v %v", res, err)
+	}
+
+	s.publish(gone.Manifests["1.0.0"])
+	s.endpoint(t, s.caller)
+
+	if out, err := s.call(t, s.caller+".Ping", `{}`); err != nil || out != "{}" {
+		t.Fatalf("returned hook: %q %v", out, err)
 	}
 }

@@ -249,6 +249,7 @@ func runHello(t *testing.T, url string) *env {
 		"BACKPLANE_ADVERTISE=127.0.0.1",
 		"BACKPLANE_INTERNAL_PORT="+platformPort,
 		"BACKPLANE_PUBLIC_PORT="+publicPort,
+		"HELLO_LEGACY_LISTEN=:"+freePort(t),
 		"BACKPLANE_SHUTDOWN_DRAIN=100ms",
 	)
 	e.cmd.Stdout, e.cmd.Stderr = e.logs, e.logs

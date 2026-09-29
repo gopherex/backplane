@@ -10,9 +10,9 @@
 //     manifest (not when a binding is saved), so a call without a binding
 //     gets "no binding", not "endpoint not found". Creation is idempotent
 //     across replicas (AlreadyExists is success); an endpoint pointing
-//     elsewhere is updated. Endpoints are never deleted: a service that
-//     disappears may come back, a caller in flight keeps its route, and an
-//     endpoint without calls costs nothing.
+//     elsewhere is updated. Endpoints belonging to this queue are removed after a service has
+//     no instances for the absence grace period, with a fresh Consul check.
+//     Unhealthy instances still count as present; manifests are retained.
 //
 //   - Nexus handler. Temporal's Go SDK registers Nexus services on a
 //     worker before it starts and dispatches by exact service and
@@ -80,6 +80,8 @@ const (
 	// DefaultResync is how often endpoints are checked without a registry
 	// change (one deleted by hand comes back).
 	DefaultResync = time.Minute
+	// DefaultAbsenceGrace protects brief restarts and discovery propagation.
+	DefaultAbsenceGrace = 5 * time.Minute
 	// retryDelay is the next attempt after a failed sync.
 	retryDelay = 2 * time.Second
 	// defaultNamespace of Temporal.
@@ -126,21 +128,34 @@ func Settle(d time.Duration) Option { return func(x *Executor) { x.settle = d } 
 // Resync replaces DefaultResync.
 func Resync(d time.Duration) Option { return func(x *Executor) { x.resync = d } }
 
+// AbsenceGrace sets how long a service must have no instances before its
+// Nexus endpoint is removed. Zero is useful in tests; negative values panic.
+func AbsenceGrace(d time.Duration) Option {
+	if d < 0 {
+		panic("executor: negative absence grace")
+	}
+
+	return func(x *Executor) { x.absenceGrace = d }
+}
+
 // Executor is the component: the Nexus worker, the endpoints, the
 // compile cache. It holds state and goroutines: share it by pointer.
 type Executor struct {
 	deps.Component
 
-	bindings Bindings
-	src      registry.Source
-	temporal TemporalFunc
-	queue    string
-	ns       string
-	author   func(ctx context.Context) string
-	runs     consolev1.WorkflowServiceServer
-	settle   time.Duration
-	resync   time.Duration
-	metrics  metrics
+	bindings     Bindings
+	src          registry.Source
+	temporal     TemporalFunc
+	queue        string
+	ns           string
+	author       func(ctx context.Context) string
+	runs         consolev1.WorkflowServiceServer
+	settle       time.Duration
+	resync       time.Duration
+	metrics      metrics
+	absenceGrace time.Duration
+	syncMu       sync.Mutex // serializes reconciliation, including absence tracking
+	absent       map[string]time.Time
 
 	mu       sync.Mutex
 	served   hookSet       // what worker serves
@@ -157,7 +172,8 @@ func New(parent deps.Scope, b Bindings, src registry.Source, opts ...Option) *Ex
 	x := &Executor{
 		Component: deps.NewComponent(parent, "executor"),
 		bindings:  b, src: src, ns: defaultNamespace, author: sessionAuthor,
-		settle: DefaultSettle, resync: DefaultResync,
+		settle: DefaultSettle, resync: DefaultResync, absenceGrace: DefaultAbsenceGrace,
+		absent:   map[string]time.Time{},
 		programs: map[string]compiled{}, warned: map[string]bool{},
 	}
 	x.temporal = func() (client.Client, error) { return workflows.Client(x) }
@@ -234,6 +250,9 @@ func (x *Executor) follow(ctx context.Context) error {
 // Sync makes the Nexus worker serve the hooks of the current registry
 // snapshot and ensures their endpoints. follow runs it; tests call it.
 func (x *Executor) Sync(ctx context.Context) error {
+	x.syncMu.Lock()
+	defer x.syncMu.Unlock()
+
 	cat := x.src.Current()
 	if cat.Index == 0 {
 		return ErrNotSynced
@@ -245,6 +264,9 @@ func (x *Executor) Sync(ctx context.Context) error {
 	}
 
 	set := hooksOf(cat)
+	if err := x.retire(ctx, c, cat, set); err != nil {
+		return err
+	}
 
 	added, err := x.serve(ctx, c, set)
 	if err != nil {

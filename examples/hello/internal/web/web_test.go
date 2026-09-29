@@ -53,6 +53,11 @@ func TestHello(t *testing.T) {
 		t.Fatalf("hook with key: %q", body)
 	}
 
+	events := backplanetest.Events(tree.H, tree.Greeter.Greeted())
+	if len(events) != 2 || events[1].Name != "world" || events[1].Text != "hook world k-1" {
+		t.Fatalf("bound greeting event: %+v", events)
+	}
+
 	// Temporal down: the fallback again.
 	backplanetest.Unavailable(tree.H)
 

@@ -64,6 +64,7 @@ func New(log *xlog.Logger, interval, timeout time.Duration) *Health {
 
 	reg := state.NewRegistry()
 	health := &Health{log: log, interval: interval, timeout: timeout, reg: reg, serving: probe.NewBool()}
+	health.serving.SetReason(false, "service has not started serving")
 	health.states = [kinds]*state.State{state.New(), reg.Get(""), state.New()}
 
 	for _, st := range health.states {
@@ -84,7 +85,7 @@ func (h *Health) Add(k Kind, p probe.Probe) {
 // Serving flips the SDK's own gate and re-evaluates readiness and startup
 // immediately.
 func (h *Health) Serving(ctx context.Context, on bool) {
-	h.serving.Set(on)
+	h.serving.SetReason(on, "service is not serving")
 	h.check(ctx, Ready)
 	h.check(ctx, Startup)
 }
@@ -150,5 +151,6 @@ func (h *Health) check(ctx context.Context, k Kind) {
 
 func (h *Health) report(_ context.Context, ev reporter.Event) {
 	h.log.Info("health",
-		xlog.String("probe", ev.Name), xlog.String("from", ev.Prev.String()), xlog.String("to", ev.Cur.String()))
+		xlog.String("probe", ev.Name), xlog.String("from", ev.Prev.String()), xlog.String("to", ev.Cur.String()),
+		xlog.String("reason", ev.Reason))
 }

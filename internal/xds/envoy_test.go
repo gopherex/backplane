@@ -118,6 +118,7 @@ func runHello(t *testing.T, c *api.Client, consul, host string) {
 	cmd.Env = append(os.Environ(),
 		"BACKPLANE_CONSUL_ADDR="+consul, "BACKPLANE_INSTANCE=xds-hello-1", "BACKPLANE_ADVERTISE="+host,
 		"BACKPLANE_INTERNAL_PORT="+freePort(t), "BACKPLANE_PUBLIC_PORT="+freePort(t),
+		"HELLO_LEGACY_LISTEN=:"+freePort(t),
 		"BACKPLANE_SHUTDOWN_DRAIN=100ms",
 	)
 	cmd.Stdout, cmd.Stderr = logs, logs

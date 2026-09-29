@@ -152,7 +152,7 @@ func m1Build(t *testing.T, dir, name, pkg, version string) string {
 	bin := filepath.Join(dir, name)
 	build := "github.com/gopherex/backplane/pkg/backplane/build"
 
-	cmd := exec.Command("go", "build", "-o", bin,
+	cmd := exec.Command("go", "build", "-race", "-o", bin,
 		"-ldflags", "-X "+build+".Service="+name+" -X "+build+".Version="+version, pkg)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build %s: %v\n%s", name, err, out)
@@ -299,6 +299,7 @@ func TestM1(t *testing.T) {
 	w.helloEnv = []string{
 		"BACKPLANE_CONSUL_ADDR=" + addr,
 		"BACKPLANE_INSTANCE=" + m1Hello,
+		"HELLO_LEGACY_LISTEN=:" + freePort(t),
 		"BACKPLANE_ADVERTISE=" + w.host,
 		"BACKPLANE_INTERNAL_PORT=" + freePort(t),
 		"BACKPLANE_PUBLIC_PORT=" + freePort(t),

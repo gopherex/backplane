@@ -233,6 +233,7 @@ func startHello(t *testing.T) *hello {
 		"BACKPLANE_CONSUL_ADDR=", "BACKPLANE_NATS_URL=", "BACKPLANE_TEMPORAL_ADDR=",
 		"BACKPLANE_INSTANCE=console-test-hello", "BACKPLANE_ADVERTISE=127.0.0.1",
 		"BACKPLANE_INTERNAL_PORT="+strconv.Itoa(platformPort), "BACKPLANE_PUBLIC_PORT="+strconv.Itoa(publicPort),
+		"HELLO_LEGACY_LISTEN=:"+strconv.Itoa(freePort(t)),
 		"BACKPLANE_INTERNAL_SECRET="+helloSecret, "BACKPLANE_SHUTDOWN_DRAIN=100ms",
 	)
 	h.cmd.Stdout, h.cmd.Stderr = logs, logs

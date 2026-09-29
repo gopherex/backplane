@@ -156,6 +156,9 @@ linters:
         - github.com/gopherex/backplane/pkg/backplane/.*Option$
         - google.golang.org/grpc/health/grpc_health_v1.HealthServer
         - github.com/gopherex/xconf.Source
+        - github.com/gopherex/backplane/pkg/backplane/internal/configrt.State
+        - github.com/nats-io/nats.go/jetstream.ConsumeContext
+        - google.golang.org/protobuf/proto.Message
         # The installed transport and the tree's readiness are interfaces by
         # nature: whatever carries events, whatever composite of probes.
         - github.com/gopherex/backplane/pkg/backplane/internal/env.Broker
@@ -175,6 +178,7 @@ linters:
         - github.com/gopherex/backplane/backplanepb/console/v1.WorkflowServiceServer
         - github.com/nexus-rpc/sdk-go/nexus.RegisterableOperation
         - go.temporal.io/sdk/workflow.Future
+        - go.temporal.io/sdk/workflow.Context
         - github.com/gopherex/backplane/internal/bindings.Catalog
         # JetStream's client and consumers are interfaces by nats.go's design.
         - github.com/nats-io/nats.go/jetstream.JetStream

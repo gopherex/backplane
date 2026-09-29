@@ -29,6 +29,7 @@ import (
 const (
 	Compose = "Compose"
 	Total   = "Total"
+	Record  = "RecordGreeting"
 )
 
 const (
@@ -97,6 +98,7 @@ func New(parent deps.Scope, g *greeter.Greeter, db deps.Dependency[*store.DB]) *
 		r.RegisterWorkflow(f.Report)
 		r.RegisterActivityWithOptions(f.compose, tactivity.RegisterOptions{Name: Compose})
 		r.RegisterActivityWithOptions(f.total, tactivity.RegisterOptions{Name: Total})
+		r.RegisterActivityWithOptions(f.record, tactivity.RegisterOptions{Name: Record})
 	})
 	// Paused: created in Temporal, starts nothing until unpaused there.
 	workflows.Schedule(f, "HourlyReport", workflows.Every(time.Hour), f.Report,
@@ -122,6 +124,10 @@ func (f *Flows) Echo(ctx context.Context, in EchoIn) (EchoOut, error) {
 func (f *Flows) Welcome(ctx workflow.Context, in GreetIn) (GreetOut, error) {
 	out, err := f.Greet.WorkflowCall(ctx, in, hook.Timeout(greetTimeout))
 	if err == nil {
+		if err := workflow.ExecuteActivity(steps(ctx), Record, in.Name, out.Text).Get(ctx, nil); err != nil {
+			return GreetOut{}, fmt.Errorf("record greeting: %w", err)
+		}
+
 		return out, nil
 	}
 
@@ -181,8 +187,11 @@ func (f *Flows) total(ctx context.Context) (uint64, error) {
 }
 
 // steps bounds the activities a workflow runs.
-//
-//nolint:ireturn // workflow.Context is an interface
 func steps(ctx workflow.Context) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: stepTimeout})
+}
+
+func (f *Flows) record(ctx context.Context, name, text string) error {
+	f.greeter.Record(ctx, name, text)
+	return nil
 }

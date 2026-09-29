@@ -88,7 +88,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor))
 	workflows.Register(root, ops.RegisterWorkflows)
 	st.Executor = executor.New(root, st.Bindings, st.Registry, executor.Author(sessionAuthor),
-		executor.Namespace(cfg.Temporal.Namespace), executor.Runs(st.Ops.Workflows()))
+		executor.Namespace(cfg.Temporal.Namespace), executor.Runs(st.Ops.Workflows()),
+		executor.AbsenceGrace(cfg.Nexus.AbsenceGrace), executor.Resync(cfg.Nexus.ReconcileInterval))
 	workflows.Register(root, st.Executor.RegisterWorkflows)
 	st.Rules = rules.New(root, st.Bindings, st.Registry, rules.WithRuns(st.Ops.Workflows()))
 	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry,

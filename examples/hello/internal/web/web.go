@@ -45,6 +45,7 @@ func Hello(greet hook.Ref[flows.GreetIn, flows.GreetOut], g *greeter.Greeter) ht
 		}
 
 		if out, err := greet.Call(r.Context(), flows.GreetIn{Name: name}, opts...); err == nil {
+			g.Record(r.Context(), name, out.Text)
 			fmt.Fprintln(w, out.Text)
 
 			return

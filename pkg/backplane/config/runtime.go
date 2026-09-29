@@ -440,7 +440,6 @@ func (r *Runtime[C]) Close() error {
 	return err
 }
 
-//nolint:ireturn // the SDK's view is an interface by design
 func (r *Runtime[C]) state() configrt.State { return state[C]{r} }
 
 // state is the SDK's view, unreachable for authors.

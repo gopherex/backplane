@@ -140,6 +140,7 @@ func start(t *testing.T) *env {
 		"BACKPLANE_INTERNAL_SECRET="+secret,
 		"BACKPLANE_SHUTDOWN_DRAIN=100ms",
 		"HELLO_GREETER_SUFFIX=?",
+		"HELLO_LEGACY_LISTEN=:"+freePort(t),
 	)
 
 	e.cmd.Stdout, e.cmd.Stderr = e.logs, e.logs

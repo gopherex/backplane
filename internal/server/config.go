@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	liveconfig "github.com/gopherex/backplane/internal/config"
 	"github.com/gopherex/backplane/internal/console"
@@ -43,6 +44,8 @@ type Config struct {
 	Obs Obs `json:"obs"`
 	// Live-value overrides: BACKPLANE_LIVE_CONFIG_* (§5.3).
 	LiveConfig liveconfig.Settings `json:"live_config"`
+	// Nexus endpoint reconciliation and retirement.
+	Nexus Nexus `json:"nexus"`
 }
 
 // PG is the store's connection: BACKPLANE_PG_DSN.
@@ -251,4 +254,10 @@ func xdsConfig(c Config, advertise string) xds.Config {
 			},
 		},
 	}
+}
+
+// Nexus controls cleanup of endpoints whose services have no instances.
+type Nexus struct {
+	AbsenceGrace      time.Duration `json:"absence_grace"      schemapb:"default=5m;gte=0"`
+	ReconcileInterval time.Duration `json:"reconcile_interval" schemapb:"default=1m;gt=0"`
 }

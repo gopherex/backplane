@@ -246,8 +246,6 @@ func (b *Broker) missing(ctx context.Context, re reactor) bool {
 // consumer, and starts consuming. resume > 0 starts a consumer that has to
 // be created at that stream sequence. lost delivers the consume errors that
 // may mean the consumer is gone.
-//
-//nolint:ireturn // ConsumeContext is only an interface
 func (b *Broker) consume(
 	ctx context.Context, re reactor, resume uint64,
 ) (jetstream.ConsumeContext, <-chan error, error) {

@@ -62,8 +62,8 @@ func TestWelcome(t *testing.T) {
 		t.Fatalf("bound: %+v %v", out, err)
 	}
 
-	// The local greeting published; the bound one did not reach the greeter.
-	if got := backplanetest.Events(tree.H, tree.Greeter.Greeted()); len(got) != 1 || got[0].Name != "ann" {
+	// Both local and bound greetings publish the text actually returned.
+	if got := backplanetest.Events(tree.H, tree.Greeter.Greeted()); len(got) != 2 || got[0].Name != "ann" || got[1].Text != "Bound hello, ann" || got[1].Count != 2 {
 		t.Fatalf("events: %+v", got)
 	}
 }

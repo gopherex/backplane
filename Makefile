@@ -133,7 +133,8 @@ hello: ## Build examples/hello into ./bin/hello
 
 .PHONY: run-hello
 run-hello: hello ## Run hello against the local stack
-	BACKPLANE_CONSUL_ADDR=localhost:8500 "$(BIN)/hello"
+	BACKPLANE_CONSUL_ADDR=localhost:8500 BACKPLANE_NATS_URL=localhost:4222 \
+	BACKPLANE_TEMPORAL_ADDR=localhost:7233 "$(BIN)/hello"
 
 .PHONY: backplane
 backplane: ## Build the backplane server into ./bin/backplane
@@ -145,7 +146,8 @@ backplane: ## Build the backplane server into ./bin/backplane
 DEV_ADMIN_TOKEN ?= dev-admin-token-change-me
 
 run-backplane: backplane ## Run backplane against the local stack (console token: DEV_ADMIN_TOKEN)
-	BACKPLANE_CONSUL_ADDR=localhost:8500 \
+	BACKPLANE_CONSUL_ADDR=localhost:8500 BACKPLANE_NATS_URL=localhost:4222 \
+	BACKPLANE_TEMPORAL_ADDR=localhost:7233 \
 	BACKPLANE_ADMIN_TOKEN="$(DEV_ADMIN_TOKEN)" \
 	BACKPLANE_PG_DSN="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 	BACKPLANE_INTERNAL_PORT=9410 BACKPLANE_PUBLIC_PORT=8090 \
@@ -224,3 +226,22 @@ release: ## Interactive tag-driven release (runs `make check` first)
 .PHONY: clean
 clean: ## Remove tools, vendored protos and generated code
 	rm -rf "$(BIN)" easyp_vendor backplanepb/v1/*.pb.go
+
+.PHONY: formatter run-formatter setup-example test-replicas
+formatter: ## Build the independent formatter companion service
+	go build -trimpath -ldflags "$(call ldflags,formatter)" -o "$(BIN)/formatter" ./examples/formatter/cmd/formatter
+
+run-formatter: formatter ## Run formatter against the local stack on :8082 / :9420
+	BACKPLANE_CONSUL_ADDR=localhost:8500 BACKPLANE_NATS_URL=localhost:4222 \
+	BACKPLANE_TEMPORAL_ADDR=localhost:7233 BACKPLANE_PUBLIC_PORT=8082 \
+	BACKPLANE_INTERNAL_PORT=9420 "$(BIN)/formatter"
+
+setup-example: ## Save hello -> formatter binding and event rule through the console API
+	BACKPLANE_ADMIN_TOKEN="$${BACKPLANE_ADMIN_TOKEN:-$(DEV_ADMIN_TOKEN)}" \
+		go run ./examples/demo/cmd/setup
+
+test-replicas: ## Two backplanes + hello + formatter: crash/rejoin, config, rules, Nexus retirement (make up)
+	BACKPLANE_TEST_ENVOY=localhost:9901 BACKPLANE_TEST_CONSUL=localhost:8500 \
+	BACKPLANE_TEST_NATS=localhost:4222 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
+		GOWORK=off go test -race -count=1 -timeout 20m -run '^TestReplicas$$' -v ./conformance/

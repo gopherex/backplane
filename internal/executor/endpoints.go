@@ -25,7 +25,7 @@ const endpointPage = 100
 // ensureEndpoints makes the endpoint <service> of every service in set
 // target backplane's queue: created when missing (another replica creating
 // it first is fine), updated when it targets something else. Endpoints of
-// services no longer in the registry are left alone.
+// absent services are retired before this pass.
 func (x *Executor) ensureEndpoints(ctx context.Context, c client.Client, set hookSet) error {
 	have, err := endpoints(ctx, c)
 	if err != nil {

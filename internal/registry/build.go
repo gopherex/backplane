@@ -104,7 +104,6 @@ func splitKey(key string) (string, string, string, bool) {
 	return parts[0], parts[1], parts[2], true
 }
 
-//nolint:ireturn // a Manifest or an InstanceState, by kind
 func decode(kv *api.KVPair, kind string, cache map[string]parsed) (proto.Message, error) {
 	if c, ok := cache[kv.Key]; ok && c.modify == kv.ModifyIndex {
 		return c.msg, nil

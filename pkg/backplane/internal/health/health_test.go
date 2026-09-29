@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,5 +135,36 @@ func TestCheckBoundedByTimeout(t *testing.T) {
 
 	if c := code(t, h, "/healthz/readiness"); c == http.StatusOK {
 		t.Fatal("ready with a hanging probe")
+	}
+}
+
+func TestNodeReasonReachesHTTP(t *testing.T) {
+	t.Parallel()
+
+	root := node.New("service", testlog.Discard(), nil)
+	db := probe.NewBool()
+	db.SetReason(false, "connection refused")
+	root.Child("database", node.Dependency, false).Ready(db)
+
+	h := health.New(testlog.Discard(), time.Hour, 0)
+	h.Add(health.Ready, root.Readiness())
+	start(t, h)
+	h.Serving(t.Context(), true)
+
+	rec := httptest.NewRecorder()
+	h.HTTP().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz/readiness", http.NoBody))
+
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "database: connection refused") {
+		t.Fatalf("readiness: %d %s", rec.Code, rec.Body)
+	}
+
+	db.Set(true)
+	h.Serving(t.Context(), true)
+
+	rec = httptest.NewRecorder()
+	h.HTTP().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz/readiness", http.NoBody))
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "Healthy" {
+		t.Fatalf("recovery: %d %s", rec.Code, rec.Body)
 	}
 }

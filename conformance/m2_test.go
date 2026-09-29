@@ -17,6 +17,8 @@ import (
 	"github.com/hashicorp/consul/api"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"go.temporal.io/api/operatorservice/v1"
+	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/gopherex/ws-proto/wsrpc"
@@ -160,6 +162,7 @@ func TestM2(t *testing.T) {
 	t.Cleanup(wipe)
 
 	w := &m2{consul: c, jet: m2JetStream(t, natsURL)}
+	m2CleanEndpoint(t, temporalAddr)
 
 	rejectedBefore := m1Rejected(t, admin)
 
@@ -196,6 +199,7 @@ func TestM2(t *testing.T) {
 		"BACKPLANE_NATS_URL=" + natsURL,
 		"BACKPLANE_TEMPORAL_ADDR=" + temporalAddr,
 		"BACKPLANE_INSTANCE=" + m2Hello,
+		"HELLO_LEGACY_LISTEN=:" + freePort(t),
 		"BACKPLANE_ADVERTISE=" + host,
 		"BACKPLANE_INTERNAL_PORT=" + freePort(t),
 		"BACKPLANE_PUBLIC_PORT=" + freePort(t),
@@ -239,8 +243,8 @@ func TestM2(t *testing.T) {
 	// e. TestBinding: an unsaved definition and the saved version.
 	w.testsBinding(t)
 
-	// The binding deleted: the greeting falls back again — and, being the
-	// local greeter's, publishes Greeted for the rule.
+	// Deleting a binding still restores the local fallback. Both the bound
+	// and local greeting paths publish Greeted (the replicas test keeps it bound).
 	w.unbinds(t)
 
 	// d. The rule: runs per event, dedup by ce-id, pause and resume.
@@ -1260,4 +1264,35 @@ func (w *m2) testsRule(t *testing.T) {
 			t.Fatalf("ListRuleRuns (events) lists %s", id)
 		}
 	}
+}
+
+// m2CleanEndpoint removes the example's endpoint after all test processes
+// stop, so a stopped reconciler cannot recreate it during cleanup.
+func m2CleanEndpoint(t *testing.T, address string) {
+	t.Helper()
+
+	temporal, err := client.DialContext(t.Context(), client.Options{HostPort: address})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		defer temporal.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		res, err := temporal.OperatorService().ListNexusEndpoints(ctx, &operatorservice.ListNexusEndpointsRequest{Name: service, PageSize: 1})
+		if err != nil {
+			t.Errorf("list cleanup endpoint: %v", err)
+			return
+		}
+
+		for _, endpoint := range res.GetEndpoints() {
+			_, err := temporal.OperatorService().DeleteNexusEndpoint(ctx, &operatorservice.DeleteNexusEndpointRequest{Id: endpoint.GetId(), Version: endpoint.GetVersion()})
+			if err != nil {
+				t.Errorf("delete cleanup endpoint: %v", err)
+			}
+		}
+	})
 }

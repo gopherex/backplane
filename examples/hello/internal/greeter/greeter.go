@@ -128,22 +128,12 @@ func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 			return "", fmt.Errorf("templates: %w", err)
 		}
 
-		count := g.db.Get().Inc(ctx, name)
-
 		var b strings.Builder
 		if err := tmpl.Execute(&b, g.view(name)); err != nil {
 			return "", fmt.Errorf("render: %w", err)
 		}
 
-		g.greetings.Add(ctx, 1)
-
-		err = g.greeted.Publish(ctx, Greeted{Name: name, Count: count, Text: b.String()},
-			event.Key(name),
-			event.ID(g.boot+"-"+name+"-"+strconv.FormatUint(count, 10)),
-			event.Header("excited", strconv.FormatBool(g.cfg.Excited.Get())))
-		if err != nil {
-			g.Log().Ctx().Debug(ctx, "greeted not published", xlog.Err(err))
-		}
+		g.Record(ctx, name, b.String())
 
 		return b.String(), nil
 	})
@@ -152,6 +142,22 @@ func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 	}
 
 	return text, nil
+}
+
+// Record records the greeting actually delivered, whether rendered locally
+// or returned by a bound hook. The same metric and event path serves both.
+// Publication failure (for example, running without NATS) is logged without
+// failing the greeting, just like Text.
+func (g *Greeter) Record(ctx context.Context, name, text string) {
+	count := g.db.Get().Inc(ctx, name)
+	g.greetings.Add(ctx, 1)
+
+	err := g.greeted.Publish(ctx, Greeted{Name: name, Count: count, Text: text},
+		event.Key(name), event.ID(g.boot+"-"+name+"-"+strconv.FormatUint(count, 10)),
+		event.Header("excited", strconv.FormatBool(g.cfg.Excited.Get())))
+	if err != nil {
+		g.Log().Ctx().Debug(ctx, "greeted not published", xlog.Err(err))
+	}
 }
 
 // Greet implements HelloService.

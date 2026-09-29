@@ -136,7 +136,7 @@ ports:
 make up
 make run-backplane   # bin/backplane: Consul localhost:8500, PostgreSQL localhost:5433,
                      # platform port 9410, public port 8090, console admin token
-                     # dev-admin-token-local-change-me (DEV_ADMIN_TOKEN=... to override)
+                     # dev-admin-token-change-me (DEV_ADMIN_TOKEN=... to override)
 make run-hello       # another terminal: the registry logs hello's manifest and instance
 curl localhost:9410/healthz/readiness
 ```
@@ -237,7 +237,7 @@ make up
 ADDR=$(ip -4 route get 192.0.2.1 | awk '{print $7; exit}')
 
 # terminal 1: backplane — xDS :18000, console :8081, platform port 9410,
-# admin token dev-admin-token-local-change-me (make's DEV_ADMIN_TOKEN)
+# admin token dev-admin-token-change-me (make's DEV_ADMIN_TOKEN)
 BACKPLANE_ADVERTISE=$ADDR BACKPLANE_INTERNAL_SECRET=dev-secret \
 BACKPLANE_CONSOLE_PREFIX=/backplane make run-backplane
 
@@ -254,7 +254,7 @@ curl 'localhost:10000/hello/?name=x'                  # Hello, x!
 # without Secure because run-backplane sets BACKPLANE_CONSOLE_INSECURE_COOKIE).
 # A browser sends Origin itself; it must be the console's own origin.
 curl -c jar -H 'Origin: http://localhost:10000' -H 'Content-Type: application/json' \
-  -d '{"token":"dev-admin-token-local-change-me"}' localhost:10000/backplane/auth/login
+  -d '{"token":"dev-admin-token-change-me"}' localhost:10000/backplane/auth/login
 curl -b jar localhost:10000/backplane/auth/session    # the session, 401 without the cookie
 
 # hello's UI bundle through the console: the hash is the bundle's ETag
@@ -332,9 +332,8 @@ what it made: the scratch database (bindings and rules), hello's streams
 `bp_hello` and `bp_dlq_hello` in NATS (with every consumer on them, the
 rule's `backplane__rule-<id>` included; deleted before the run too),
 `config/hello/`, `backplane/services/hello/`, its backplane instance and
-manifest (version `0.0.0-m2`). The Nexus endpoint `hello` stays in
-Temporal (backplane points it at its own queue on every start; an idle
-endpoint costs nothing), as do the finished runs. On failure it prints
+manifest (version `0.0.0-m2`) and the Nexus endpoint `hello`. Finished
+Temporal runs remain available in history. On failure it prints
 both processes' logs; every wait names what it waited for and what it
 saw last.
 
@@ -365,3 +364,20 @@ The SDK's own metrics and spans are listed in `platform-design.md` §15.4.
   id and cluster, the `xds` cluster; listeners, routes, clusters and
   endpoints come over xDS (ADS, delta) from backplane on port 18000
   (`host.docker.internal`).
+
+## Two services and multiple backplane replicas
+
+See [the example guide](../examples/README.md) to run hello with its independent
+formatter companion and install their binding and rule through `/ws`.
+`make test-replicas` uses two race-instrumented backplane binaries against one
+scratch PostgreSQL database, plus hello and formatter. It covers configuration
+repair, shared rule consumers and event deduplication, Nexus calls during the
+crash/rejoin of one replica, and service retirement/return.
+
+Nexus retirement is configured with `BACKPLANE_NEXUS_ABSENCE_GRACE` (default
+`5m`) and `BACKPLANE_NEXUS_RECONCILE_INTERVAL` (default `1m`). An instance that
+fails health checks is still present. After the grace period, a consistent
+Consul catalog/KV recheck must confirm absence; Consul failure prevents cleanup.
+Only endpoints targeting the installation's namespace/task queue are deleted,
+using Temporal versions for concurrent-replica safety. Manifests remain in KV;
+a returning service gets its endpoint recreated automatically.

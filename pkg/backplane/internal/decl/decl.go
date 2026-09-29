@@ -74,7 +74,7 @@ var (
 
 // message is v as a proto message: v itself, or the message a **M points
 // to, allocated when nil.
-func message(v any) (proto.Message, bool) { //nolint:ireturn // any message
+func message(v any) (proto.Message, bool) {
 	if m, ok := v.(proto.Message); ok {
 		return m, true
 	}
