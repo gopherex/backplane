@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/gopherex/backplane/internal/wire"
 )
 
 // Platform defaults of the streams (DefaultStreams). The emitter owns its
@@ -17,13 +19,13 @@ const (
 	deadMaxAge   = 30 * 24 * time.Hour
 	dedupWindow  = 2 * time.Minute
 
-	metaService = "bp.service"
-	metaBy      = "bp.ensured-by"
-	metaKind    = "bp.kind"
-	byEmitter   = "emitter"
-	bySubscribe = "subscriber"
-	kindEvents  = "events"
-	kindDead    = "dead-letters"
+	metaService = wire.MetaService
+	metaBy      = wire.MetaBy
+	metaKind    = wire.MetaKind
+	byEmitter   = wire.ByEmitter
+	bySubscribe = wire.BySubscriber
+	kindEvents  = wire.KindEvents
+	kindDead    = wire.KindDead
 )
 
 // ErrNotConnected: NATS is not reachable right now.

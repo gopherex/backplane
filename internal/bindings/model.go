@@ -1,0 +1,258 @@
+// Package bindings is backplane's side of bindings (§7.1) and rules
+// (§8.1): the model, its text form, validation against the manifests,
+// versions in PostgreSQL and the console's BindingService and
+// RuleService.
+//
+// A binding implements a hook ("<service>.<Hook>") with steps — calls of
+// activities of any service — and a result; a rule runs the same steps
+// on an event. Expressions are CEL over JSON values: `req` (the hook's
+// input) or `event` and `meta` (a rule's event and its CloudEvents
+// attributes), the output of every step by its name, and `steps.<name>
+// .skipped`.
+//
+// For the executor and the rules engine the package offers:
+//
+//   - Manager.Active / Manager.ActiveRules: what is in force now;
+//   - Compile: a definition checked against a Catalog into a *Program —
+//     steps with their dependencies and groups, options resolved from the
+//     manifests, expressions compiled; JSON-serializable, so a workflow
+//     receives it as input;
+//   - Program's evaluation (Start, Bind, When, Input, UndoInput, Result,
+//     Match, Eval): pure and deterministic — no clock, no randomness, no
+//     I/O, map iteration in key order — so it runs inside workflow code.
+package bindings
+
+import (
+	"regexp"
+	"slices"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// Binding is the definition of a hook's binding.
+type Binding struct {
+	// Hook is the full hook name "<service>.<Hook>".
+	Hook  string
+	Steps []Step
+	// Result is the hook's output; zero: {}.
+	Result Value
+}
+
+// Rule is the definition of a rule.
+type Rule struct {
+	// Event is the full event name "<service>.<Event>".
+	Event string
+	// When is a CEL bool over `event` and `meta`; empty: always.
+	When  string
+	Steps []Step
+}
+
+// Step is one call of an activity.
+type Step struct {
+	// Name is an identifier unique in the definition: the CEL variable of
+	// the step's output.
+	Name string
+	// Activity is the full activity name "<service>.<Activity>".
+	Activity string
+	// Input of the activity; zero: {}.
+	Input Value
+	// When is a CEL bool: the step runs only when true; empty: always.
+	When string
+	// After names steps this one runs after besides those its expressions
+	// reference.
+	After []string
+	// Undo is the compensating activity (full name) run when a later step
+	// fails; empty: none.
+	Undo string
+	// UndoInput is the undo activity's input; zero: the step's output.
+	UndoInput Value
+	// Retry: zero fields take the activity's defaults, then the platform's.
+	Retry Retry
+	// StartToClose bounds one attempt; 0: the activity's default, then the
+	// platform's.
+	StartToClose time.Duration
+	// Heartbeat: an attempt silent this long is lost; 0: the activity's
+	// default, else none.
+	Heartbeat time.Duration
+}
+
+// Retry is a step's retry policy; zero fields are unset.
+type Retry struct {
+	// Attempts in total, the first included.
+	Attempts        int
+	InitialInterval time.Duration
+	MaxInterval     time.Duration
+	// Backoff multiplies the interval after each attempt (>= 1).
+	Backoff float64
+}
+
+// IsZero reports whether no field is set.
+func (r Retry) IsZero() bool { return r == Retry{} }
+
+// Value is a value built by CEL: named fields, each from an expression
+// (an object), or one expression for the whole value. Neither: the
+// default of its place.
+type Value struct {
+	Fields []Field
+	// Expr is exclusive with Fields.
+	Expr string
+}
+
+// IsZero reports whether the value is unset.
+func (v Value) IsZero() bool { return len(v.Fields) == 0 && v.Expr == "" }
+
+// Field is one field of an object built by CEL.
+type Field struct {
+	// Name is the JSON field name.
+	Name string
+	// Expr is the CEL expression of its value.
+	Expr string
+}
+
+// Equal reports whether two definitions say the same.
+func (b Binding) Equal(o Binding) bool {
+	return b.Hook == o.Hook && slices.EqualFunc(b.Steps, o.Steps, Step.Equal) && b.Result.Equal(o.Result)
+}
+
+// Equal reports whether two definitions say the same.
+func (r Rule) Equal(o Rule) bool {
+	return r.Event == o.Event && r.When == o.When && slices.EqualFunc(r.Steps, o.Steps, Step.Equal)
+}
+
+// Equal reports whether two steps say the same.
+func (s Step) Equal(o Step) bool {
+	return s.Name == o.Name && s.Activity == o.Activity && s.Input.Equal(o.Input) && s.When == o.When &&
+		slices.Equal(s.After, o.After) && s.Undo == o.Undo && s.UndoInput.Equal(o.UndoInput) &&
+		s.Retry == o.Retry && s.StartToClose == o.StartToClose && s.Heartbeat == o.Heartbeat
+}
+
+// Equal reports whether two values say the same.
+func (v Value) Equal(o Value) bool { return v.Expr == o.Expr && slices.Equal(v.Fields, o.Fields) }
+
+// BindingVersion is one saved version of a hook's binding.
+type BindingVersion struct {
+	Hook    string
+	Version int64
+	// Binding is the definition; zero on a tombstone.
+	Binding Binding
+	// Deleted marks a tombstone: the delete of the binding.
+	Deleted    bool
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf int64 // 0: not a rollback
+}
+
+// RuleVersion is one saved version of a rule.
+type RuleVersion struct {
+	RuleID  uuid.UUID
+	Version int64
+	Name    string
+	// Rule is the definition; zero on a tombstone.
+	Rule Rule
+	// Deleted marks a tombstone: the delete of the rule.
+	Deleted    bool
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf int64 // 0: not a rollback
+}
+
+// RuleEntry is a rule with its current version.
+type RuleEntry struct {
+	ID uuid.UUID
+	// Paused: no runs start.
+	Paused    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Current   RuleVersion
+}
+
+// Active reports whether the rule runs: not deleted, not paused.
+func (r RuleEntry) Active() bool { return !r.Current.Deleted && !r.Paused }
+
+// Violation is one reason a definition is rejected.
+type Violation struct {
+	// Path is the place in the definition ("steps[1].input.to"); empty for
+	// the whole definition.
+	Path    string
+	Code    string
+	Message string
+}
+
+func (v Violation) String() string {
+	if v.Path == "" {
+		return v.Message
+	}
+
+	return v.Path + ": " + v.Message
+}
+
+// Violation codes.
+const (
+	CodeInvalidName     = "INVALID_NAME"
+	CodeReservedName    = "RESERVED_NAME"
+	CodeDuplicateStep   = "DUPLICATE_STEP"
+	CodeUnknownHook     = "UNKNOWN_HOOK"
+	CodeUnknownEvent    = "UNKNOWN_EVENT"
+	CodeUnknownActivity = "UNKNOWN_ACTIVITY"
+	CodeUnknownStep     = "UNKNOWN_STEP"
+	CodeCycle           = "CYCLE"
+	CodeUndoReference   = "UNDO_REFERENCE"
+	CodeCEL             = "CEL_ERROR"
+	CodeTypeMismatch    = "TYPE_MISMATCH"
+	CodeMissingField    = "MISSING_FIELD"
+	CodeUnknownField    = "UNKNOWN_FIELD"
+	CodeDuplicateField  = "DUPLICATE_FIELD"
+	CodeInvalidValue    = "INVALID_VALUE"
+	CodeInvalidOption   = "INVALID_OPTION"
+)
+
+// Variables every expression may see besides the steps: step names must
+// differ from them.
+const (
+	VarReq   = "req"
+	VarEvent = "event"
+	VarMeta  = "meta"
+	VarSteps = "steps"
+)
+
+var (
+	identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	// fullNameRE is "<service>.<Name>" (§17).
+	fullNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]*\.[A-Z][A-Za-z0-9]*$`)
+)
+
+// reserved are names a step may not take: the variables, and CEL's
+// reserved words and literals.
+//
+//nolint:gochecknoglobals // immutable set
+var reserved = map[string]bool{
+	VarReq: true, VarEvent: true, VarMeta: true, VarSteps: true,
+	"true": true, "false": true, "null": true, "in": true, "as": true, "break": true, "const": true,
+	"continue": true, "else": true, "for": true, "function": true, "if": true, "import": true,
+	"let": true, "loop": true, "package": true, "namespace": true, "return": true, "var": true,
+	"void": true, "while": true, "has": true, "dyn": true, "int": true, "uint": true, "double": true,
+	"bool": true, "string": true, "bytes": true, "list": true, "map": true, "type": true,
+	"null_type": true, "timestamp": true, "duration": true, "optional": true, "math": true,
+	"strings": true, "base64": true, "lists": true, "on": true, "when": true,
+}
+
+// IsIdent reports whether s is an identifier: [A-Za-z_][A-Za-z0-9_]*.
+func IsIdent(s string) bool { return identRE.MatchString(s) }
+
+// IsFullName reports whether s is "<service>.<Name>" (§17).
+func IsFullName(s string) bool { return fullNameRE.MatchString(s) }
+
+// SplitName splits "<service>.<Name>" at its first dot into the service
+// and the name.
+func SplitName(full string) (string, string) {
+	for i := range len(full) {
+		if full[i] == '.' {
+			return full[:i], full[i+1:]
+		}
+	}
+
+	return "", full
+}

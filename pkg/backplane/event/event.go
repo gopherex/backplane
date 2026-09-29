@@ -488,7 +488,7 @@ func StartAt(s Start) ReactOption {
 // configured or not connected yet (before the service starts, after it
 // stops); while the connection is down it is returned all the same and
 // reconnects by itself.
-func JetStream(scope deps.Scope) (jetstream.JetStream, error) { //nolint:ireturn // JetStream is only an interface
+func JetStream(scope deps.Scope) (jetstream.JetStream, error) {
 	j, ok := transport[interface {
 		JetStream() (jetstream.JetStream, error)
 	}](scope)

@@ -1187,22 +1187,161 @@ iam.SendEmail :=
 
 IAM знает только свою `SendEmail`; template и smtp — только свои `Exec` и
 `Send`; биндинг знает всех троих. В другой установке `iam.SendEmail`
-реализуется через `courier.Send` одним шагом — IAM не меняется.
+реализуется через `courier.Send` одним шагом — IAM не меняется. Нужно
+больше, чем шаги с `when`, — ни циклов, ни ветвлений, ни состояния, — это
+сервис.
 
-Правила:
+Нет биндинга: `required` хук → читаемая ошибка `no binding for
+iam.SendEmail` и красный слот в карточке, как только манифест появился;
+иначе — ответ по умолчанию (`{}`), сервис продолжает.
 
-- шаг = один вызов активити; `input` шага и `return` — CEL над `req` и
-  выходами предыдущих шагов по имени. Значения — JSON (`dyn` в CEL); при
-  наличии схем с обеих сторон выражение проверяется по типам при
-  сохранении, иначе ошибка приходит в рантайме читаемой;
-- шаги линейные или параллельные (группа без зависимостей); `when` на шаг
-  (CEL) — пропустить; ни циклов, ни ветвлений глубже `when`, ни состояния.
-  Нужно больше — это сервис;
-- `undo: <активити>` на шаге — компенсация при ошибке последующих (сага);
-- retry/timeout — на шаг, из биндинга; дефолты платформы;
-- нет биндинга: `required` хук → читаемая ошибка `no binding for
-  iam.SendEmail` и красный слот в карточке, как только манифест появился;
-  иначе — ответ по умолчанию (`{}`), сервис продолжает.
+**Модель** (proto `backplane.console.v1.BindingDefinition`, Go
+`internal/bindings.Binding`):
+
+- `hook` — полное имя хука `<service>.<Hook>`; `steps` — шаги; `result` —
+  выход хука (пусто — `{}`).
+- Шаг: `name` — идентификатор `[A-Za-z_][A-Za-z0-9_]*`, уникальный в
+  биндинге; не `req`, `event`, `meta`, `steps`, не слово CEL
+  (`in`, `true`, `null`, `int`, `map`, …), не `on`/`when`. `activity` —
+  полное имя активити. `input` — вход активити (пусто — `{}`). `when` — CEL
+  bool: false — шаг пропущен. `after` — явные зависимости. `undo` —
+  активити-компенсация, `undo_input` — её вход (пусто — выход шага).
+  `retry {attempts, initial_interval, max_interval, backoff}`,
+  `start_to_close`, `heartbeat`.
+- Значение (`input`, `undo_input`, `result`) — либо поля `имя: CEL`
+  (объект), либо одно CEL-выражение на всё значение.
+
+**Выражения.** CEL над JSON. Переменные: `req` — вход хука; `<шаг>` —
+выход выполненного шага (у пропущенного — `{}`); `steps.<шаг>.skipped` —
+пропущен ли шаг своим `when`. Язык — стандартный CEL, расширения strings,
+encoders, math, lists, optional-значения (`req.?x.orValue("")`), числа
+сравниваются через int/uint/double. Вычисление **детерминировано**: ни
+часов, ни случайности, ни I/O; макросы `all`, `exists`, `exists_one`,
+`map`, `filter` обходят map по ключам в порядке сортировки; результат —
+JSON с отсортированными ключами. Поэтому оно идёт прямо в коде workflow.
+
+- Числа входов и выходов — по схеме: поля int/uint — int/uint (int64
+  protojson'а в кавычках тоже), float/double — double, bytes — из base64;
+  без схемы число с целой записью — int, иначе double. Duration и
+  timestamp схем — `dyn`: их JSON зависит от кодека автора (Go пишет
+  наносекунды, proto — `"1s"`); CEL-timestamp на выходе — строка RFC 3339,
+  duration — `"1.5s"`.
+- Ошибка на значениях запуска читаема: `transform failed at step render
+  (input.to): no such key: to`, `transform failed at result: …`.
+
+**Порядок.** Зависимости шага — его `after` и каждый шаг, который читают
+его `input` и `when` (по имени или `steps.<имя>`); порядок записи шагов
+не важен, цикл — ошибка сохранения. Группы — уровни графа: в группе шаги,
+все зависимости которых в группах ниже, внутри — в порядке объявления;
+шаги группы идут параллельно, а исполнитель может запускать шаг, как
+только готовы его зависимости. Пропущенный шаг не останавливает
+зависящие от него. `undo` — сага: при ошибке следующего шага выполненные
+компенсируются; `undo_input` читает только сам шаг и его предков.
+
+**Опции шага**: из биндинга, иначе умолчания активити из манифеста
+(`start_to_close`, `heartbeat`, `retry.attempts`), иначе платформа —
+`start_to_close` 30 s, 3 попытки, интервал 1 s, максимум 30 s, множитель
+2, heartbeat нет.
+
+**Текстовая форма** — `Parse`/`Format` (консоль: `ParseBinding`,
+`FormatBinding`). Оператор заканчивается переводом строки вне скобок и
+строк; `//` — комментарий; пустые строки не значат ничего:
+
+```
+binding := <hook> ":=" { step } [ "return" value ]
+rule    := "on" <event> [ "when" <cel> ] ":=" { step }              (§8.1)
+step    := <name> "=" <activity> "(" args ")" [ "[" option { "," option } "]" ]
+args    := ""  |  field { "," field }  |  <cel>
+value   := "{" [ field { "," field } ] "}"  |  <cel>
+field   := ( <идентификатор> | <строка> ) ":" <cel>
+option  := "when" ":" <cel>
+         | "after" ":" ( <name> | "[" <name> { "," <name> } "]" )
+         | "undo" ":" <activity> [ "(" args ")" ]
+         | "retry" ":" <попыток>
+         | "retry_interval" ":" <duration> | "retry_max_interval" ":" <duration>
+         | "retry_backoff" ":" <число>
+         | "timeout" ":" <duration>        | "heartbeat" ":" <duration>
+```
+
+```
+iam.SendEmail :=
+  render = template.Exec(
+    name: req.template,
+    data: req.data,          // запятая в конце списка допустима
+  )
+  send = smtp.Send(to: req.to, subject: render.subject, text: render.text) [
+    retry: 5, timeout: 10s, undo: smtp.Recall(id: send.id),
+  ]
+  audit = billing.Log(req) [after: send, when: req.priority > 0]
+  return { message_id: send.id, "x-trace": audit.id }
+```
+
+`args` из полей — объект, одно выражение — значение целиком
+(`smtp.Send(req)`), пусто — `{}`. `return { k: e }` — объект из полей
+(`return {"k": e}` — то же самое). `undo: smtp.Recall` без скобок — вход —
+выход шага. Duration — формат Go (`500ms`, `1m30s`). `Format` пишет
+каноничный текст (выравнивание `=`, опции в одну строку), `Parse` его
+читает в то же определение; комментарии и разбивка строк не сохраняются.
+Ошибки разбора — со строкой и столбцом текста; синтаксис CEL проверяется
+при разборе, имена и типы — валидацией.
+
+**Валидация** (`ValidateBinding` и каждое сохранение) — по последним
+манифестам (`registry.Service.Latest`: высшая версия живого инстанса):
+хук и активити (`undo` тоже) объявлены; имена шагов; `after` и ссылки —
+на существующие шаги, без циклов; `undo_input` — только на шаг и его
+предков; опции (попытки ≥ 0, интервалы ≥ 0, `initial ≤ max`, множитель ≥
+1); каждое выражение компилируется и **проверяется по типам схем**:
+schemapb-схема → тип CEL (объект — struct-тип с полями схемы, list, map,
+скаляры; остальное — `dyn`), так что `req.nope` и `render.nope` — ошибка
+сохранения. Поля значения сверяются со схемой входа активити (`result` —
+с выходом хука): незнакомое поле, пропущенное обязательное, тип.
+Совместимость — как у JSON: int подходит к double, но не наоборот, map —
+к объекту, timestamp/duration — к строке, `dyn` — ко всему; `when` — bool.
+Без схемы проверки типов нет — ошибка придёт в рантайме читаемой. Обход
+объекта со схемой макросами не поддержан — только list и map.
+
+Нарушение — `{path, code, message}`: `path` — место в определении
+(`hook`, `steps[1].input.to`, `steps[0].after[0]`, `steps[2].retry.backoff`,
+`result.message_id`); `code` — `INVALID_NAME`, `RESERVED_NAME`,
+`DUPLICATE_STEP`, `UNKNOWN_HOOK`, `UNKNOWN_EVENT`, `UNKNOWN_ACTIVITY`,
+`UNKNOWN_STEP`, `CYCLE`, `UNDO_REFERENCE`, `CEL_ERROR`, `TYPE_MISMATCH`,
+`MISSING_FIELD`, `UNKNOWN_FIELD`, `DUPLICATE_FIELD`, `INVALID_VALUE`
+(поля и выражение вместе), `INVALID_OPTION`.
+
+**Версии** — как ревизии конфигурации (§5.2), в PostgreSQL:
+`binding_version` (hook, version с 1, `definition` — protojson
+`BindingDefinition`, NULL — надгробие удаления, author, comment,
+created_at, rollback_of) и `binding_current` (hook → действующая версия).
+Сохранение — валидация, следующая версия и `current` в одной
+serializable-транзакции; отклонённое не пишется. Откат — новая версия с
+определением старой (валидируется заново: манифесты могли измениться;
+откат к надгробию удаляет). Удаление — надгробие, история остаётся.
+Автор — сессия консоли `console:<id>`, вне сессии — `admin`. Состояние
+хука: `BOUND` (действует определение), `UNBOUND`, `REQUIRED_UNBOUND`;
+биндинг хука, который манифест больше не объявляет, остаётся в списке с
+`declared: false`.
+
+**Консоль** — `BindingService` (`/ws`): `ListBindings` (хуки всех или
+одного сервиса с состоянием и текущей версией), `GetBinding` (версия, 0 —
+текущая), `ListBindingVersions` (страницы, новые первыми),
+`ValidateBinding`, `SaveBinding`, `RollbackBinding`, `DeleteBinding`,
+`ParseBinding`, `FormatBinding`, `WatchBindings` (список сейчас и после
+каждого сохранения на любой реплике — опрос PostgreSQL раз в 2 s — и
+каждого манифеста). Запуски — RPC исполнителя рядом: `TestBinding`,
+`ListBindingRuns`, `GetBindingRun`, `CancelBindingRun`.
+
+**Для исполнителя** (`internal/bindings`): `Manager.Active(ctx, hook)` —
+действующее определение и версия (`ErrNoBinding`); `Manager.Changes(ctx)`
+— сигнал после записей (свои сразу, чужих реплик — в пределах опроса);
+`Manager.Catalog()` — последние манифесты; `CompileBinding(b, catalog)` —
+`*Program`: шаги (`StepPlan`: активити, сервис = очередь, kind —
+activity или child workflow, зависимости, группа, `undo` с сервисом и
+kind, разрешённые опции), `Groups()`, выражения скомпилированы.
+`Program` сериализуется в JSON (вход workflow) и восстанавливается
+`json.Unmarshal` в тот же. Вычисление — чистые функции над `Scope`
+(значение; `Bind`/`Skip` возвращают новый): `Start(input)`,
+`When(step, s)`, `Input(step, s)`, `Bind(s, step, output)`,
+`Skip(s, step)`, `UndoInput(step, s)`, `Result(s)`, `Eval(expr, vars)`.
 
 ### 7.2 Исполнение — Temporal Nexus
 
@@ -1226,7 +1365,7 @@ step}` на входе активити; симметричные `*Result`); **
 кладёт protojson — это тот же JSON, читаемый и в Temporal UI.
 
 - **[backplane]** Endpoint `<service>` backplane создаёт, **как только видит манифест с
-  хуками** — не при сохранении биндинга; вызов без биндинга получает
+  хуками** — не при сохранении биндинга (исполнитель, ниже); вызов без биндинга получает
   `no binding`, а не «endpoint not found». Пока endpoint'а нет (backplane
   ещё не видел сервис), `Call` сразу возвращает `hook.ErrUnavailable`
   («no Nexus endpoint»), не дожидаясь дедлайна.
@@ -1326,6 +1465,120 @@ policy endpoint'а, visibility каждого запуска со входом, 
 Ошибки читаемы: `step send: smtp.Send: connection refused`, `no binding
 for iam.SendEmail`, `transform failed at step render: <CEL>`.
 
+**Исполнитель — сторона backplane** (`internal/executor`, **[backplane]**):
+
+- **Endpoint'ы.** Для каждого сервиса, у которого хоть один манифест
+  реестра (любой версии) объявляет хуки, есть Nexus endpoint `<service>`
+  с целью «worker: namespace backplane (`BACKPLANE_TEMPORAL_NS`), очередь
+  `backplane`». Исполнитель сверяет их при каждом изменении реестра и раз
+  в минуту: нет — создаёт (`AlreadyExists` от другой реплики — успех),
+  указывает не туда — переписывает (`UpdateNexusEndpoint` с версией;
+  конфликт — следующая сверка). Endpoint'ы **не удаляются никогда**:
+  сервис, пропавший из реестра, может вернуться, вызов в полёте сохраняет
+  маршрут, пустой endpoint ничего не стоит. Имя сервиса, которое Temporal
+  не принимает как имя endpoint'а (оканчивается на `-`), — предупреждение
+  в логе, хуки такого сервиса недостижимы.
+- **Nexus-handler — отдельный worker.** Go SDK Temporal регистрирует
+  Nexus-сервисы на worker'е до его старта и диспетчеризует по точному
+  имени сервиса и операции — обработчика «на всё» нет, а сервисы с хуками
+  появляются в реестре на ходу. Поэтому handler — свой worker исполнителя
+  на очереди `backplane`, только Nexus (`DisableWorkflowWorker`,
+  `LocalActivityWorkerOnly`: опросчиков workflow- и activity-задач у него
+  нет): Nexus-сервис `<service>.Hooks` с операцией на каждый хук, который
+  объявляет любой манифест реестра (все версии — старая реплика во время
+  раскатки вызывает свои хуки). Набор изменился — стартует новый worker с
+  новым набором, затем останавливается старый (задачи в полёте
+  дорабатывают). Основной worker backplane (workflows консоли и
+  `backplane.Binding.v1`) не перезапускается: его регистрации статичны и
+  одинаковы на всех репликах, а Nexus-задачи — отдельный тип задач
+  очереди. Набор выводится только из реестра, поэтому реплики сходятся к
+  одному; endpoint нового сервиса создаётся после того, как его обслуживает
+  локальный worker, и паузы 2 с — за это время изменение реестра доходит
+  до других реплик. Остаточный риск — реплика, ещё не увидевшая новый хук,
+  получает его вызов и отвечает Nexus `NOT_FOUND`; окно — время
+  распространения изменения реестра между репликами. Temporal не подключён
+  — исполнитель ждёт (сверка каждые 2 с), на readiness не влияет.
+- **Операция** `<Hook>` сервиса `<service>.Hooks`: вход `HookCall`, выход
+  `HookResult`. Биндинг в силе (`Manager.Active`) компилируется по
+  текущему снапшоту реестра (кэш на версию биндинга и снапшот) и
+  запускается как `backplane.Binding.v1` на очереди `backplane`: id
+  `binding/<hook>/<Nexus request id>` (повтор старта той же операции — тот
+  же запуск), execution timeout — `HookCall.deadline`, memo `source` =
+  `HookCall.instance`, `backplane.binding` = `<hook>@<версия>`; операция
+  асинхронная — её результат — результат запуска. Нет биндинга:
+  обязательный хук (по манифесту версии вызывающего инстанса, иначе
+  последнему, иначе любому; хук, которого не объявляет никто, —
+  обязательный) — non-retryable application error `backplane.NoBinding`
+  «no binding for `<hook>`»; необязательный — синхронный ответ `{}`.
+  Биндинг, который больше не компилируется по манифестам, и вход не JSON —
+  non-retryable `backplane.HookFailed` с причиной. PostgreSQL или реестр
+  не готовы — retryable Nexus-ошибка `UNAVAILABLE`: Temporal повторяет
+  старт до дедлайна операции.
+- **Workflow `backplane.Binding.v1`** — один на биндинги и правила (§8.1).
+  Вход (`executor.Input`, JSON): `kind` (`binding` | `rule`), `program` —
+  сериализованный `bindings.Program` (скомпилированное определение едет с
+  запуском: сохранения и манифесты после старта его не меняют, replay
+  вычисляет ровно скомпилированное), `identity` (`hook` или `rule`,
+  `version` — 0 для несохранённого определения, `test`), `payload` — вход
+  хука (`req`) или payload события (`event`), `meta` — атрибуты
+  CloudEvents правила, `trace` — W3C-контекст вызывающего. Исполнение:
+  группы по порядку, шаги группы параллельно; `when` ложно — шаг пропущен
+  (`Skip`); шаг — активити **по короткому имени** на очереди
+  сервиса-владельца с `ActivityCall{activity: <service>.<Name>, payload:
+  Input шага, trace, binding: <hook>@<версия> | rule:<id>@<версия> (`@draft`
+  — несохранённое определение), step: <имя шага>}`, для активити `kind:
+  WORKFLOW` — child workflow по имени там же (id `<id запуска>/<шаг>`), с
+  retry и таймаутами плана шага; выход — `ActivityResult.payload` в `Bind`.
+  Группа ждёт все свои шаги, даже после отказа одного, чтобы знать всё,
+  что надо компенсировать. Отказ шага (после ретраев) или выражения —
+  `undo` выполненных шагов в порядке, обратном завершению, с `UndoInput`
+  (в контексте, отключённом от отмены; undo на workflow — id `<id
+  запуска>/<шаг>/undo`), затем запуск падает non-retryable: `step <name>:
+  <service>.<Activity>: <сообщение обработчика>` (тип
+  `backplane.StepFailed`) или `transform failed at step <name> (<место>):
+  …` / `transform failed at result…` (тип `backplane.TransformFailed`);
+  неудачные undo дописываются в скобках (`(undo charge: billing.Refund:
+  …)`). Отмена запуска — те же компенсации, запуск завершается отменённым.
+  Результат биндинга — `Result` в `HookResult.payload`; запуск правила
+  возвращает пустой `HookResult`. Вычисление — чистые функции `Program`,
+  поэтому прямо в коде workflow.
+- **Trace.** Handler продолжает trace из `HookCall.trace`, если заголовки
+  Nexus его не донесли (старт workflow — в trace вызывающего); шаги
+  получают в `ActivityCall.trace` span workflow (интерцептор трассировки),
+  без него — `trace` входа.
+- **Консоль** (`BindingService`, RPC исполнителя рядом с RPC Manager'а):
+  `TestBinding(hook, input, version | definition, timeout)` — текущая,
+  указанная или несохранённая версия компилируется по последним манифестам
+  (нарушения — в ответе, ничего не запускается) и запускается тем же
+  workflow с id `test/<hook>/<uuid>` (identity с `test`, memo `source` —
+  сессия консоли); ответ — `CallResult` (выход или ошибка, id запуска) и
+  версия; ожидание — таймаут запуска (по умолчанию 30 с, не больше 10 мин)
+  плюс 10 с, не дождались — `DEADLINE_EXCEEDED` с id.
+  `ListBindingRuns(hook, status, tests, page)` — visibility: `TaskQueue =
+  'backplane' AND WorkflowType = 'backplane.Binding.v1' AND WorkflowId
+  STARTS_WITH 'binding/<hook>/'` (`test/<hook>/` для тестов), без `ORDER
+  BY` (SQL visibility его отвергает; порядок и так — новые первыми).
+  `GetBindingRun(workflow_id)` — запуск как `WorkflowService.GetRun`
+  (статус, вход, выход или ошибка, история) плюс хук, версия, признак
+  теста и **таймлайн шагов**: шаги программы в порядке объявления — вызов
+  шага (activity или child workflow: `SCHEDULED`, `STARTED`, `COMPLETED`,
+  `FAILED`, `TIMED_OUT`, `CANCELED`; попытка, время, вход, выход, ошибка
+  и её тип; для идущих — попытка и последняя ошибка из pending activities)
+  или `NOT_RUN` (пропущен `when`, не дошёл, отменён), затем компенсации в
+  порядке планирования (второй вызов того же шага — его undo: ретраи —
+  попытки одного вызова). `CancelBindingRun(workflow_id)` — запрос отмены.
+  Id, не похожий на запуск биндинга, — `INVALID_ARGUMENT`.
+- **Метрики** узла `executor`: `backplane.binding.calls{hook, outcome}` —
+  старты Nexus-операций (`run`, `default` — `{}` необязательного хука,
+  `no_binding`, `error`); `backplane.binding.runs{kind, source, outcome}`
+  и `backplane.binding.run.duration` (с) — завершённые запуски (`ok`,
+  `failed`, `canceled`; `source` — хук или событие);
+  `backplane.binding.step.duration{activity, undo, outcome}` (с) — шаг с
+  ретраями (`ok` / `error`); `backplane.executor.hook_services` (gauge) —
+  сервисы, которые обслуживает Nexus-worker. Запуски и шаги пишутся из
+  кода workflow вне replay: запуск считается один раз, какой бы репликой
+  ни закончился.
+
 ## 8. События
 
 Тонкая обёртка SDK над брокером; под капотом NATS JetStream. Что обёртка
@@ -1360,7 +1613,10 @@ NATS не сконфигурирован или сервис ещё не ста�
   экранированном токене не бывает `__`; имена по конвенциям (§17) не
   меняются. Полное имя события `<service>.<Event>` делится по первой точке.
   Имя сервиса `dlq` зарезервировано под dead letters (`Connect` его
-  отвергает).
+  отвергает). Токен `_redrive` экранирование не порождает (escape — `_` и
+  две заглавные hex-цифры): он занят subject'ами redrive из консоли
+  (`bp.<src>._redrive.<subscriber>.<consumer>`, см. «Redrive»). Имена —
+  контракт SDK и сервера, оба берут их из одного пакета `internal/wire`.
 - **Событие** — именованное сообщение, payload JSON (proto-тип — как
   protojson); envelope — стандартные заголовки CloudEvents, не наш proto.
   Тип автора — что угодно; SDK сериализует.
@@ -1441,8 +1697,13 @@ NATS не сконфигурирован или сервис ещё не ста�
   текущее имя. Манифест перечисляет реакторы в `subscriptions` (`event`,
   `consumer`); durable consumer в NATS — `<subscriber>__<consumer>` (оба
   экранированы, см. «Имена в NATS»; длиннее 200 символов — обрезается и
-  дополняется хешем), на стриме `bp_<src>` с фильтром `bp.<src>.<Event>`;
-  в metadata consumer'а — `bp.service`, `bp.consumer`, `bp.event`.
+  дополняется хешем), на стриме `bp_<src>` с двумя фильтрами:
+  `bp.<src>.<Event>` и redrive-subject реактора
+  `bp.<src>._redrive.<subscriber>.<consumer>` (его не матчит ни один другой
+  consumer); в metadata consumer'а — `bp.service`, `bp.consumer`,
+  `bp.event`. Фильтры пишутся create-or-update при каждом старте, так что
+  consumer, созданный SDK без redrive-subject'а, получает его при
+  следующем старте сервиса.
   Consumer, удалённый на сервере, пока сервис работает, SDK пересоздаёт
   с позиции реактора — со старейшего неподтверждённого сообщения, иначе
   сразу после последнего увиденного — и потребление продолжается.
@@ -1526,6 +1787,24 @@ NATS не сконфигурирован или сервис ещё не ста�
   события, а не один реактор, и повторный `ce-id` съела бы дедупликация.
   Вызывается одним инстансом (из внутреннего API или админ-команды
   сервиса): два параллельных прогона могут обработать dead letter дважды.
+- **[backplane] Redrive из консоли.** backplane обработчики сервиса не
+  исполняет, поэтому `EventService.RedriveDeadLetters` возвращает dead
+  letter реактору через NATS: публикует его payload и заголовки (без
+  `Nats-*`, `bp-error`, `bp-consumer`, `bp-delivered`; плюс `bp-redriven` =
+  sequence dead letter'а) в redrive-subject реактора
+  `bp.<src>._redrive.<subscriber>.<consumer>` — он внутри стрима источника
+  `bp_<src>`, и на него фильтрует только consumer этого реактора (JetStream
+  не фильтрует consumer'ы по заголовкам, а consumer читает только свой
+  стрим). После PubAck dead letter удаляется из `bp_dlq_<subscriber>`.
+  Реактор получает сообщение как новую доставку: `Attempt` с 1, весь
+  `MaxDeliver` заново, `ce-id` прежний (идемпотентный обработчик его
+  узнаёт); снова упавшее становится новым dead letter'ом. `Nats-Msg-Id` =
+  `redrive:<durable>:<seq>`: повтор redrive того же dead letter'а в окне
+  дедупликации не дублирует. Другие подписчики события redrive не видят.
+  Предусловия (иначе `FAILED_PRECONDITION`): consumer реактора есть на
+  сервере и среди его фильтров есть redrive-subject (сервис на SDK без
+  него — только `event.Redrive` в самом сервисе). Права NATS backplane —
+  publish в `bp.*._redrive.>`, чтение и удаление сообщений `bp_dlq_*`.
 - **Остановка реакторов** (до остановки дерева автора): выборка
   прекращается, выбранные, но не начатые сообщения возвращаются (nak), SDK
   ждёт обработчиков в полёте до конца общего бюджета остановки (своего
@@ -1545,35 +1824,161 @@ NATS не сконфигурирован или сервис ещё не ста�
   ack/nak, DLQ и его redrive; повтор истории — новый consumer со
   `StartAll`. Kafka под него встаёт; v0 — NATS.
 - **[backplane]** backplane в data path событий не участвует; наблюдает
-  каталог, lag, DLQ; держит consumers правил (§8.1).
+  каталог, lag, DLQ; держит consumers правил (§8.1). Консоль — сервис
+  `EventService` (`internal/ops`, NATS — соединение backplane через
+  `event.JetStream`, `BACKPLANE_NATS_URL`; без него NATS-вызовы —
+  `UNAVAILABLE`, а `ListEvents` отдаёт одни объявления с `nats_error`):
+  - `ListEvents` — все события из последних манифестов: схема,
+    описание, subject, число сообщений события в стриме, последнее
+    (seq, время); подписчики — реакторы сервисов (`subscriptions`),
+    consumers правил (`backplane__*`) и прочие consumers стрима, у каждого
+    состояние consumer'а (`num_pending` — lag, `num_ack_pending`,
+    `num_redelivered`, последняя доставка и ack, пауза, фильтры, политики,
+    metadata), число dead letters и умеет ли он redrive; стримы сервисов
+    (сообщения, байты, первый/последний seq и время, лимиты, `bp.ensured-by`);
+  - `GetStream(service)` — стрим событий и стрим dead letters сервиса, все
+    consumers стрима событий, dead letters по реакторам;
+  - `PeekMessages(service, event?, start_seq | start_time, limit)` —
+    страница вперёд от sequence или времени, без старта — последние
+    `limit` (по умолчанию 50, не больше 500); сообщение — seq, subject,
+    время записи, все заголовки, разобранные `ce-*`, payload JSON-текстом
+    (не JSON — байтами), пометка теста;
+  - `PublishTestEvent(event, payload, key?, extensions?, id?)` — только
+    объявленное событие, payload — валидный JSON (пустой — `{}`); это
+    событие сервиса: `ce-source` — сервис, `ce-type` — полное имя, как
+    опубликовал бы эмиттер, чтобы подписчики читали его как обычное;
+    пометки консоли — `ce-instance` = `backplane`, `ce-bptest` = `true`,
+    `ce-bpauthor` = автор; `Nats-Msg-Id` = `ce-id` (повтор с тем же `id`
+    в окне дедупликации — `duplicate`); нет стрима — `FAILED_PRECONDITION`;
+  - `ListDeadLetters(subscriber, consumer?, start_seq, limit)` — dead
+    letters от старых к новым с `bp-error`, `bp-consumer`, `bp-delivered`
+    и subject'ом исходного события, счётчики по реакторам;
+  - `RedriveDeadLetters(subscriber, consumer, seqs | all)` — см. «Redrive
+    из консоли»; ответ — сколько возвращено и отказы по seq;
+  - `PurgeDeadLetters(subscriber, consumer?, seqs?)` — удалить выбранные,
+    все dead letters реактора или сервиса.
 
 ### 8.1 Правила: событие → активити [backplane]
 
 Правило — **биндинг, у которого источник — событие, а не хук**. Тот же
-DSL, тот же исполнитель, та же консоль:
+DSL (§7.1), тот же исполнитель, та же консоль:
 
 ```
 on iam.UserRegistered when event.email != "" :=
-  render = template.Exec(name: "welcome", data: {name: event.name})
+  render = template.Exec(name: "welcome", data: {"name": event.name})
   send   = smtp.Send(to: event.email, subject: render.subject, text: render.text)
 ```
 
-Отличия от биндинга хука: вход называется `event`, `return` нет.
+Отличия от биндинга хука: вход называется `event` (payload события), к
+нему `meta` — атрибуты CloudEvents (`id`, `source`, `subject`, `type`,
+`time` — строки, `time` в RFC 3339); `return` нет.
 
-- На каждое правило backplane держит durable consumer на стриме события
-  (`bp_iam`, фильтр `bp.iam.UserRegistered`, имя `backplane__rule_<id>`);
-  реплики backplane тянут его совместно.
-- На сообщение — `ExecuteWorkflow` того же workflow, что исполняет
-  биндинги, с `event` как входом. **Workflow id = `rule/<id>/<ce-id>`**,
-  политика «дубликат отклонить»: повторная доставка не создаёт второго
-  запуска.
-- `when` вычисляется до старта; не подошло — ack без запуска.
-- Ack **после старта workflow**: durability с этого момента у Temporal;
-  DLQ на уровне NATS правилам не нужен.
+**Модель** (proto `backplane.console.v1.RuleDefinition`, Go
+`internal/bindings.Rule`): `event` — полное имя `<service>.<Event>`;
+`when` — CEL bool над `event` и `meta` (шаги ему не видны), пусто —
+всегда; `steps` — шаги §7.1. Правило — uuid; его `name` версионируется
+вместе с определением, пауза (`paused`) — флаг вне версий.
+
+**Валидация** — как у биндинга (§7.1): событие объявлено в последнем
+манифесте сервиса, `event` типизирован его схемой; у правила обязательно
+непустое имя. **Версии** — `rule` (id, paused), `rule_version` (rule_id,
+version с 1, name, `definition` — protojson `RuleDefinition`, NULL —
+надгробие, author, comment, created_at, rollback_of), `rule_current`;
+сохранение, откат и удаление — как у биндинга. Действуют правила не
+удалённые и не на паузе.
+
+**Консоль** — `RuleService`: `ListRules` (все или одного события, по
+имени), `GetRule`, `ListRuleVersions`, `ValidateRule`, `SaveRule` (без
+id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
+`ResumeRule`, `ParseRule`, `FormatRule`, `WatchRules`; запуски — RPC
+движка правил в том же сервисе: `TestRule`, `ListRuleRuns`, `GetRuleRun`,
+`CancelRuleRun` (см. «Запуски в консоли»).
+
+**Для движка правил** (`internal/bindings`): `Manager.ActiveRules(ctx)` —
+действующие правила, `Manager.Rules(ctx)` — все (с удалёнными и на
+паузе), `Manager.Changes(ctx)`; `CompileRule(r, catalog)` — `*Program`;
+`Program.StartEvent(payload, Meta)` — `Scope` события, `Match(s)` —
+`when`; шаги — как у биндинга.
+
+**Исполнение** — движок правил `internal/rules`, компонент `rules` в
+дереве backplane.
+
+- **Consumer на правило.** На каждое правило не удалённое и не на паузе
+  backplane держит durable consumer на стриме события: стрим `bp_<svc>`,
+  фильтр `bp.<svc>.<Event>`, имя `backplane__rule-<id>`
+  (`wire.Durable("backplane", "rule-<id>")`, id — uuid правила), explicit
+  ack, `ack_wait` 1 мин, `max_deliver` без ограничения; в metadata —
+  `bp.service` = `backplane`, `bp.consumer` = `rule-<id>`, `bp.event`,
+  `bp.rule` = id и `bp.rule-version` — версия, последней записавшая
+  consumer. Consumer общий для всех реплик backplane — конкурирующие
+  потребители; в одной реплике до 8 доставок правила обрабатываются
+  одновременно. Отсутствующий стрим события движок создаёт с дефолтами
+  платформы и существующий не трогает — как подписчик SDK (§8).
+- **Точка старта.** Новый consumer начинает с событий, опубликованных
+  после его создания (`deliver_policy new`): сохранённое правило не
+  переигрывает историю стрима (иначе, например, приветственные письма
+  ушли бы всем старым пользователям). Существующий consumer сохраняет
+  позицию.
+- **Событие.** Заголовки CloudEvents (`ce-*`) становятся `meta`; `ce-id`
+  обязателен, `ce-time` не в RFC 3339 читается как пустое время. `when`
+  вычисляется до старта: не подошло — ack без запуска. Подошло —
+  `ExecuteWorkflow` исполнителя (`backplane.Binding.v1` на очереди
+  `backplane`) со входом вида `rule`: скомпилированная программа, payload
+  события, `meta`, правило (id, версия) и контекст трассировки события
+  (`traceparent`, `tracestate`); memo `source` = `rule:<id>`,
+  `backplane.binding` = `rule:<id>@<версия>`. **Workflow id =
+  `rule/<id>/<ce-id>`**, политика «дубликат отклонить»: повторная доставка
+  или повторная публикация того же `ce-id` находит свой запуск и
+  подтверждается без второго (в пределах retention namespace'а Temporal).
+- **Ack после старта**: durability с этого момента у Temporal, DLQ на
+  уровне NATS правилам не нужен. Старт не удался (Temporal недоступен) —
+  nak с задержкой от 1 с, удваивающейся до 1 мин, без ограничения числа
+  доставок: события ждут в стриме. Старт, прерванный остановкой
+  backplane, — простой nak. Событие без `ce-id`, payload не JSON или
+  `when`, упавший на нём, — term и предупреждение в логе: повтор такое
+  событие не исправит.
+- **Сверка** — при изменении правил (`Manager.Changes`), манифестов
+  (реестр) и раз в минуту: новое действующее правило получает consumer;
+  новая версия (или изменившийся из-за манифестов скомпилированный
+  шаблон) переписывает consumer (фильтр, metadata) с сохранением позиции,
+  следующие события вычисляются новой версией; пауза прекращает чтение и
+  оставляет consumer — события копятся на его позиции, возобновление
+  продолжает с неё; правило, которое больше не компилируется (событие или
+  активити пропали из манифестов), тоже перестаёт читать, consumer
+  остаётся, причина — в логе; удалённое правило — consumer удаляется;
+  событие правила переехало в стрим другого сервиса — старый consumer
+  удаляется, новый начинает с новых событий. Consumer правила, удалённый
+  на сервере вручную, создаётся заново с новых событий. Consumers правил,
+  которые реплика не читает, сверка удаляет, только если правило удалено
+  или живёт на другом стриме и версия в metadata consumer'а не новее
+  известной реплике — отстающая реплика не удаляет consumer, созданный
+  более новой версией.
 - Правила **не упорядочены**, запуски параллельны. Если порядок важен —
   это реактор внутри сервиса, не правило.
-- Консоль: на карточке события — правила; на карточке правила — запуски по
-  префиксу workflow id; тест на примере события.
+- Без NATS или Temporal движок пишет в лог, почему правила не работают, и
+  ждёт; на readiness backplane не влияет.
+- Метрики: `backplane.rules.messages{rule, outcome}` — доставки по исходу
+  (`skipped` — `when` ложно, `started`, `dedup` — запуск уже есть,
+  `failed` — старт не удался, `invalid` — term), `backplane.rules.matched{rule}`
+  — доставки с истинным `when`.
+
+**Запуски в консоли** (`RuleService`):
+
+- `TestRule(id [+ version] | definition, event, meta?, dry_run?,
+  timeout?)` — определение компилируется по последним манифестам
+  (нарушения — в ответе), `when` вычисляется на примере события (`meta`
+  по умолчанию: новый uuid, сервис и полное имя события, текущее время);
+  подошло и не `dry_run` — тестовый запуск `test/rule/<id>/<uuid>`
+  (`test/rule/draft/<uuid>` для несохранённого определения, identity с
+  `test`) и ожидание результата (по умолчанию 30 с, не больше 10 мин;
+  не дождались — `DEADLINE_EXCEEDED` с id запуска);
+- `ListRuleRuns(id, status?, tests?)` — запуски по префиксу workflow id
+  `rule/<id>/` (с `tests` — `test/rule/<id>/`) через visibility, как
+  `WorkflowService.ListRuns` (без `ORDER BY`);
+- `GetRuleRun(id, workflow_id, run_id?)`, `CancelRuleRun` — детали и
+  отмена запуска, только запусков этого правила (`NOT_FOUND` для чужого
+  id), как `WorkflowService.GetRun`/`CancelRun`.
+- На карточке события — правила; на карточке правила — запуски и тест.
 
 ## 9. Workflows
 
@@ -1588,8 +1993,57 @@ on iam.UserRegistered when event.email != "" :=
 - между сервисами — только через хуки (§7): activity вызывает `Call` хука,
   реализация — биндинг; чужих очередей и типов сервис не знает;
 - **[backplane]** из консоли — запустить любой workflow, хук или активити с входом: форма
-  по схеме, если есть, иначе JSON; запуски, история, отмена, повтор —
-  Temporal API в карточке.
+  по схеме, если есть, иначе JSON; запуски, история, отмена —
+  Temporal API в карточке. Сервисы консоли (`internal/ops`; Temporal —
+  клиент backplane через `workflows.Client`, `BACKPLANE_TEMPORAL_ADDR`;
+  без него — `UNAVAILABLE`); всё, что консоль запускает, несёт memo
+  `source` = `console:<session>` (§14):
+  - `WorkflowService`: `ListWorkflows` — `workflows[]` последних
+    манифестов и активити вида `WORKFLOW` со схемами и очередью;
+    `StartWorkflow(service, workflow, input, workflow_id?, timeout?)` —
+    только объявленный, на очереди сервиса, вход — JSON как есть (активити
+    на workflow — завёрнутым в `ActivityCall`), id по умолчанию
+    `console/<service>/<workflow>/<uuid>`; `ListRuns(service, workflow?,
+    status?, workflow_id_prefix?, page)` — visibility-запрос
+    `TaskQueue = '<service>' [AND WorkflowType …] [AND ExecutionStatus …]
+    [AND WorkflowId STARTS_WITH …] ORDER BY StartTime DESC` (кавычки в
+    значениях отвергаются; запуски расписания — префикс
+    `<service>/<Name>-`); `GetRun(workflow_id, run_id?)` — статус, memo,
+    вход, результат или ошибка с типом, pending activities, история
+    таймлайном (тип события, одна строка сводки, payload JSON-текстом,
+    ошибка; до 1000 событий, закрывающее — всегда); `CancelRun`,
+    `TerminateRun(reason)` (к причине дописывается автор), `SignalRun(signal,
+    input)`;
+  - `ScheduleService`: `ListSchedules` — объявленные расписания и
+    расписания Temporal с префиксом `<service>/`, которых нет в манифесте;
+    живое состояние — пауза и note, ближайшие запуски (до 5), недавние
+    (время, workflow id, run id), идущие, счётчики, владелец из memo
+    `backplane.service`, тип workflow; `PauseSchedule`/`UnpauseSchedule`
+    (note + автор) и `TriggerSchedule`. Ручная пауза живёт до изменения
+    объявления (сверка SDK не трогает совпадающее расписание);
+  - `CallService`: вызовы идут коротким workflow на **очереди backplane**
+    `backplane` (зарегистрирован через `workflows.Register` сервиса
+    backplane; результат, вход и ошибка — в Temporal как у любого
+    запуска), API ждёт результат. `CallHook(hook, input, key?, timeout?)`
+    — `backplane.console.CallHook.v1` делает Nexus-вызов, как сделал бы
+    сервис: операция `<Name>` сервиса `<service>.Hooks` на endpoint'е
+    `<service>`, `HookCall{hook, instance: console:<session>, payload,
+    trace, deadline}`; дедлайн — из запроса, иначе объявленный `timeout`
+    хука, иначе 30 с (не больше 10 мин); id
+    `hook/<service>/<Name>/console-<uuid>`, с ключом —
+    `hook/<service>/<Name>/<key>` с теми же политиками, что у `hook.Key`:
+    консоль и сервис с одним ключом попадают в один запуск; нет
+    Nexus-endpoint'а — `FAILED_PRECONDITION`. `RunActivity(activity, input,
+    start_to_close?, max_attempts?, step?)` —
+    `backplane.console.RunActivity.v1` исполняет активити по имени на
+    очереди сервиса с `ActivityCall{activity, payload, binding: console,
+    step}`: activity или, для вида `WORKFLOW`, child workflow;
+    start-to-close — из запроса, иначе объявленный, иначе 1 мин; попыток
+    — `max_attempts`, по умолчанию одна. Ответ обоих — `CallResult`:
+    выход JSON-текстом или ошибка обработчика с типом application error
+    (`backplane.NoBinding`, `backplane.HookFailed`, `backplane.Timeout`,
+    `backplane.NonRetryable`), workflow id, run id, длительность; не
+    дождались — `DEADLINE_EXCEEDED` с id запуска.
 
 **Регистрация и клиент.** `workflows.Register(scope, func(r
 worker.Registry))` добавляет workflows и activities автора в worker
@@ -1744,6 +2198,8 @@ Shell — собственный UI backplane. Два слоя:
   - `SessionService` — `ListSessions`, `RevokeSession`,
     `RevokeOtherSessions` (§11.3);
   - `ConfigService` — Live-конфигурация (§5), компонент `internal/config`;
+  - `EventService` (§8), `WorkflowService`, `ScheduleService`,
+    `CallService` (§9) — компонент `internal/ops`;
 - **всё остальное — relay**: `WithUnknownHandler` по полному имени метода
   находит сервис, чей **последний** манифест (`registry.Service.Latest`)
   объявляет этот gRPC-сервис в `internal_services`, выбирает инстанс и
@@ -1924,7 +2380,7 @@ Consul KV персистентен (Raft, снапшоты), но это не Б
 
 | где | что |
 |---|---|
-| **PostgreSQL**, схема `backplane` | биндинги, правила; ревизии Live-значений; сессии консоли; аудит |
+| **PostgreSQL**, схема `backplane` | версии биндингов и правил (§7.1, §8.1); ревизии Live-значений; сессии консоли; аудит |
 | **Consul KV** | манифесты и состояние инстансов — proto binary (пишет SDK); `config/<service>/` — доставка Live-значений: скаляр — текстом, контейнер — JSON, плюс `_revision` (пишет backplane, §5.3) |
 | **Temporal** | запуски хуков, биндингов, правил с историей — не дублируются |
 
@@ -2017,6 +2473,12 @@ per-service auth в Temporal, шифрование at rest.
 | история Live-значений | ревизии в PostgreSQL | значения, автор, комментарий, время, откат |
 | обращения к внешнему API | access-логи Envoy | метод, статус, латентность, клиент |
 | события | сам JetStream-стрим | replayable лог с `ce-source`, `ce-time` |
+
+Пока таблицы `audit` нет, мутирующие вызовы консоли (`internal/ops`:
+тестовое событие, redrive и purge dead letters, старт, отмена,
+терминация, сигнал запуска, пауза, снятие паузы и запуск расписания,
+вызов хука и активити) пишутся в лог строкой `console action` с `actor`
+(`console:<session>`), `action`, `subject` и деталями.
 
 Добавляет backplane — действия оператора и системы: биндинг/правило
 создано, изменено, удалено (с diff); ревизия конфига, откат; вход,
@@ -2140,9 +2602,8 @@ identity-сервис; CaC/CLI/GitOps-канал доставки конфига
 
 ### 16.2 Milestones
 
-Статус: M0 сделан; M1 сделан на стороне сервера, кроме фронтенда
-консоли; из M2 сделана сторона SDK, сторона сервера не начата; M3 — только
-доставка бандла консолью.
+Статус: M0 сделан; M1 и M2 сделаны на стороне сервера, кроме фронтенда
+консоли; M3 — только доставка бандла консолью.
 
 **M0 — SDK и `hello`, без backplane. Сделано.** Platform-in-a-box:
 compose с Consul, NATS, Temporal (dev-сервер с Nexus), PostgreSQL и Envoy
@@ -2172,18 +2633,33 @@ ws-proto → внутреннее API, `/plugins/` с кэшем по хэшу (
 test-m1`, §16.3): цикл «форма → ревизия → KV → сервис» и вход через Envoy
 на настоящих бинарях `backplane` и `hello`.
 
-**M2 — хуки, биндинги, правила, события.** Сторона SDK **сделана**:
-Temporal в SDK — хуки (`Call` через `backplane.CallHook.v1` на очереди
-`<service>.hooks`, `WorkflowCall` — Nexus напрямую, ключ идемпотентности),
-активити обоих видов, workflows (`Register`, `Declare`, `Client`) и
-расписания со сверкой, настройка worker'а; события CloudEvents над
-JetStream, реакторы с опциями доставки, DLQ и `Redrive`. Сторона
-backplane **не начата**: Nexus-endpoint и handler, binding-workflow, DSL
-с CEL над JSON, правила. `hello` объявляет хук `Greet` (вызывается из
-HTTP-handler'а и из workflow), активити `Echo` и событие `Greeted`;
-биндинг `hello.Greet := hello.Echo`, правило `on hello.Greeted :=
-hello.Echo` — на стороне backplane. Доказывает: развязка end-to-end, один
-trace через всё.
+**M2 — хуки, биндинги, правила, события. Сервер сделан, фронтенда
+консоли нет.** Сторона SDK: Temporal в SDK — хуки (`Call` через
+`backplane.CallHook.v1` на очереди `<service>.hooks`, `WorkflowCall` —
+Nexus напрямую, ключ идемпотентности), активити обоих видов, workflows
+(`Register`, `Declare`, `Client`) и расписания со сверкой, настройка
+worker'а; события CloudEvents над JetStream, реакторы с опциями доставки,
+DLQ и `Redrive`. Сторона backplane: биндинги и правила — версии в
+PostgreSQL, валидация по последним манифестам с CEL над JSON-схемами,
+текстовая форма (`ParseBinding`/`FormatBinding`, `ParseRule`/`FormatRule`),
+`BindingService` и `RuleService` на `/ws` (§7.1, §8.1,
+`internal/bindings`); исполнитель — Nexus endpoint на каждый сервис с
+хуками, Nexus-only worker `<service>.Hooks`, workflow
+`backplane.Binding.v1` с шагами и компенсациями, запуски в консоли
+(`TestBinding`, `ListBindingRuns`, `GetBindingRun`, `CancelBindingRun`;
+§7.2, `internal/executor`); движок правил — consumer
+`backplane__rule-<id>` на правило, запуск `rule/<id>/<ce-id>` на
+событие, пауза и возобновление, `TestRule` и запуски правила
+(`internal/rules`); операции консоли — события, стримы, lag, тестовые
+события, dead letters с redrive реактору и purge, workflows, запуски,
+расписания, вызов хука и активити из консоли (§8, §9, `internal/ops`,
+контракт имён `internal/wire`). `hello` объявляет хук `Greet`
+(вызывается из HTTP-handler'а и из workflow), активити `Echo` и событие
+`Greeted`; биндинг `hello.Greet := hello.Echo` и правило `on
+hello.Greeted := hello.Echo` сохраняются в консоли. Нет: экраны консоли
+для биндингов, правил, событий и запусков. Доказательство —
+`conformance/m2_test.go` (`make test-m2`, §16.3): развязка end-to-end и
+один trace через всё на настоящих бинарях `backplane` и `hello`.
 
 **M3 — плагины, observability, аудит.** Сделана доставка бандла:
 отдача с платформенного порта в SDK и `/plugins/<service>/<hash>/` консоли
@@ -2222,6 +2698,11 @@ case в SDK ради них — дефект модели.
     последней доставки, заголовки dead letter, `Redrive`; обработчик,
     прерванный остановкой, возвращает сообщение без DLQ; эволюция схемы
     (лишнее поле — игнор, JSON и protojson; отсутствующее — нулевое);
+  - **[backplane]** redrive из консоли (`TestConsoleRedrive`): сервис на
+    SDK с двумя реакторами на своё событие, тестовые события консоли
+    доходят до обоих, dead letter одного реактора `RedriveDeadLetters`
+    возвращает только ему (тот же `ce-id`, `Attempt` 1), второй его не
+    видит, dead letter удалён;
   - workflows и расписания: клиент, создание, обновление, удаление
     неописанного на реплике без worker'а.
 
@@ -2255,19 +2736,55 @@ case в SDK ради них — дефект модели.
     снова — возвращается с текущей ревизией; Envoy не отверг ни одного
     обновления xDS.
 
-  **[backplane]** Не проверяется: правило и его дедупликация по `ce-id`
-  (сторона сервера M2).
+- **M2 end-to-end** (`conformance/m2_test.go`, `make test-m2`; нужны
+  переменные M1 и `BACKPLANE_TEST_NATS`, `BACKPLANE_TEST_TEMPORAL`) — та
+  же пара настоящих `backplane` и `hello`, обе с NATS и Temporal, Envoy из
+  platform-in-a-box; всё — через `/ws` консоли в Envoy. Удаляет за собой
+  scratch-базу (биндинги и правила), стримы `bp_hello` и `bp_dlq_hello` со
+  всеми consumer'ами (и `backplane__rule-<id>`), ключи Consul; Nexus
+  endpoint `hello` в Temporal остаётся. Проверяется:
+  - до биндинга: `GET /hello/` через Envoy — локальный fallback `hello`;
+    `CallHook` — `backplane.NoBinding`; `ListBindings` — `hello.Greet`
+    обязательный и не привязан;
+  - биндинг `hello.Greet := hello.Echo` из текстовой формы: разбор и
+    обратная запись, `ValidateBinding` без нарушений, `SaveBinding` —
+    версия 1; исполнитель отвечает на `CallHook`, `GET /hello/` через Envoy
+    отдаёт текст биндинга; `ListBindingRuns`/`GetBindingRun` — запуск
+    `binding/hello.Greet/...` с шагом `echo`, завершённым, со входом и
+    выходом;
+  - неизвестная активити и ошибка типов CEL — нарушения, версия не
+    создаётся;
+  - один trace: trace id из `traceparent` HTTP-запроса — во входе
+    `CallHook`-запуска `hello` (`HookCall.trace`), во входе
+    binding-запуска и в `ActivityCall.trace` вызова `Echo`;
+  - `TestBinding` черновика (версия 0, `test/hello.Greet/...`) и текущей
+    версии, невалидного черновика — нарушения без запуска; тестовые
+    запуски не попадают в список вызовов хука; удаление биндинга —
+    tombstone, снова fallback;
+  - правило `on hello.Greeted when event.name != "skip" := hello.Echo`:
+    consumer правила создан и виден подписчиком в `ListEvents`; ровно
+    один запуск `rule/<id>/<ce-id>` на подходящее событие (с trace
+    HTTP-запроса в вызове `Echo`), ни одного на отфильтрованное; тот же
+    `ce-id` повторно (тестовое событие консоли и републикация с новым
+    `Nats-Msg-Id`) второго запуска не даёт; на паузе событие ждёт в
+    consumer'е без запуска, после возобновления — запускается;
+  - `TestRule`: dry run черновика — только `when` (совпало / нет, без
+    запуска), тестовый запуск сохранённого правила —
+    `test/rule/<id>/...`, отдельно от запусков по событиям.
 - **Шаблон сервиса** — один (не реализован); генерирует `proto/`,
   `internal/`, `cmd/`, `ui/`, Makefile, Dockerfile, conformance-таргет;
   версия шаблона записывается; `template upgrade` — v1.
 
 ### 16.4 Известные риски
 
-- **[backplane] Регистрация Nexus-операций.** В Temporal Go набор
-  операций фиксируется до старта worker'а. backplane — один handler для
-  хуков всех сервисов: новый хук → пересобрать набор и перезапустить
-  worker (объект в процессе). Первое, что проверить на стороне сервера
-  M2: нет ли catch-all и не рвёт ли перезапуск in-flight.
+- **[backplane] Регистрация Nexus-операций.** В Temporal Go (SDK 1.49,
+  nexus-rpc 0.7) набор Nexus-сервисов и операций фиксируется до старта
+  worker'а, диспетчеризация — по точному имени, catch-all нет. Исполнитель
+  держит отдельный Nexus-only worker и при изменении набора хуков
+  стартует новый, затем останавливает старый — задачи в полёте
+  дорабатывают на старом, основной worker не трогается (§7.2). Остаточный
+  риск — `NOT_FOUND` от реплики, ещё не увидевшей новый хук, в окне
+  распространения изменения реестра.
 - **Активити по имени.** Единственное место, где backplane формирует
   данные для чужого кода: envelope `ActivityCall` наш, payload — JSON из
   CEL. Сторону SDK conformance проверяет, играя backplane (§16.3).
@@ -2286,9 +2803,10 @@ case в SDK ради них — дефект модели.
 | env | `<SERVICE>_<PATH>`: `SERVICE` — имя сервиса в верхнем регистре, `-` и `.` → `_`; путь — JSON-имена полей в верхнем регистре через `_`; блок SDK — `BACKPLANE_<PATH>` (таблица §4.3) |
 | файл | `BACKPLANE_CONFIG_FILE` (YAML/JSON) той же формы, что структура конфигурации |
 | платформенный порт | `/healthz/liveness`, `/healthz/readiness`, `/healthz/startup`, `/_backplane/ui/<path>`, `/_backplane/info`, `/debug/pprof/*`; секрет — gRPC metadata `bp-internal-secret`, HTTP `Bp-Internal-Secret` |
-| NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>` (фильтр стрима `bp.<service>.>`); durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста: `<путь узла>:<событие>`, на `Root` — `<событие>`, или `event.Consumer`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; имена экранируются (§8); metadata стримов `bp.service`, `bp.kind` (`events` / `dead-letters`), `bp.ensured-by`, consumer'ов `bp.service`, `bp.consumer`, `bp.event`; заголовки dead letter `bp-error`, `bp-consumer`, `bp-delivered`; **[backplane]** consumers правил `backplane__rule_<id>` |
-| Temporal | namespace один (`BACKPLANE_TEMPORAL_NS`); task queue сервиса `<service>`; очередь вызовов хуков `<service>.hooks`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow type активити на workflow и `workflows.Declare` — объявленное имя; workflow вызова хука вне workflow `backplane.CallHook.v1`, id `hook/<service>/<Name>/<uuid>` или `hook/<service>/<Name>/<key>`, memo `source` = `<service>/<instance>`, search attributes `BpService`, `BpHook`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; типы application error: `backplane.NoBinding` (нет биндинга), `backplane.HookFailed`, `backplane.Timeout` (вызов хука), `backplane.NonRetryable` (активити); **[backplane]** очередь backplane `backplane`, workflow id правила `rule/<id>/<ce-id>` |
+| NATS | стрим `bp_<service>`, subject `bp.<service>.<Event>` (фильтр стрима `bp.<service>.>`); durable consumer реактора `<subscriber>__<consumer>` (`consumer` — `subscriptions[].consumer` манифеста: `<путь узла>:<событие>`, на `Root` — `<событие>`, или `event.Consumer`); DLQ — subject `bp.dlq.<subscriber>.<consumer>`, стрим `bp_dlq_<subscriber>`; redrive из консоли — subject `bp.<src>._redrive.<subscriber>.<consumer>` в стриме источника (второй фильтр consumer'а реактора), заголовок `bp-redriven`, `Nats-Msg-Id` `redrive:<durable>:<seq>`; тестовое событие консоли — `ce-instance` `backplane`, `ce-bptest` `true`, `ce-bpauthor`; имена экранируются (§8); metadata стримов `bp.service`, `bp.kind` (`events` / `dead-letters`), `bp.ensured-by`, consumer'ов `bp.service`, `bp.consumer`, `bp.event`; заголовки dead letter `bp-error`, `bp-consumer`, `bp-delivered`; **[backplane]** consumers правил `backplane__rule-<id>` (metadata `bp.rule`, `bp.rule-version`) |
+| Temporal | namespace один (`BACKPLANE_TEMPORAL_NS`); task queue сервиса `<service>`; очередь вызовов хуков `<service>.hooks`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow type активити на workflow и `workflows.Declare` — объявленное имя; workflow вызова хука вне workflow `backplane.CallHook.v1`, id `hook/<service>/<Name>/<uuid>` или `hook/<service>/<Name>/<key>`, memo `source` = `<service>/<instance>`, search attributes `BpService`, `BpHook`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; типы application error: `backplane.NoBinding` (нет биндинга), `backplane.HookFailed`, `backplane.Timeout` (вызов хука), `backplane.NonRetryable` (активити); **[backplane]** очередь backplane `backplane`; workflow исполнения биндингов и правил `backplane.Binding.v1`, id вызова хука `binding/<hook>/<Nexus request id>`, тестового запуска биндинга `test/<hook>/<uuid>`, memo `backplane.binding` = `<hook>@<версия>` (`@draft` — несохранённое определение) или `rule:<id>@<версия>`, типы ошибок запуска `backplane.StepFailed`, `backplane.TransformFailed`; Nexus-worker хуков — на той же очереди, только Nexus-задачи; workflow id правила `rule/<id>/<ce-id>`, тестового запуска правила — `test/rule/<id>/<uuid>`; вызовы консоли — workflows `backplane.console.CallHook.v1` (id `hook/<service>/<Name>/console-<uuid>` или `…/<key>`) и `backplane.console.RunActivity.v1` (id `console/activity/<service>/<Name>/<uuid>`) на очереди `backplane`, запуск workflow из консоли — id `console/<service>/<workflow>/<uuid>`, memo `source` = `console:<session>` |
 | имена хуков, активити, событий, workflows | `<service>.<Name>`, `Name` — CamelCase `[A-Z][A-Za-z0-9]*`; имя расписания — `[A-Za-z][A-Za-z0-9_]*` |
+| **[backplane]** биндинги и правила | биндинг — по полному имени хука; правило — uuid и имя (любой непустой текст); шаг — `[A-Za-z_][A-Za-z0-9_]*`, не `req`, `event`, `meta`, `steps`, не слово CEL, не `on`/`when`; CEL-переменные `req` (биндинг), `event` и `meta` (правило), `<шаг>`, `steps.<шаг>.skipped`; таблицы `binding_version`, `binding_current`, `rule`, `rule_version`, `rule_current`; путь нарушения — `hook`, `event`, `when`, `name`, `steps[<i>].<поле>[.<поле входа>]`, `result[.<поле>]` |
 | proto-пакеты | внутреннее API — `<service>.console.v1` (`-` → `_`; другой пакет — ошибка `Run`); конвенция генератора, SDK её не проверяет: хуки `<service>.hooks.v1`, активити `<service>.activities.v1`, события `<service>.events.v1` |
 | **[backplane]** консоль | под базой консоли (`/` или `<prefix>/`): `/auth/login`, `/auth/logout`, `/auth/session`, `/ws`, `/plugins/<service>/<hash>/<path>` — бандл, `/s/<service>/...` — плагин в shell; cookie сессии `bp_session`; собственный API — proto-пакет `backplane.console.v1`; relay ставит metadata `bp-console-session` (id сессии) и `bp-internal-secret` |
 
@@ -2304,7 +2822,8 @@ backplane/
   deployments/               что даёт деплой: README для девопсов (§4.3, §15.3), envoy/envoy.yaml —
                              bootstrap Envoy (admin 9901, xDS ADS от backplane на 18000)
   backplanepb/v1/            proto-контракт backplane.v1 (manifest, instance, call) и сгенерированный Go
-  backplanepb/console/v1/    API консоли backplane.console.v1 (catalog, session, config) и сгенерированный Go
+  backplanepb/console/v1/    API консоли backplane.console.v1 (catalog, session, config, events, workflows,
+                             calls, bindings, rules) и сгенерированный Go
   cmd/
     backplane/               бинарь платформы: сервис на своём SDK (имя backplane)
   internal/                  приватное backplane (сервер):
@@ -2313,17 +2832,31 @@ backplane/
     store/                   PostgreSQL, схема backplane: pgxpool + pgtx (транзакции), миграции sqld
                              при старте (migrations/, из diff schema.sql), типизированные запросы
                              (queries/ → db/, sqld-gen-go)
+    wire/                    контракт имён SDK и сервера (§8, §9, §17): объекты NATS, заголовки, metadata,
+                             redrive-subject, имена Temporal; только стандартная библиотека
+    ops/                     операции консоли над стеком (§8, §9): EventService (стримы, consumers и lag,
+                             сообщения, тестовые события, dead letters, redrive, purge), WorkflowService,
+                             ScheduleService, CallService (workflows вызовов на очереди backplane);
+                             NATS и Temporal — клиенты SDK backplane
     registry/                каталог установки из Consul: blocking queries на каталог, health
                              сервисов и backplane/services/; неизменяемые снапшоты Catalog, Source
                              (Current, Changes), Hub — источник снапшотов и фейк для тестов
     config/                  Live-конфигурация (§5.2, §5.3): ревизии override в PostgreSQL, валидация
                              на инстансах схемой, доставка в config/<service>/ (txn + CAS на _revision),
                              reconciler, ConfigService консоли (Manager.API)
+    bindings/                биндинги и правила (§7.1, §8.1): модель, текстовая форма (Parse, Format),
+                             валидация по манифестам с проверкой CEL по схемам, Compile → Program
+                             (группы, опции, детерминированное вычисление для workflow), версии в
+                             PostgreSQL, BindingService и RuleService консоли (Manager)
+    executor/                исполнитель хуков (§7.2): Nexus endpoint'ы сервисов с хуками, Nexus-worker
+                             <service>.Hooks на очереди backplane (пересобирается при изменении набора
+                             хуков), workflow backplane.Binding.v1 (биндинги и правила), RPC запусков
+                             BindingService (TestBinding, ListBindingRuns, GetBindingRun, CancelBindingRun)
     xds/                     control-plane Envoy (§6): ADS-сервер на своём адресе, снапшот из Catalog
                              (Build: listener, маршруты, cluster'ы, endpoints), метрики, NACK в лог
     console/                 консоль (§11): компонент со своим listener'ом — вход по
                              admin-токену из конфигурации, сессии (Sessions: PostgreSQL, PG), brute force,
-                             /ws (ws-proto: CatalogService, SessionService, ConfigService; relay во
+                             /ws (ws-proto: CatalogService, SessionService, ConfigService, BindingService, RuleService; relay во
                              внутреннее API сервисов), бандлы плагинов с LRU-кэшем, заголовки безопасности
   pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed
     activity/                активити: Handle, Workflow, опции для биндинга, InfoOf, Heartbeat, NonRetryable
@@ -2370,7 +2903,7 @@ backplane/
 ```
   cmd/
     protoc-gen-backplane/    генератор (удобство)
-  internal/                  xds, nexus (handler и binding-workflow), rules,
+  internal/                  xds, rules,
                              console (ws-proto server, relay, auth), obs (query-proxy)
   web/                       yarn workspace
     packages/console/        shell (MF-хост)

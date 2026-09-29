@@ -1,7 +1,6 @@
 package conformance_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -56,11 +55,11 @@ const (
 	m1Revision   = "config/" + service + "/_revision"
 )
 
-// m1Proc is one child process; its output is read only after Wait.
+// m1Proc is one child process; its output may be read while it runs.
 type m1Proc struct {
 	name string
 	cmd  *exec.Cmd
-	logs *bytes.Buffer
+	logs *syncBuffer
 	done bool
 }
 
@@ -70,7 +69,7 @@ type m1Proc struct {
 func m1Start(t *testing.T, name, bin string, env ...string) *m1Proc {
 	t.Helper()
 
-	p := &m1Proc{name: name, cmd: exec.Command(bin), logs: &bytes.Buffer{}}
+	p := &m1Proc{name: name, cmd: exec.Command(bin), logs: &syncBuffer{}}
 
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "BACKPLANE_") && !strings.HasPrefix(kv, "HELLO_") {

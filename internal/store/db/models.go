@@ -40,3 +40,43 @@ type BackplaneConsoleSession struct {
 	Address    string
 	UserAgent  string
 }
+
+type BackplaneBindingVersion struct {
+	Hook       string
+	Version    int64
+	Definition json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+type BackplaneBindingCurrent struct {
+	Hook      string
+	Version   int64
+	UpdatedAt time.Time
+}
+
+type BackplaneRule struct {
+	ID        uuid.UUID
+	Paused    bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type BackplaneRuleVersion struct {
+	RuleID     uuid.UUID
+	Version    int64
+	Name       string
+	Definition json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+type BackplaneRuleCurrent struct {
+	RuleID    uuid.UUID
+	Version   int64
+	UpdatedAt time.Time
+}

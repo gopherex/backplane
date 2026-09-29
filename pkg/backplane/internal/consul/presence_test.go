@@ -487,7 +487,6 @@ func TestFailedEstablishDestroysSession(t *testing.T) {
 
 	for name, fail := range map[string]func(f *fakeConsul){
 		"state write": func(f *fakeConsul) { f.failAcquires = 1 },
-		"register":    func(f *fakeConsul) { f.failRegisters = 1 },
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -512,6 +511,26 @@ func TestFailedEstablishDestroysSession(t *testing.T) {
 				t.Fatalf("orphan sessions: %v", live)
 			}
 		})
+	}
+}
+
+// A failed catalog registration keeps the session: registration is retried
+// on the next renew, the instance state stays where it is.
+func TestFailedRegistrationKeepsSession(t *testing.T) {
+	t.Parallel()
+
+	f, c := newFake(t)
+	key := stateKey(testID)
+
+	f.with(func(f *fakeConsul) { f.failRegisters = 1 })
+
+	p := start(t, consul.Params{Client: c, Identity: testID, Register: true})
+
+	eventually(t, "established", established(f, p, key))
+	eventually(t, "registered on a later attempt", func() bool { return len(f.registered()) == 1 })
+
+	if got := f.eventLog(); !slices.Equal(got, []string{"create s1"}) || p.Session() != "s1" {
+		t.Fatalf("events %v, session %s: the session must survive a failed registration", got, p.Session())
 	}
 }
 

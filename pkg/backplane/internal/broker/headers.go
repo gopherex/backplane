@@ -11,34 +11,36 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"go.opentelemetry.io/otel"
 
+	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 )
 
 // CloudEvents over the NATS binding (binary mode): attributes and
-// extensions are ce-* headers, the payload is the data.
+// extensions are ce-* headers, the payload is the data. The names are the
+// wire contract's (internal/wire).
 const (
-	HeaderSpecVersion = "ce-specversion"
-	HeaderID          = "ce-id"
-	HeaderSource      = "ce-source"
-	HeaderType        = "ce-type"
-	HeaderTime        = "ce-time"
-	HeaderSubject     = "ce-subject"
-	HeaderContentType = "ce-datacontenttype"
-	HeaderInstance    = "ce-instance"
-	HeaderVersion     = "ce-version"
+	HeaderSpecVersion = wire.HeaderSpecVersion
+	HeaderID          = wire.HeaderID
+	HeaderSource      = wire.HeaderSource
+	HeaderType        = wire.HeaderType
+	HeaderTime        = wire.HeaderTime
+	HeaderSubject     = wire.HeaderSubject
+	HeaderContentType = wire.HeaderContentType
+	HeaderInstance    = wire.HeaderInstance
+	HeaderVersion     = wire.HeaderVersion
 	// HeaderMIME is the binding's content type header.
-	HeaderMIME = "content-type"
+	HeaderMIME = wire.HeaderMIME
 
 	// HeaderError and HeaderConsumer are added to a dead letter: the last
 	// handler error and the reactor that gave up.
-	HeaderError    = "bp-error"
-	HeaderConsumer = "bp-consumer"
+	HeaderError    = wire.HeaderError
+	HeaderConsumer = wire.HeaderConsumer
 	// HeaderDelivered: deliveries before the message was dead-lettered.
-	HeaderDelivered = "bp-delivered"
+	HeaderDelivered = wire.HeaderDelivered
 
-	cePrefix    = "ce-"
-	specVersion = "1.0"
-	contentJSON = "application/json"
+	cePrefix    = wire.CEPrefix
+	specVersion = wire.SpecVersion
+	contentJSON = wire.ContentJSON
 	// natsPrefix marks the server's own headers, never copied to a dead
 	// letter.
 	natsPrefix = "Nats-"

@@ -21,7 +21,7 @@ func (b *Broker) Connected() bool {
 // not wrap. It fails with env.ErrUnavailable before Connect and after
 // Close; while the connection is down it is returned all the same (it
 // reconnects by itself, its calls fail meanwhile).
-func (b *Broker) JetStream() (jetstream.JetStream, error) { //nolint:ireturn // JetStream is only an interface
+func (b *Broker) JetStream() (jetstream.JetStream, error) {
 	b.mu.Lock()
 	conn, jet := b.conn, b.jet
 	b.mu.Unlock()

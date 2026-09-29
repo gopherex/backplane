@@ -52,3 +52,59 @@ CREATE TABLE backplane.console_session (
 );
 
 CREATE INDEX console_session_expires_at_idx ON backplane.console_session (expires_at);
+
+-- Bindings (§7.1): versions of the binding of each hook ("<service>.<Hook>"),
+-- append-only; versions count from 1 per hook, a rollback is a new version
+-- copying an older one's definition (rollback_of), a delete is a tombstone
+-- (definition NULL). definition: protojson of backplane.console.v1.BindingDefinition.
+CREATE TABLE backplane.binding_version (
+  hook        text        NOT NULL,
+  version     bigint      NOT NULL CHECK (version > 0),
+  definition  jsonb,
+  author      text        NOT NULL,
+  comment     text        NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  rollback_of bigint,
+  PRIMARY KEY (hook, version),
+  FOREIGN KEY (hook, rollback_of) REFERENCES backplane.binding_version (hook, version)
+);
+
+-- The version of each hook's binding in force: the latest one.
+CREATE TABLE backplane.binding_current (
+  hook       text        PRIMARY KEY,
+  version    bigint      NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (hook, version) REFERENCES backplane.binding_version (hook, version)
+);
+
+-- Rules (§8.1): event -> steps. The row is the rule's identity and its
+-- pause, which is not versioned.
+CREATE TABLE backplane.rule (
+  id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  paused     boolean     NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Versions of a rule, as binding_version: name and definition (protojson of
+-- backplane.console.v1.RuleDefinition; NULL: the tombstone of a delete).
+CREATE TABLE backplane.rule_version (
+  rule_id     uuid        NOT NULL REFERENCES backplane.rule (id),
+  version     bigint      NOT NULL CHECK (version > 0),
+  name        text        NOT NULL,
+  definition  jsonb,
+  author      text        NOT NULL,
+  comment     text        NOT NULL DEFAULT '',
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  rollback_of bigint,
+  PRIMARY KEY (rule_id, version),
+  FOREIGN KEY (rule_id, rollback_of) REFERENCES backplane.rule_version (rule_id, version)
+);
+
+-- The version of each rule in force: the latest one.
+CREATE TABLE backplane.rule_current (
+  rule_id    uuid        PRIMARY KEY REFERENCES backplane.rule (id),
+  version    bigint      NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (rule_id, version) REFERENCES backplane.rule_version (rule_id, version)
+);

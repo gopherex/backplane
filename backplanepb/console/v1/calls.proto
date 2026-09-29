@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/duration.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// CallService runs a hook or an activity from the console with a JSON
+// input (§9, §7.2) and waits for the result. Both run as short workflows
+// on backplane's own task queue (backplane is a service on its SDK), with
+// memo source = console:<session>: the run is in Temporal with its input,
+// output and error like any other.
+service CallService {
+  // Raises a hook as its service would: the Nexus operation <Name> of
+  // <service>.Hooks on endpoint <service>, handled by its binding.
+  rpc CallHook(CallHookRequest) returns (CallHookResponse);
+  // Executes an activity by name on its service's task queue with the
+  // ActivityCall envelope: a Temporal activity, or a child workflow for an
+  // activity of kind WORKFLOW.
+  rpc RunActivity(RunActivityRequest) returns (RunActivityResponse);
+}
+
+// CallResult is how a call ended.
+message CallResult {
+  // Output: JSON text when it is valid JSON; otherwise empty and raw
+  // holds the bytes. Empty on failure.
+  string output = 1;
+  bytes raw = 2;
+  // Failure: the handler's message and the application error type
+  // (backplane.NoBinding, backplane.HookFailed, backplane.Timeout,
+  // backplane.NonRetryable, ...); empty on success.
+  string error = 3;
+  string error_type = 4;
+  // The run that made the call.
+  string workflow_id = 5;
+  string run_id = 6;
+  google.protobuf.Duration took = 7;
+}
+
+message CallHookRequest {
+  // Full hook name <service>.<Name>, declared by the service.
+  string hook = 1;
+  // Input: JSON text; empty is {}.
+  string input = 2;
+  // Idempotency key: the run's id is hook/<service>/<Name>/<key> — the
+  // same as the service's own call with hook.Key(key), so both join one
+  // run; a completed one returns its result.
+  string key = 3;
+  // Deadline of the call; zero: the hook's declared timeout, else 30s.
+  google.protobuf.Duration timeout = 4;
+}
+
+message CallHookResponse {
+  CallResult result = 1;
+}
+
+message RunActivityRequest {
+  // Full activity name <service>.<Name>, declared by the service.
+  string activity = 1;
+  // Input (ActivityCall.payload): JSON text; empty is {}.
+  string input = 2;
+  // Start-to-close of one attempt; zero: the declared one, else 1m.
+  google.protobuf.Duration start_to_close = 3;
+  // Attempts; 0: one (no retry).
+  int32 max_attempts = 4;
+  // ActivityCall.step, for diagnostics; empty: "console".
+  string step = 5;
+}
+
+message RunActivityResponse {
+  CallResult result = 1;
+}

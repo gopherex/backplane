@@ -100,7 +100,7 @@ func unique(prefix string) string {
 
 // admin is a plain JetStream client for assertions; it deletes the streams
 // of the given services when the test ends.
-func admin(t *testing.T, url string, services ...string) jetstream.JetStream { //nolint:ireturn // only an interface
+func admin(t *testing.T, url string, services ...string) jetstream.JetStream {
 	t.Helper()
 
 	conn, err := nats.Connect(url)

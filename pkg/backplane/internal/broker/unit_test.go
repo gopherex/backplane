@@ -49,14 +49,15 @@ func TestNames(t *testing.T) {
 	t.Parallel()
 
 	for got, want := range map[string]string{
-		broker.StreamName("mail-sender"):                    "bp_mail-sender",
-		broker.StreamSubjects("mail-sender"):                "bp.mail-sender.>",
-		broker.Subject("iam", "UserRegistered"):             "bp.iam.UserRegistered",
-		broker.DLQStreamName("mailer"):                      "bp_dlq_mailer",
-		broker.DLQStreamSubjects("mailer"):                  "bp.dlq.mailer.>",
-		broker.DLQSubject("mailer", "iam.UserRegistered"):   "bp.dlq.mailer.iam_2EUserRegistered",
-		broker.Durable("mailer", "iam.UserRegistered"):      "mailer__iam_2EUserRegistered",
-		broker.Durable("mailer", "send:iam.UserRegistered"): "mailer__send_3Aiam_2EUserRegistered",
+		broker.StreamName("mail-sender"):                                  "bp_mail-sender",
+		broker.StreamSubjects("mail-sender"):                              "bp.mail-sender.>",
+		broker.Subject("iam", "UserRegistered"):                           "bp.iam.UserRegistered",
+		broker.DLQStreamName("mailer"):                                    "bp_dlq_mailer",
+		broker.DLQStreamSubjects("mailer"):                                "bp.dlq.mailer.>",
+		broker.DLQSubject("mailer", "iam.UserRegistered"):                 "bp.dlq.mailer.iam_2EUserRegistered",
+		broker.Durable("mailer", "iam.UserRegistered"):                    "mailer__iam_2EUserRegistered",
+		broker.Durable("mailer", "send:iam.UserRegistered"):               "mailer__send_3Aiam_2EUserRegistered",
+		broker.RedriveSubject("iam", "mailer", "send:iam.UserRegistered"): "bp.iam._redrive.mailer.send_3Aiam_2EUserRegistered",
 	} {
 		if got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -259,6 +260,13 @@ func TestReactorSettings(t *testing.T) {
 		def.Timeout != 30*time.Second || def.Nak != (backoff.Policy{Min: time.Second, Max: time.Minute}) ||
 		def.StartAll || def.Consumer.DeliverPolicy != jetstream.DeliverNewPolicy {
 		t.Fatalf("defaults: %+v", def)
+	}
+
+	// The consumer takes its event and the dead letters backplane redrives
+	// to it alone.
+	if f := def.Consumer.FilterSubjects; def.Consumer.FilterSubject != "" || len(f) != 2 ||
+		f[0] != "bp.iam.UserRegistered" || f[1] != "bp.iam._redrive.mail.c" {
+		t.Fatalf("filters: %q %q", def.Consumer.FilterSubject, f)
 	}
 
 	got, err := b.ReactorSettings(env.Reactor{Event: "iam.UserRegistered", Consumer: "c", Handler: h, Delivery: env.Delivery{

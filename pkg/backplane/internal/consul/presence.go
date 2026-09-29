@@ -483,8 +483,10 @@ func (p *Presence) establish(ctx context.Context, first bool) error {
 		return p.abandon(ctx, err)
 	}
 
-	if err := p.ensureRegistered(ctx, true); err != nil {
-		return p.abandon(ctx, err)
+	// The catalog registration is independent of the session: a failure
+	// here keeps the session and is retried on every renew.
+	if err := p.ensureRegistered(ctx, true); err != nil && ctx.Err() == nil {
+		p.log.Warn("consul catalog registration, retrying on next renew", xlog.Err(err))
 	}
 
 	return nil

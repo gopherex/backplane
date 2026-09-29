@@ -106,6 +106,13 @@ test-m1: ## M1 end to end: bin backplane + hello behind the compose Envoy — co
 	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 		GOWORK=off go test -race -count=1 -run '^TestM1$$' -v ./conformance/
 
+.PHONY: test-m2
+test-m2: ## M2 end to end: bin backplane + hello with NATS and Temporal behind the compose Envoy — bindings, rules, runs, one trace (make up)
+	BACKPLANE_TEST_ENVOY=localhost:9901 BACKPLANE_TEST_CONSUL=localhost:8500 \
+	BACKPLANE_TEST_NATS=localhost:4222 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
+		GOWORK=off go test -race -count=1 -timeout 20m -run '^TestM2$$' -v ./conformance/
+
 .PHONY: up down
 up: ## Start platform-in-a-box (docker compose)
 	docker compose up -d --wait

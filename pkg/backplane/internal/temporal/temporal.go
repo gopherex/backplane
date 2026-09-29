@@ -36,6 +36,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
@@ -61,9 +62,9 @@ const (
 // it. The search attributes are set only when the namespace has them
 // (Keyword); the memo always.
 const (
-	MemoSource        = "source"
-	AttrService       = "BpService"
-	AttrHook          = "BpHook"
+	MemoSource        = wire.MemoSource
+	AttrService       = wire.AttrService
+	AttrHook          = wire.AttrHook
 	transportTemporal = "temporal"
 )
 
@@ -405,7 +406,7 @@ func HookWorkflowID(service, name, suffix string) string {
 }
 
 // HooksQueue is the task queue of service's CallHook workflows.
-func HooksQueue(service string) string { return service + ".hooks" }
+func HooksQueue(service string) string { return wire.HooksQueue(service) }
 
 // searchAttributes reports whether the namespace has the Keyword search
 // attributes BpService and BpHook; checked once. A server that refuses

@@ -330,7 +330,7 @@ func credentials(content string) (nats.Option, error) {
 }
 
 // connected returns JetStream while the connection is up.
-func (b *Broker) connected() (jetstream.JetStream, error) { //nolint:ireturn // JetStream is only an interface
+func (b *Broker) connected() (jetstream.JetStream, error) {
 	b.mu.Lock()
 	conn, jet := b.conn, b.jet
 	b.mu.Unlock()

@@ -1,0 +1,313 @@
+package executor
+
+import (
+	"encoding/base64"
+	"encoding/json"
+
+	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
+	historypb "go.temporal.io/api/history/v1"
+	"go.temporal.io/sdk/converter"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
+	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+)
+
+// programStep is what the timeline needs of a program's step.
+type programStep struct {
+	Name     string                   `json:"name"`
+	Activity string                   `json:"activity"`
+	Kind     backplanev1.ActivityKind `json:"kind"`
+}
+
+// programSteps are the steps of a marshaled program, in declaration order
+// (nil when it does not read).
+func programSteps(program json.RawMessage) []programStep {
+	var p struct {
+		Steps []programStep `json:"steps"`
+	}
+
+	_ = json.Unmarshal(program, &p)
+
+	return p.Steps
+}
+
+// timeline is the steps of a run from its history: every program step in
+// declaration order — its call, or NOT_RUN — then every compensation in
+// the order it was scheduled. A step's first call is the step; a second
+// one (only undo schedules a step again: retries are attempts of one
+// call) is its undo. pending adds the attempt and last failure of calls
+// in flight.
+func timeline(
+	steps []programStep, events []*historypb.HistoryEvent, pending []*consolev1.PendingActivity,
+) []*consolev1.BindingStepRun {
+	builder := newTimelineBuilder()
+
+	for _, e := range events {
+		builder.event(e)
+	}
+
+	builder.pending(pending)
+
+	return builder.runs(steps, events)
+}
+
+// timelineBuilder collects the calls of a run while its history is read.
+type timelineBuilder struct {
+	calls map[int64]*consolev1.BindingStepRun  // by scheduled / initiated event id
+	byAct map[string]*consolev1.BindingStepRun // by activity id
+	first map[string]*consolev1.BindingStepRun // a step's own call
+	undos []*consolev1.BindingStepRun
+}
+
+func newTimelineBuilder() *timelineBuilder {
+	return &timelineBuilder{
+		calls: map[int64]*consolev1.BindingStepRun{},
+		byAct: map[string]*consolev1.BindingStepRun{},
+		first: map[string]*consolev1.BindingStepRun{},
+	}
+}
+
+// schedule records the call scheduled (or initiated) by e: the step's
+// own call the first time, its undo after.
+func (tl *timelineBuilder) schedule(
+	e *historypb.HistoryEvent, input *commonpb.Payloads, workflow bool,
+) *consolev1.BindingStepRun {
+	var call backplanev1.ActivityCall
+
+	if ps := input.GetPayloads(); len(ps) > 0 {
+		_ = converter.GetDefaultDataConverter().FromPayload(ps[0], &call)
+	}
+
+	run := &consolev1.BindingStepRun{
+		Step: call.GetStep(), Activity: call.GetActivity(), Workflow: workflow,
+		Status: consolev1.StepRunStatus_STEP_RUN_STATUS_SCHEDULED, ScheduledTime: e.GetEventTime(),
+		Input: jsonText(call.GetPayload()),
+	}
+
+	if _, seen := tl.first[run.GetStep()]; seen {
+		run.Undo = true
+		tl.undos = append(tl.undos, run)
+	} else {
+		tl.first[run.GetStep()] = run
+	}
+
+	tl.calls[e.GetEventId()] = run
+
+	return run
+}
+
+// event applies one history event: an activity's or a child workflow's.
+func (tl *timelineBuilder) event(e *historypb.HistoryEvent) {
+	if !tl.activityEvent(e) {
+		tl.childEvent(e)
+	}
+}
+
+// activityEvent applies e when it is an activity task's event.
+func (tl *timelineBuilder) activityEvent(e *historypb.HistoryEvent) bool {
+	switch {
+	case e.GetActivityTaskScheduledEventAttributes() != nil:
+		at := e.GetActivityTaskScheduledEventAttributes()
+		tl.byAct[at.GetActivityId()] = tl.schedule(e, at.GetInput(), false)
+	case e.GetActivityTaskStartedEventAttributes() != nil:
+		at := e.GetActivityTaskStartedEventAttributes()
+		started(tl.calls[at.GetScheduledEventId()], e.GetEventTime(), at.GetAttempt())
+	case e.GetActivityTaskCompletedEventAttributes() != nil:
+		at := e.GetActivityTaskCompletedEventAttributes()
+		completed(tl.calls[at.GetScheduledEventId()], e.GetEventTime(), at.GetResult())
+	case e.GetActivityTaskFailedEventAttributes() != nil:
+		at := e.GetActivityTaskFailedEventAttributes()
+		failed(tl.calls[at.GetScheduledEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED,
+			at.GetFailure())
+	case e.GetActivityTaskTimedOutEventAttributes() != nil:
+		at := e.GetActivityTaskTimedOutEventAttributes()
+		failed(tl.calls[at.GetScheduledEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_TIMED_OUT,
+			at.GetFailure())
+	case e.GetActivityTaskCanceledEventAttributes() != nil:
+		at := e.GetActivityTaskCanceledEventAttributes()
+		failed(tl.calls[at.GetScheduledEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_CANCELED, nil)
+	default:
+		return false
+	}
+
+	return true
+}
+
+// childEvent applies e when it is a child workflow's event.
+func (tl *timelineBuilder) childEvent(e *historypb.HistoryEvent) {
+	switch {
+	case e.GetStartChildWorkflowExecutionInitiatedEventAttributes() != nil:
+		at := e.GetStartChildWorkflowExecutionInitiatedEventAttributes()
+		tl.schedule(e, at.GetInput(), true)
+	case e.GetStartChildWorkflowExecutionFailedEventAttributes() != nil:
+		at := e.GetStartChildWorkflowExecutionFailedEventAttributes()
+		if run := tl.calls[at.GetInitiatedEventId()]; run != nil {
+			run.Status, run.CloseTime = consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED, e.GetEventTime()
+			run.Error = "child workflow did not start: " + at.GetCause().String()
+		}
+	case e.GetChildWorkflowExecutionStartedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionStartedEventAttributes()
+		started(tl.calls[at.GetInitiatedEventId()], e.GetEventTime(), 1)
+	case e.GetChildWorkflowExecutionCompletedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionCompletedEventAttributes()
+		completed(tl.calls[at.GetInitiatedEventId()], e.GetEventTime(), at.GetResult())
+	case e.GetChildWorkflowExecutionFailedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionFailedEventAttributes()
+		failed(tl.calls[at.GetInitiatedEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED,
+			at.GetFailure())
+	case e.GetChildWorkflowExecutionTimedOutEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionTimedOutEventAttributes()
+		failed(tl.calls[at.GetInitiatedEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_TIMED_OUT, nil)
+	case e.GetChildWorkflowExecutionCanceledEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionCanceledEventAttributes()
+		failed(tl.calls[at.GetInitiatedEventId()], e.GetEventTime(), consolev1.StepRunStatus_STEP_RUN_STATUS_CANCELED, nil)
+	case e.GetChildWorkflowExecutionTerminatedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionTerminatedEventAttributes()
+		if run := tl.calls[at.GetInitiatedEventId()]; run != nil {
+			run.Status, run.CloseTime = consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED, e.GetEventTime()
+			run.Error = "terminated"
+		}
+	}
+}
+
+// pending adds the attempt and last failure of the calls in flight.
+func (tl *timelineBuilder) pending(pending []*consolev1.PendingActivity) {
+	for _, p := range pending {
+		run := tl.byAct[p.GetActivityId()]
+		if run == nil || run.GetCloseTime() != nil {
+			continue
+		}
+
+		run.Attempt = p.GetAttempt()
+		run.Error = p.GetLastFailure()
+
+		if p.GetState() == "STARTED" {
+			run.Status = consolev1.StepRunStatus_STEP_RUN_STATUS_STARTED
+			run.StartedTime = p.GetLastStartedTime()
+		}
+	}
+}
+
+// runs orders the collected calls: steps, then calls of unknown steps,
+// then undos.
+func (tl *timelineBuilder) runs(steps []programStep, events []*historypb.HistoryEvent) []*consolev1.BindingStepRun {
+	out := make([]*consolev1.BindingStepRun, 0, len(steps)+len(tl.undos))
+
+	for _, s := range steps {
+		if run, ok := tl.first[s.Name]; ok {
+			out = append(out, run)
+
+			continue
+		}
+
+		out = append(out, &consolev1.BindingStepRun{
+			Step: s.Name, Activity: s.Activity, Workflow: s.Kind == backplanev1.ActivityKind_ACTIVITY_KIND_WORKFLOW,
+			Status: consolev1.StepRunStatus_STEP_RUN_STATUS_NOT_RUN,
+		})
+	}
+
+	// Calls of steps the program does not name (a history of another
+	// program version): after the known ones, never lost.
+	for _, s := range steps {
+		delete(tl.first, s.Name)
+	}
+
+	for _, e := range events {
+		if at := e.GetActivityTaskScheduledEventAttributes(); at != nil {
+			if run := tl.calls[e.GetEventId()]; run != nil && tl.first[run.GetStep()] == run {
+				out = append(out, run)
+			}
+		}
+
+		if at := e.GetStartChildWorkflowExecutionInitiatedEventAttributes(); at != nil {
+			if run := tl.calls[e.GetEventId()]; run != nil && tl.first[run.GetStep()] == run {
+				out = append(out, run)
+			}
+		}
+	}
+
+	return append(out, tl.undos...)
+}
+
+func started(run *consolev1.BindingStepRun, at *timestamppb.Timestamp, attempt int32) {
+	if run == nil {
+		return
+	}
+
+	run.Status, run.StartedTime, run.Attempt = consolev1.StepRunStatus_STEP_RUN_STATUS_STARTED, at, attempt
+}
+
+func completed(run *consolev1.BindingStepRun, at *timestamppb.Timestamp, result *commonpb.Payloads) {
+	if run == nil {
+		return
+	}
+
+	run.Status, run.CloseTime, run.Error = consolev1.StepRunStatus_STEP_RUN_STATUS_COMPLETED, at, ""
+
+	var res backplanev1.ActivityResult
+	if ps := result.GetPayloads(); len(ps) > 0 && converter.GetDefaultDataConverter().FromPayload(ps[0], &res) == nil {
+		run.Output = jsonText(res.GetPayload())
+	}
+}
+
+func failed(
+	run *consolev1.BindingStepRun, closeTime *timestamppb.Timestamp, st consolev1.StepRunStatus, f *failurepb.Failure,
+) {
+	if run == nil {
+		return
+	}
+
+	run.Status, run.CloseTime = st, closeTime
+	run.Error, run.ErrorType = failureOf(f)
+
+	if run.GetError() == "" {
+		run.Error = map[consolev1.StepRunStatus]string{
+			consolev1.StepRunStatus_STEP_RUN_STATUS_TIMED_OUT: "timed out",
+			consolev1.StepRunStatus_STEP_RUN_STATUS_CANCELED:  "canceled",
+		}[st]
+	}
+}
+
+// failureOf is the deepest message of a failure chain and the type of its
+// deepest application failure.
+func failureOf(f *failurepb.Failure) (string, string) {
+	var msg, typ string
+
+	for ; f != nil; f = f.GetCause() {
+		if f.GetMessage() != "" {
+			msg = f.GetMessage()
+		}
+
+		if t := f.GetApplicationFailureInfo().GetType(); t != "" {
+			typ = t
+		}
+	}
+
+	return msg, typ
+}
+
+// jsonText is a payload as JSON text: as is when it is JSON, else a
+// base64 JSON string; empty stays empty.
+func jsonText(b []byte) string {
+	switch {
+	case len(b) == 0:
+		return ""
+	case json.Valid(b):
+		return string(b)
+	default:
+		return string(jsonString(base64.StdEncoding.EncodeToString(b)))
+	}
+}
+
+// jsonString is s as a JSON string.
+func jsonString(s string) []byte {
+	quoted, _ := json.Marshal(s) //nolint:errchkjson // a string always marshals
+
+	return quoted
+}
+
+// historyFilter reads every event.
+const historyFilter = enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT

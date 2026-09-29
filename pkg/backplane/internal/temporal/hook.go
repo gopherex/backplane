@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 )
 
@@ -25,19 +26,19 @@ const (
 	// the hooks queue. The version is in the name: a change of its code
 	// that is not replay-compatible is a new name (.v2), registered next
 	// to the old one until runs of the old one are gone.
-	CallHookWorkflow = "backplane.CallHook.v1"
+	CallHookWorkflow = wire.CallHookWorkflow
 	// HooksSuffix: the Nexus service of <service>'s hooks is
 	// <service>.Hooks on endpoint <service>.
-	HooksSuffix = ".Hooks"
+	HooksSuffix = wire.HooksSuffix
 	// NoBindingType is the application error type backplane fails a hook
 	// call with when the hook has no binding.
-	NoBindingType = "backplane.NoBinding"
+	NoBindingType = wire.NoBindingType
 	// HookFailedType: the hook call failed; the message says why.
-	HookFailedType = "backplane.HookFailed"
+	HookFailedType = wire.HookFailedType
 	// TimeoutType: the hook call ran out of its deadline.
-	TimeoutType = "backplane.Timeout"
+	TimeoutType = wire.TimeoutType
 	// NonRetryableType: an activity handler marked its error final.
-	NonRetryableType = "backplane.NonRetryable"
+	NonRetryableType = wire.NonRetryableType
 )
 
 var errBadHook = errors.New("bad hook name, want <service>.<Name>")

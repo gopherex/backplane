@@ -20,6 +20,7 @@ import (
 
 	"github.com/gopherex/xlog"
 
+	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
@@ -29,8 +30,8 @@ import (
 // the owning service; the memo of its workflow action carries the
 // declaration's fingerprint, which tells whether the schedule is current.
 const (
-	MemoService     = "backplane.service"
-	MemoFingerprint = "backplane.schedule"
+	MemoService     = wire.MemoService
+	MemoFingerprint = wire.MemoFingerprint
 )
 
 // Schedule is a Temporal Schedule the service declared: it starts Workflow
@@ -55,7 +56,7 @@ type Schedule struct {
 
 // ScheduleID is the id of the service's schedule name; every schedule of
 // the service has the prefix "<service>/".
-func ScheduleID(service, name string) string { return service + "/" + name }
+func ScheduleID(service, name string) string { return wire.ScheduleID(service, name) }
 
 // Options is the schedule as Temporal creates it for service: id
 // "<service>/<name>", workflow id "<service>/<name>" (Temporal appends the

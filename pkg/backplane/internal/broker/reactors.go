@@ -19,6 +19,7 @@ import (
 	"github.com/gopherex/xlog"
 	"github.com/gopherex/xtrace"
 
+	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
@@ -65,6 +66,7 @@ type reactor struct {
 	consumer string
 	source   string // stream of the event's service
 	subject  string
+	redrive  string // where backplane publishes this reactor's dead letters back
 	durable  string
 	dead     string // dead-letter subject
 	handler  env.Handler
@@ -120,8 +122,9 @@ func (b *Broker) reactorOf(r env.Reactor) (reactor, error) {
 
 	return reactor{
 		event: r.Event, consumer: r.Consumer, source: service,
-		subject: Subject(service, name), durable: Durable(b.p.Service, r.Consumer),
-		dead: DLQSubject(b.p.Service, r.Consumer), handler: r.Handler, delivery: b.deliveryOf(r.Delivery),
+		subject: Subject(service, name), redrive: RedriveSubject(service, b.p.Service, r.Consumer),
+		durable: Durable(b.p.Service, r.Consumer),
+		dead:    DLQSubject(b.p.Service, r.Consumer), handler: r.Handler, delivery: b.deliveryOf(r.Delivery),
 		pos: newPosition(),
 	}, nil
 }
@@ -328,7 +331,10 @@ func (b *Broker) startAt(
 	return cfg, nil
 }
 
-// consumerConfig: explicit acks and bounded deliveries. A failed handler
+// consumerConfig: explicit acks and bounded deliveries. The consumer
+// filters on its event's subject and on its redrive subject, where
+// backplane publishes the reactor's dead letters back to it alone (§8,
+// Redrive from the console). A failed handler
 // is redelivered after a delay growing with the delivery count (NakWithDelay,
 // see handle); a message never acknowledged (the process died) comes back
 // after AckWait. The consumer's own BackOff is not used: the server measures
@@ -345,14 +351,16 @@ func (b *Broker) consumerConfig(re reactor) jetstream.ConsumerConfig {
 	return jetstream.ConsumerConfig{
 		Durable:           re.durable,
 		Description:       "backplane reactor " + re.consumer + " of " + b.p.Service,
-		FilterSubject:     re.subject,
+		FilterSubjects:    []string{re.subject, re.redrive},
 		DeliverPolicy:     jetstream.DeliverNewPolicy,
 		AckPolicy:         jetstream.AckExplicitPolicy,
 		AckWait:           re.delivery.timeout + ackMargin,
 		MaxDeliver:        re.delivery.maxDeliver + stopDeliveries,
 		MaxAckPending:     pending,
 		InactiveThreshold: re.delivery.inactive,
-		Metadata:          map[string]string{metaService: b.p.Service, "bp.consumer": re.consumer, "bp.event": re.event},
+		Metadata: map[string]string{
+			metaService: b.p.Service, wire.MetaConsumer: re.consumer, wire.MetaEvent: re.event,
+		},
 	}
 }
 

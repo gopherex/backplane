@@ -291,6 +291,7 @@ without it:
 | `BACKPLANE_TEST_ENVOY=localhost:9901` with `BACKPLANE_TEST_CONSUL` | xDS end to end (`internal/xds`, `make test-envoy`): the control plane on `:18000` against the live catalog, `examples/hello` through the compose Envoy — HTTP, gRPC and a stream, gRPC-Web, REST-JSON, ws-proto, CORS, a route on its own port, the console under a prefix — and no NACK; needs `:18000` free (no `make run-backplane`) and waits for a running conformance `hello` to go |
 | `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
 | `BACKPLANE_TEST_ENVOY` with `BACKPLANE_TEST_CONSUL` and `BACKPLANE_TEST_PG` | M1 end to end (`conformance/m1_test.go`, `make test-m1`): the built `backplane` and `hello` behind the compose Envoy — console login and `/ws` through Envoy and directly, the catalog, Live configuration (validation, revisions in Consul KV applied by hello, reconciler repairs, rollback), the relay, the plugin bundle, hello leaving and rejoining Envoy's routes |
+| `BACKPLANE_TEST_ENVOY` with `BACKPLANE_TEST_CONSUL`, `BACKPLANE_TEST_PG`, `BACKPLANE_TEST_NATS` and `BACKPLANE_TEST_TEMPORAL` | M2 end to end (`conformance/m2_test.go`, `make test-m2`): the built `backplane` and `hello` with NATS and Temporal behind the compose Envoy — `hello.Greet` unbound (`NoBinding`, local fallback), the binding `hello.Greet := hello.Echo` from its text form (validate, save, served to `GET /hello/` through Envoy, its run and steps), invalid definitions refused, one trace id from the HTTP request through the hook, the binding run and `Echo`, `TestBinding`, delete; the rule `on hello.Greeted := hello.Echo` (one run per matching event `rule/<id>/<ce-id>`, none for a filtered one or a republished `ce-id`, pause and resume), `TestRule` |
 
 ```sh
 make up
@@ -301,12 +302,14 @@ BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane \
   GOWORK=off go test -race -count=1 ./...
 ```
 
-`make test-envoy` and `make test-m1` need Envoy's ADS port `:18000` to
-themselves (no `make run-backplane`, not both at once) and run alone:
+`make test-envoy`, `make test-m1` and `make test-m2` need Envoy's ADS
+port `:18000` to themselves (no `make run-backplane`, one at a time) and
+run alone:
 
 ```sh
 make up
 make test-m1   # BACKPLANE_TEST_{CONSUL,PG,ENVOY} set; -run '^TestM1$' ./conformance/
+make test-m2   # BACKPLANE_TEST_{CONSUL,PG,ENVOY,NATS,TEMPORAL} set; -run '^TestM2$' ./conformance/
 ```
 
 `make test-m1` builds `cmd/backplane` and `examples/hello` and runs both
@@ -320,6 +323,20 @@ wrote: `config/hello/`, `backplane/services/hello/`, its backplane
 instance and manifest (version `0.0.0-m1`). On failure it prints both
 processes' logs. Envoy's ADS reconnect backoff may take up to 30s after
 `:18000` was idle.
+
+`make test-m2` runs the same pair with NATS (`BACKPLANE_NATS_URL`) and
+Temporal (`BACKPLANE_TEMPORAL_ADDR`) set on both, walks the M2 scenario
+through the console's `/ws` via Envoy (bindings, runs, rules, one trace
+from `GET /hello/` with a `traceparent` to the `Echo` call) and removes
+what it made: the scratch database (bindings and rules), hello's streams
+`bp_hello` and `bp_dlq_hello` in NATS (with every consumer on them, the
+rule's `backplane__rule-<id>` included; deleted before the run too),
+`config/hello/`, `backplane/services/hello/`, its backplane instance and
+manifest (version `0.0.0-m2`). The Nexus endpoint `hello` stays in
+Temporal (backplane points it at its own queue on every start; an idle
+endpoint costs nothing), as do the finished runs. On failure it prints
+both processes' logs; every wait names what it waited for and what it
+saw last.
 
 The same variables enable the SDK's own integration tests under
 `pkg/backplane` and the server's under `internal/` (`BACKPLANE_TEST_CONSUL`:
