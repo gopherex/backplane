@@ -37,13 +37,21 @@ var (
 
 // routes is the console's mux under its base, wrapped with the security
 // headers.
-func (c *Console) routes(ws http.Handler, shell fs.FS) http.Handler {
+func (c *Console) routes(ws http.Handler, shell fs.FS, telemetry http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", c.login)
 	mux.HandleFunc("POST /auth/logout", c.logout)
 	mux.HandleFunc("GET /auth/session", c.current)
 	mux.Handle("GET /ws", c.upgrade(ws))
 	mux.HandleFunc("GET /plugins/{service}/{hash}/{path...}", c.plugin)
+
+	if telemetry != nil {
+		admission := http.StripPrefix("/telemetry", telemetry)
+		mux.Handle("POST /telemetry/", admission)
+		mux.Handle("OPTIONS /telemetry/", admission)
+		mux.Handle("GET /telemetry/", admission)
+	}
+
 	mux.Handle("GET /", shellHandler(shell))
 
 	h := secure(mux, !c.settings.InsecureCookie)
@@ -229,8 +237,17 @@ func (c *Console) logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ck, err := r.Cookie(CookieName); err == nil {
-		if s, err := c.sessions.ByToken(r.Context(), sessionHash(ck.Value)); err == nil {
-			c.revoke(r.Context(), s.ID)
+		s, lookupErr := c.sessions.ByToken(r.Context(), sessionHash(ck.Value))
+		if lookupErr != nil && !errors.Is(lookupErr, ErrNoSession) {
+			httpError(w, http.StatusServiceUnavailable, "console storage unavailable")
+			return
+		}
+
+		if lookupErr == nil {
+			if revokeErr := c.revoke(r.Context(), s.ID); revokeErr != nil {
+				httpError(w, http.StatusServiceUnavailable, "console storage unavailable")
+				return
+			}
 		}
 	}
 

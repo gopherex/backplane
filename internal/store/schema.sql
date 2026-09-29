@@ -108,3 +108,41 @@ CREATE TABLE backplane.rule_current (
   updated_at timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (rule_id, version) REFERENCES backplane.rule_version (rule_id, version)
 );
+
+-- Updating this singleton locks audit sequence allocation until transaction
+-- commit. A committed higher sequence can never overtake an uncommitted lower
+-- one. retained_after records the expired prefix for resumable watch cursors.
+CREATE TABLE backplane.audit_clock (
+  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  sequence bigint NOT NULL DEFAULT 0 CHECK (sequence >= 0),
+  retained_after bigint NOT NULL DEFAULT 0 CHECK (retained_after >= 0)
+);
+
+CREATE TABLE backplane.audit_entry (
+  sequence bigint PRIMARY KEY CHECK (sequence > 0),
+  id uuid NOT NULL UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  actor text NOT NULL,
+  action text NOT NULL,
+  subject text NOT NULL,
+  outcome text NOT NULL,
+  operation_id uuid NOT NULL,
+  detail jsonb NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX audit_entry_created_at_idx ON backplane.audit_entry (created_at);
+CREATE INDEX audit_entry_operation_id_idx ON backplane.audit_entry (operation_id);
+
+-- Entries and delivery work are inserted with the control mutation. Leases
+-- fence acknowledgments after a crash; event delivery remains at least once.
+CREATE TABLE backplane.audit_outbox (
+  sequence bigint PRIMARY KEY REFERENCES backplane.audit_entry (sequence),
+  available_at timestamptz NOT NULL DEFAULT now(),
+  lease uuid,
+  leased_until timestamptz NOT NULL DEFAULT '-infinity',
+  attempts bigint NOT NULL DEFAULT 0,
+  published_at timestamptz
+);
+
+CREATE INDEX audit_outbox_pending_idx ON backplane.audit_outbox (available_at, leased_until)
+WHERE published_at IS NULL;

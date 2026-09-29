@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/internal/registry"
+	"github.com/gopherex/backplane/internal/store"
 	"github.com/gopherex/backplane/internal/store/db"
 )
 
@@ -291,7 +294,14 @@ func (m *Manager) insert(
 			return fmt.Errorf("set current: %w", err)
 		}
 
-		return nil
+		action := "config.save"
+		if rollbackOf > 0 {
+			action = "config.rollback"
+		}
+
+		return st.AuditControl(ctx, author, action, service, store.AuditDetail{
+			Revision: next.Revision, RollbackOf: rollbackOf, Keys: slices.Sorted(maps.Keys(o.values)),
+		})
 	})
 	if err != nil {
 		return Revision{}, fmt.Errorf("config: save %s: %w", service, err)

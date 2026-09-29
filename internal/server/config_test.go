@@ -25,6 +25,8 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("BACKPLANE_CONSOLE_ORIGINS", `["https://console.example.com"]`)
 	t.Setenv("BACKPLANE_CONSOLE_TRUSTED_PROXIES", `["10.0.0.0/8","192.168.1.1"]`)
 	t.Setenv("BACKPLANE_OBS_METRICS_URL", "http://grafana:3000")
+	t.Setenv("BACKPLANE_OTLP_URL", "http://collector:4318")
+	t.Setenv("BACKPLANE_OTLP_KEYS", `["previous-ingest-key","current-ingest-key"]`)
 
 	cfg, err := load(t)
 	if err != nil {
@@ -44,6 +46,11 @@ func TestConfigFromEnv(t *testing.T) {
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatal(err)
+	}
+
+	if cfg.OTLP.Concurrent != 16 || cfg.OTLP.BodyBytes != 2<<20 || len(cfg.OTLP.Keys) != 2 ||
+		cfg.OTLP.Keys[1].Reveal() != "current-ingest-key" {
+		t.Fatal("OTLP admission defaults or deployment keys were not loaded")
 	}
 }
 

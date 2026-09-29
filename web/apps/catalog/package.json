@@ -1,0 +1,36 @@
+{
+  "name": "@backplane/catalog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@gopherex/backplane-theme": "0.1.0",
+    "@gopherex/backplane-ui": "0.1.0",
+    "@grafana/data": "13.2.3",
+    "@grafana/ui": "13.2.3",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@codemirror/language": "6.12.4",
+    "@fontsource/ibm-plex-sans": "5.2.6",
+    "@fontsource/ibm-plex-mono": "5.2.6",
+    "i18next": "26.4.2",
+    "react-i18next": "17.0.15",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@gopherex/backplane-schema-forms": "0.1.0",
+    "@gopherex/schemapb": "1.7.0",
+    "react-hook-form": "7.89.0",
+    "@gopherex/backplane-editors": "0.1.0",
+    "@gopherex/backplane-charts": "0.1.0",
+    "@gopherex/backplane-observability-ui": "0.1.0",
+    "@gopherex/backplane-platform-ui": "0.1.0"
+  },
+  "devDependencies": {
+    "@gopherex/backplane-plugin-build": "0.1.0"
+  }
+}

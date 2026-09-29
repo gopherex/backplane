@@ -1,0 +1,45 @@
+{
+  "name": "@backplane/module-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build && vite build --mode embedded",
+    "preview": "vite preview --host 127.0.0.1 --outDir dist/standalone",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@gopherex/backplane-api": "0.1.0",
+    "@gopherex/backplane-client": "0.1.0",
+    "@gopherex/backplane-react": "0.1.0",
+    "@gopherex/backplane-theme": "0.1.0",
+    "@gopherex/backplane-ui": "0.1.0",
+    "@gopherex/backplane-plugin-sdk": "0.1.0",
+    "@bufbuild/protobuf": "2.16.0",
+    "@grafana/data": "13.2.3",
+    "@grafana/ui": "13.2.3",
+    "@fontsource/ibm-plex-sans": "5.2.6",
+    "@fontsource/ibm-plex-mono": "5.2.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router-dom": "7.18.4",
+    "i18next": "26.4.2",
+    "react-i18next": "17.0.15",
+    "@gopherex/backplane-schema-forms": "0.1.0",
+    "@gopherex/backplane-editors": "0.1.0",
+    "@gopherex/backplane-charts": "0.1.0",
+    "@gopherex/backplane-observability-ui": "0.1.0",
+    "@gopherex/backplane-platform-ui": "0.1.0",
+    "@gopherex/schemapb": "1.7.0",
+    "@gopherex/ws-proto-transport": "1.7.0"
+  },
+  "devDependencies": {
+    "@gopherex/backplane-plugin-build": "0.1.0",
+    "vite": "8.3.1",
+    "typescript": "5.9.3",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@types/node": "22.19.15"
+  }
+}

@@ -18,3 +18,9 @@ generate:
       out: .
       opts:
         paths: source_relative
+    - name: es
+      out: ../../web/templates/module/src/gen
+      opts:
+        target: ts
+    - name: ws-es
+      out: ../../web/templates/module/src/gen

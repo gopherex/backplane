@@ -1,0 +1,17 @@
+{
+  "service": "hello",
+  "nav": [
+    {
+      "path": "",
+      "labelKey": "overview"
+    },
+    {
+      "path": "settings",
+      "labelKey": "settings"
+    },
+    {
+      "path": "workbench",
+      "labelKey": "workbench"
+    }
+  ]
+}

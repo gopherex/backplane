@@ -26,6 +26,269 @@ func New(db DBTX) *Queries { return &Queries{db: db} }
 
 func (q *Queries) WithTx(tx pgx.Tx) *Queries { return &Queries{db: tx} }
 
+const createAuditClockSQL = `INSERT INTO backplane.audit_clock (singleton) VALUES (true) ON CONFLICT DO NOTHING;`
+
+func (q *Queries) CreateAuditClock(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, createAuditClockSQL)
+	return err
+}
+
+const nextAuditSequenceSQL = `UPDATE backplane.audit_clock SET sequence = sequence + 1 WHERE singleton = true
+RETURNING sequence;`
+
+type NextAuditSequenceRow struct {
+	Sequence int64
+}
+
+func (q *Queries) NextAuditSequence(ctx context.Context) (NextAuditSequenceRow, error) {
+	row := q.db.QueryRow(ctx, nextAuditSequenceSQL)
+	var i NextAuditSequenceRow
+	err := row.Scan(&i.Sequence)
+	return i, err
+}
+
+const getAuditClockSQL = `SELECT sequence, retained_after FROM backplane.audit_clock WHERE singleton = true;`
+
+type GetAuditClockRow struct {
+	Sequence      int64
+	RetainedAfter int64
+}
+
+func (q *Queries) GetAuditClock(ctx context.Context) (GetAuditClockRow, error) {
+	row := q.db.QueryRow(ctx, getAuditClockSQL)
+	var i GetAuditClockRow
+	err := row.Scan(&i.Sequence, &i.RetainedAfter)
+	return i, err
+}
+
+const insertAuditEntrySQL = `INSERT INTO backplane.audit_entry (sequence, id, actor, action, subject, outcome, operation_id, detail)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING sequence, id, created_at, actor, action, subject, outcome, operation_id, detail;`
+
+type InsertAuditEntryParams struct {
+	Sequence    int64
+	ID          uuid.UUID
+	Actor       string
+	Action      string
+	Subject     string
+	Outcome     string
+	OperationID uuid.UUID
+	Detail      json.RawMessage
+}
+
+type InsertAuditEntryRow struct {
+	Sequence    int64
+	ID          uuid.UUID
+	CreatedAt   time.Time
+	Actor       string
+	Action      string
+	Subject     string
+	Outcome     string
+	OperationID uuid.UUID
+	Detail      json.RawMessage
+}
+
+func (q *Queries) InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) (InsertAuditEntryRow, error) {
+	row := q.db.QueryRow(ctx, insertAuditEntrySQL, arg.Sequence, arg.ID, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.Detail)
+	var i InsertAuditEntryRow
+	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail)
+	return i, err
+}
+
+const insertAuditOutboxSQL = `INSERT INTO backplane.audit_outbox (sequence) VALUES ($1);`
+
+func (q *Queries) InsertAuditOutbox(ctx context.Context, sequence int64) error {
+	_, err := q.db.Exec(ctx, insertAuditOutboxSQL, sequence)
+	return err
+}
+
+const getAuditEntrySQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+FROM backplane.audit_entry WHERE sequence = $1;`
+
+type GetAuditEntryRow struct {
+	Sequence    int64
+	ID          uuid.UUID
+	CreatedAt   time.Time
+	Actor       string
+	Action      string
+	Subject     string
+	Outcome     string
+	OperationID uuid.UUID
+	Detail      json.RawMessage
+}
+
+func (q *Queries) GetAuditEntry(ctx context.Context, sequence int64) (GetAuditEntryRow, error) {
+	row := q.db.QueryRow(ctx, getAuditEntrySQL, sequence)
+	var i GetAuditEntryRow
+	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail)
+	return i, err
+}
+
+const listAuditEntriesSQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+FROM backplane.audit_entry
+WHERE sequence > $1 AND sequence <= $2
+  AND ($3::text = '' OR actor = $3)
+  AND ($4::text = '' OR action = $4)
+  AND ($5::text = '' OR subject = $5)
+  AND ($6::text = '' OR outcome = $6)
+  AND ($7::text = '' OR operation_id::text = $7)
+  AND created_at >= $8 AND created_at < $9
+ORDER BY CASE WHEN $10::boolean THEN sequence END DESC, sequence ASC
+LIMIT $11;`
+
+type ListAuditEntriesParams struct {
+	AfterSequence   int64
+	ThroughSequence int64
+	Actor           string
+	Action          string
+	Subject         string
+	Outcome         string
+	OperationID     string
+	StartAt         time.Time
+	EndAt           time.Time
+	Descending      bool
+	PageSize        int64
+}
+
+type ListAuditEntriesRow struct {
+	Sequence    int64
+	ID          uuid.UUID
+	CreatedAt   time.Time
+	Actor       string
+	Action      string
+	Subject     string
+	Outcome     string
+	OperationID uuid.UUID
+	Detail      json.RawMessage
+}
+
+func (q *Queries) ListAuditEntries(ctx context.Context, arg ListAuditEntriesParams) ([]ListAuditEntriesRow, error) {
+	rows, err := q.db.Query(ctx, listAuditEntriesSQL, arg.AfterSequence, arg.ThroughSequence, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.StartAt, arg.EndAt, arg.Descending, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAuditEntriesRow
+	for rows.Next() {
+		var i ListAuditEntriesRow
+		if err := rows.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const claimAuditOutboxSQL = `UPDATE backplane.audit_outbox SET lease = $1,
+  leased_until = now() + ($2::bigint * interval '1 second'), attempts = attempts + 1
+WHERE sequence IN (
+  SELECT sequence FROM backplane.audit_outbox
+  WHERE published_at IS NULL AND available_at <= now() AND leased_until <= now()
+  ORDER BY sequence LIMIT $3 FOR UPDATE SKIP LOCKED
+)
+RETURNING sequence, lease;`
+
+type ClaimAuditOutboxParams struct {
+	Lease        *uuid.UUID
+	LeaseSeconds int64
+	BatchSize    int64
+}
+
+type ClaimAuditOutboxRow struct {
+	Sequence int64
+	Lease    *uuid.UUID
+}
+
+func (q *Queries) ClaimAuditOutbox(ctx context.Context, arg ClaimAuditOutboxParams) ([]ClaimAuditOutboxRow, error) {
+	rows, err := q.db.Query(ctx, claimAuditOutboxSQL, arg.Lease, arg.LeaseSeconds, arg.BatchSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClaimAuditOutboxRow
+	for rows.Next() {
+		var i ClaimAuditOutboxRow
+		if err := rows.Scan(&i.Sequence, &i.Lease); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const acknowledgeAuditOutboxSQL = `UPDATE backplane.audit_outbox SET published_at = now(), lease = NULL
+WHERE sequence = $1 AND lease = $2;`
+
+type AcknowledgeAuditOutboxParams struct {
+	Sequence int64
+	Lease    *uuid.UUID
+}
+
+func (q *Queries) AcknowledgeAuditOutbox(ctx context.Context, arg AcknowledgeAuditOutboxParams) error {
+	_, err := q.db.Exec(ctx, acknowledgeAuditOutboxSQL, arg.Sequence, arg.Lease)
+	return err
+}
+
+const retryAuditOutboxSQL = `UPDATE backplane.audit_outbox SET lease = NULL, leased_until = '-infinity',
+  available_at = now() + ($1::bigint * interval '1 second')
+WHERE sequence = $2 AND lease = $3 AND published_at IS NULL;`
+
+type RetryAuditOutboxParams struct {
+	RetrySeconds int64
+	Sequence     int64
+	Lease        *uuid.UUID
+}
+
+func (q *Queries) RetryAuditOutbox(ctx context.Context, arg RetryAuditOutboxParams) error {
+	_, err := q.db.Exec(ctx, retryAuditOutboxSQL, arg.RetrySeconds, arg.Sequence, arg.Lease)
+	return err
+}
+
+const getAuditExpiryBoundarySQL = `SELECT COALESCE(min(e.sequence) - 1,
+  (SELECT sequence FROM backplane.audit_clock WHERE singleton = true))::bigint AS through_sequence
+FROM backplane.audit_entry e
+JOIN backplane.audit_outbox o ON o.sequence = e.sequence
+WHERE e.created_at >= $1 OR o.published_at IS NULL;`
+
+type GetAuditExpiryBoundaryRow struct {
+	ThroughSequence *int64
+}
+
+func (q *Queries) GetAuditExpiryBoundary(ctx context.Context, cutoff time.Time) (GetAuditExpiryBoundaryRow, error) {
+	row := q.db.QueryRow(ctx, getAuditExpiryBoundarySQL, cutoff)
+	var i GetAuditExpiryBoundaryRow
+	err := row.Scan(&i.ThroughSequence)
+	return i, err
+}
+
+const deleteExpiredAuditOutboxSQL = `DELETE FROM backplane.audit_outbox WHERE sequence <= $1 AND published_at IS NOT NULL;`
+
+func (q *Queries) DeleteExpiredAuditOutbox(ctx context.Context, throughSequence int64) error {
+	_, err := q.db.Exec(ctx, deleteExpiredAuditOutboxSQL, throughSequence)
+	return err
+}
+
+const deleteExpiredAuditEntriesSQL = `DELETE FROM backplane.audit_entry WHERE sequence <= $1;`
+
+func (q *Queries) DeleteExpiredAuditEntries(ctx context.Context, throughSequence int64) error {
+	_, err := q.db.Exec(ctx, deleteExpiredAuditEntriesSQL, throughSequence)
+	return err
+}
+
+const advanceAuditRetentionSQL = `UPDATE backplane.audit_clock SET retained_after = $1
+WHERE singleton = true AND retained_after < $1 AND sequence >= $1;`
+
+func (q *Queries) AdvanceAuditRetention(ctx context.Context, throughSequence int64) error {
+	_, err := q.db.Exec(ctx, advanceAuditRetentionSQL, throughSequence)
+	return err
+}
+
 const nextBindingVersionSQL = `SELECT (COALESCE(max(version), 0) + 1)::bigint AS version
 FROM backplane.binding_version WHERE hook = $1;`
 

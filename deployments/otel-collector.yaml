@@ -1,0 +1,43 @@
+# Deployment-owned pipeline. SDKs batch exports; no asynchronous Collector batch
+# or queue here, so an HTTP acknowledgement follows the storage export attempt.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 2097152
+processors:
+  memory_limiter:
+    check_interval: 100ms
+    limit_mib: 192
+    spike_limit_mib: 64
+exporters:
+  otlp_http/logs:
+    endpoint: http://victorialogs:9428/insert/opentelemetry
+    timeout: 5s
+    sending_queue: {enabled: false}
+    retry_on_failure: {enabled: false}
+  otlp_http/traces:
+    endpoint: http://victoriatraces:10428/insert/opentelemetry
+    timeout: 5s
+    sending_queue: {enabled: false}
+    retry_on_failure: {enabled: false}
+  otlp_http/metrics:
+    metrics_endpoint: http://victoriametrics:8428/opentelemetry/v1/metrics
+    timeout: 5s
+    sending_queue: {enabled: false}
+    retry_on_failure: {enabled: false}
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_http/logs]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_http/traces]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp_http/metrics]

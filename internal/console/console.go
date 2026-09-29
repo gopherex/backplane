@@ -110,6 +110,7 @@ type options struct {
 	services   []func(grpc.ServiceRegistrar)
 	cacheBytes int64
 	shell      fs.FS
+	telemetry  http.Handler
 }
 
 // WithClock replaces time.Now (tests).
@@ -127,6 +128,9 @@ func WithCacheBytes(n int64) Option { return func(o *options) { o.cacheBytes = n
 // WithShell serves the console's frontend from fsys (index.html for every
 // path that is not a file); without it "/" answers a placeholder.
 func WithShell(fsys fs.FS) Option { return func(o *options) { o.shell = fsys } }
+
+// WithTelemetry installs independent OTLP admission without operator auth.
+func WithTelemetry(handler http.Handler) Option { return func(o *options) { o.telemetry = handler } }
 
 // Console is the console server: a component whose start checks the admin
 // token is configured and opens the listener,
@@ -186,7 +190,7 @@ func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, 
 
 	c.relay = newRelay(src, s.InternalSecret)
 	c.bundles = newBundles(s.InternalSecret, o.cacheBytes)
-	c.handler = c.routes(c.newWS(o.services), o.shell)
+	c.handler = c.routes(c.newWS(o.services), o.shell, o.telemetry)
 
 	c.OnStart(func(context.Context) error { return s.Validate() })
 	c.OnStart(c.listen)

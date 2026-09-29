@@ -14,6 +14,7 @@ import (
 
 	"github.com/gopherex/xlog"
 
+	"github.com/gopherex/backplane/internal/store"
 	"github.com/gopherex/backplane/internal/store/db"
 )
 
@@ -354,7 +355,10 @@ func (m *Manager) insertBinding(
 			return fmt.Errorf("set current: %w", err)
 		}
 
-		return nil
+		return st.AuditControl(ctx, author, versionAction("binding", def == nil, rollback), hook, store.AuditDetail{
+			Revision:   next.Version,
+			RollbackOf: rollback,
+		})
 	})
 	if err != nil {
 		return BindingVersion{}, fmt.Errorf("bindings: save %s: %w", hook, err)
@@ -535,12 +539,21 @@ func (m *Manager) DeleteRule(ctx context.Context, id uuid.UUID, comment string) 
 
 // PauseRule sets the rule's pause: paused rules start no runs.
 func (m *Manager) PauseRule(ctx context.Context, id uuid.UUID, paused bool) (RuleEntry, error) {
-	if _, err := m.store.Get().Q.SetRulePaused(ctx, db.SetRulePausedParams{Paused: paused, ID: id}); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return RuleEntry{}, fmt.Errorf("%w: %s", ErrNoRule, id)
+	st := m.store.Get()
+
+	err := st.InTx(ctx, func(ctx context.Context) error {
+		if _, updateErr := st.Q.SetRulePaused(ctx, db.SetRulePausedParams{Paused: paused, ID: id}); updateErr != nil {
+			if errors.Is(updateErr, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %s", ErrNoRule, id)
+			}
+
+			return fmt.Errorf("bindings: pause rule %s: %w", id, updateErr)
 		}
 
-		return RuleEntry{}, fmt.Errorf("bindings: pause rule %s: %w", id, err)
+		return st.AuditControl(ctx, m.author(ctx), "rule.pause", id.String(), store.AuditDetail{Paused: &paused})
+	})
+	if err != nil {
+		return RuleEntry{}, fmt.Errorf("bindings: pause transaction: %w", err)
 	}
 
 	m.Log().Info("rule paused", xlog.String("rule", id.String()), xlog.Bool("paused", paused),
@@ -629,7 +642,10 @@ func (m *Manager) insertRule(
 			return fmt.Errorf("set current: %w", err)
 		}
 
-		return nil
+		return st.AuditControl(ctx, author, versionAction("rule", def == nil, rollback), ruleID.String(), store.AuditDetail{
+			Revision:   next.Version,
+			RollbackOf: rollback,
+		})
 	})
 	if err != nil {
 		return RuleVersion{}, fmt.Errorf("bindings: save rule: %w", err)
@@ -638,4 +654,16 @@ func (m *Manager) insertRule(
 	m.changes.notify()
 
 	return ruleVersionRow(saved).version()
+}
+
+func versionAction(kind string, deleted bool, rollback int64) string {
+	if rollback > 0 {
+		return kind + ".rollback"
+	}
+
+	if deleted {
+		return kind + ".delete"
+	}
+
+	return kind + ".save"
 }

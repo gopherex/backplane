@@ -112,6 +112,8 @@ func TestReplicas(t *testing.T) {
 		}
 	}
 
+	w.auditDelivered(t)
+
 	t.Log("two replicas: config repair, cross-service binding, rule deduplication, crash/rejoin and endpoint retirement passed")
 }
 

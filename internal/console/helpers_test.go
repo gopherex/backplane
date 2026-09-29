@@ -189,6 +189,11 @@ type envOption func(s *console.Settings)
 // sessions (or the given ones).
 func newEnv(t *testing.T, sessions console.Sessions, opts ...envOption) *env {
 	t.Helper()
+	return newEnvOptions(t, sessions, nil, opts...)
+}
+
+func newEnvOptions(t *testing.T, sessions console.Sessions, options []console.Option, opts ...envOption) *env {
+	t.Helper()
 
 	if sessions == nil {
 		sessions = newMemSessions()
@@ -202,7 +207,9 @@ func newEnv(t *testing.T, sessions console.Sessions, opts ...envOption) *env {
 	}
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	e.console = console.New(h.Root(), settings, sessions, e.hub, console.WithClock(e.clock.Now))
+
+	options = append(options, console.WithClock(e.clock.Now))
+	e.console = console.New(h.Root(), settings, sessions, e.hub, options...)
 	h.Start()
 
 	e.srv = httptest.NewServer(e.console.Handler())

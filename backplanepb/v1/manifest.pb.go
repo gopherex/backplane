@@ -284,7 +284,10 @@ type Manifest struct {
 	// Temporal Schedules of the service's own workflows.
 	Schedules []*Schedule `protobuf:"bytes,15,rep,name=schedules,proto3" json:"schedules,omitempty"`
 	// The service's own workflows the console may start (§9).
-	Workflows     []*Workflow `protobuf:"bytes,16,rep,name=workflows,proto3" json:"workflows,omitempty"`
+	Workflows []*Workflow `protobuf:"bytes,16,rep,name=workflows,proto3" json:"workflows,omitempty"`
+	// Optional telemetry view presets. Absence uses service.name convention;
+	// an explicitly empty declaration disables presets, never signal ingestion.
+	Telemetry     *TelemetrySources `protobuf:"bytes,17,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -424,6 +427,104 @@ func (x *Manifest) GetWorkflows() []*Workflow {
 	return nil
 }
 
+func (x *Manifest) GetTelemetry() *TelemetrySources {
+	if x != nil {
+		return x.Telemetry
+	}
+	return nil
+}
+
+// Selectors are OR alternatives; attributes within one selector are AND exact
+// matches against OTel resource attributes. They never grant access or identify
+// trusted senders. The query driver maps resource names to storage fields.
+type TelemetrySourceSelector struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Resource      map[string]string      `protobuf:"bytes,1,rep,name=resource,proto3" json:"resource,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetrySourceSelector) Reset() {
+	*x = TelemetrySourceSelector{}
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetrySourceSelector) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetrySourceSelector) ProtoMessage() {}
+
+func (x *TelemetrySourceSelector) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetrySourceSelector.ProtoReflect.Descriptor instead.
+func (*TelemetrySourceSelector) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TelemetrySourceSelector) GetResource() map[string]string {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+type TelemetrySources struct {
+	state         protoimpl.MessageState     `protogen:"open.v1"`
+	Selectors     []*TelemetrySourceSelector `protobuf:"bytes,1,rep,name=selectors,proto3" json:"selectors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetrySources) Reset() {
+	*x = TelemetrySources{}
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetrySources) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetrySources) ProtoMessage() {}
+
+func (x *TelemetrySources) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetrySources.ProtoReflect.Descriptor instead.
+func (*TelemetrySources) Descriptor() ([]byte, []int) {
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TelemetrySources) GetSelectors() []*TelemetrySourceSelector {
+	if x != nil {
+		return x.Selectors
+	}
+	return nil
+}
+
 // The configuration. `keys` is the declaration; `schema` is optional and,
 // when present, drives forms, validation and secret masking.
 type ConfigSection struct {
@@ -438,7 +539,7 @@ type ConfigSection struct {
 
 func (x *ConfigSection) Reset() {
 	*x = ConfigSection{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[1]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -450,7 +551,7 @@ func (x *ConfigSection) String() string {
 func (*ConfigSection) ProtoMessage() {}
 
 func (x *ConfigSection) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[1]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -463,7 +564,7 @@ func (x *ConfigSection) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigSection.ProtoReflect.Descriptor instead.
 func (*ConfigSection) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{1}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ConfigSection) GetKeys() []string {
@@ -501,7 +602,7 @@ type Node struct {
 
 func (x *Node) Reset() {
 	*x = Node{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[2]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -513,7 +614,7 @@ func (x *Node) String() string {
 func (*Node) ProtoMessage() {}
 
 func (x *Node) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[2]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -526,7 +627,7 @@ func (x *Node) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Node.ProtoReflect.Descriptor instead.
 func (*Node) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{2}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Node) GetPath() string {
@@ -581,7 +682,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[3]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +694,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[3]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,7 +707,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{3}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Route) GetPrefix() string {
@@ -726,7 +827,7 @@ type RoutePolicy struct {
 
 func (x *RoutePolicy) Reset() {
 	*x = RoutePolicy{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[4]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +839,7 @@ func (x *RoutePolicy) String() string {
 func (*RoutePolicy) ProtoMessage() {}
 
 func (x *RoutePolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[4]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +852,7 @@ func (x *RoutePolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutePolicy.ProtoReflect.Descriptor instead.
 func (*RoutePolicy) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{4}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RoutePolicy) GetTimeout() *durationpb.Duration {
@@ -801,7 +902,7 @@ type RetryPolicy struct {
 
 func (x *RetryPolicy) Reset() {
 	*x = RetryPolicy{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +914,7 @@ func (x *RetryPolicy) String() string {
 func (*RetryPolicy) ProtoMessage() {}
 
 func (x *RetryPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[5]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +927,7 @@ func (x *RetryPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryPolicy.ProtoReflect.Descriptor instead.
 func (*RetryPolicy) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{5}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *RetryPolicy) GetAttempts() uint32 {
@@ -864,7 +965,7 @@ type Cors struct {
 
 func (x *Cors) Reset() {
 	*x = Cors{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -876,7 +977,7 @@ func (x *Cors) String() string {
 func (*Cors) ProtoMessage() {}
 
 func (x *Cors) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[6]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -889,7 +990,7 @@ func (x *Cors) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cors.ProtoReflect.Descriptor instead.
 func (*Cors) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{6}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Cors) GetOrigins() []string {
@@ -945,7 +1046,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -957,7 +1058,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[7]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -970,7 +1071,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{7}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Event) GetName() string {
@@ -1008,7 +1109,7 @@ type Subscription struct {
 
 func (x *Subscription) Reset() {
 	*x = Subscription{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1020,7 +1121,7 @@ func (x *Subscription) String() string {
 func (*Subscription) ProtoMessage() {}
 
 func (x *Subscription) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[8]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1033,7 +1134,7 @@ func (x *Subscription) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Subscription.ProtoReflect.Descriptor instead.
 func (*Subscription) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{8}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Subscription) GetEvent() string {
@@ -1067,7 +1168,7 @@ type Hook struct {
 
 func (x *Hook) Reset() {
 	*x = Hook{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1079,7 +1180,7 @@ func (x *Hook) String() string {
 func (*Hook) ProtoMessage() {}
 
 func (x *Hook) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[9]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1092,7 +1193,7 @@ func (x *Hook) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hook.ProtoReflect.Descriptor instead.
 func (*Hook) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{9}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Hook) GetName() string {
@@ -1155,7 +1256,7 @@ type Activity struct {
 
 func (x *Activity) Reset() {
 	*x = Activity{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[10]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1167,7 +1268,7 @@ func (x *Activity) String() string {
 func (*Activity) ProtoMessage() {}
 
 func (x *Activity) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[10]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1180,7 +1281,7 @@ func (x *Activity) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Activity.ProtoReflect.Descriptor instead.
 func (*Activity) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{10}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Activity) GetName() string {
@@ -1253,7 +1354,7 @@ type Workflow struct {
 
 func (x *Workflow) Reset() {
 	*x = Workflow{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[11]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1265,7 +1366,7 @@ func (x *Workflow) String() string {
 func (*Workflow) ProtoMessage() {}
 
 func (x *Workflow) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[11]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1278,7 +1379,7 @@ func (x *Workflow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Workflow.ProtoReflect.Descriptor instead.
 func (*Workflow) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{11}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Workflow) GetName() string {
@@ -1320,7 +1421,7 @@ type UI struct {
 
 func (x *UI) Reset() {
 	*x = UI{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[12]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1332,7 +1433,7 @@ func (x *UI) String() string {
 func (*UI) ProtoMessage() {}
 
 func (x *UI) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[12]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1345,7 +1446,7 @@ func (x *UI) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UI.ProtoReflect.Descriptor instead.
 func (*UI) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{12}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UI) GetHash() string {
@@ -1391,7 +1492,7 @@ type Schedule struct {
 
 func (x *Schedule) Reset() {
 	*x = Schedule{}
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[13]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1403,7 +1504,7 @@ func (x *Schedule) String() string {
 func (*Schedule) ProtoMessage() {}
 
 func (x *Schedule) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_v1_manifest_proto_msgTypes[13]
+	mi := &file_backplanepb_v1_manifest_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1416,7 +1517,7 @@ func (x *Schedule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Schedule.ProtoReflect.Descriptor instead.
 func (*Schedule) Descriptor() ([]byte, []int) {
-	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{13}
+	return file_backplanepb_v1_manifest_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Schedule) GetName() string {
@@ -1508,7 +1609,7 @@ var File_backplanepb_v1_manifest_proto protoreflect.FileDescriptor
 
 const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x15schemapb/schema.proto\"\xb0\x05\n" +
+	"\x1dbackplanepb/v1/manifest.proto\x12\fbackplane.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x15schemapb/schema.proto\"\xee\x05\n" +
 	"\bManifest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1f\n" +
@@ -1528,7 +1629,15 @@ const file_backplanepb_v1_manifest_proto_rawDesc = "" +
 	"\vdescriptors\x18\r \x01(\fR\vdescriptors\x12@\n" +
 	"\rsubscriptions\x18\x0e \x03(\v2\x1a.backplane.v1.SubscriptionR\rsubscriptions\x124\n" +
 	"\tschedules\x18\x0f \x03(\v2\x16.backplane.v1.ScheduleR\tschedules\x124\n" +
-	"\tworkflows\x18\x10 \x03(\v2\x16.backplane.v1.WorkflowR\tworkflowsJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"a\n" +
+	"\tworkflows\x18\x10 \x03(\v2\x16.backplane.v1.WorkflowR\tworkflows\x12<\n" +
+	"\ttelemetry\x18\x11 \x01(\v2\x1e.backplane.v1.TelemetrySourcesR\ttelemetryJ\x04\b\x05\x10\x06R\x06staticR\adynamic\"\xa7\x01\n" +
+	"\x17TelemetrySourceSelector\x12O\n" +
+	"\bresource\x18\x01 \x03(\v23.backplane.v1.TelemetrySourceSelector.ResourceEntryR\bresource\x1a;\n" +
+	"\rResourceEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"W\n" +
+	"\x10TelemetrySources\x12C\n" +
+	"\tselectors\x18\x01 \x03(\v2%.backplane.v1.TelemetrySourceSelectorR\tselectors\"a\n" +
 	"\rConfigSection\x12\x12\n" +
 	"\x04keys\x18\x01 \x03(\tR\x04keys\x12(\n" +
 	"\x06schema\x18\x02 \x01(\v2\x10.schemapb.SchemaR\x06schema\x12\x12\n" +
@@ -1644,70 +1753,76 @@ func file_backplanepb_v1_manifest_proto_rawDescGZIP() []byte {
 }
 
 var file_backplanepb_v1_manifest_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_backplanepb_v1_manifest_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_backplanepb_v1_manifest_proto_goTypes = []any{
-	(NodeKind)(0),               // 0: backplane.v1.NodeKind
-	(RouteKind)(0),              // 1: backplane.v1.RouteKind
-	(ActivityKind)(0),           // 2: backplane.v1.ActivityKind
-	(ScheduleOverlap)(0),        // 3: backplane.v1.ScheduleOverlap
-	(*Manifest)(nil),            // 4: backplane.v1.Manifest
-	(*ConfigSection)(nil),       // 5: backplane.v1.ConfigSection
-	(*Node)(nil),                // 6: backplane.v1.Node
-	(*Route)(nil),               // 7: backplane.v1.Route
-	(*RoutePolicy)(nil),         // 8: backplane.v1.RoutePolicy
-	(*RetryPolicy)(nil),         // 9: backplane.v1.RetryPolicy
-	(*Cors)(nil),                // 10: backplane.v1.Cors
-	(*Event)(nil),               // 11: backplane.v1.Event
-	(*Subscription)(nil),        // 12: backplane.v1.Subscription
-	(*Hook)(nil),                // 13: backplane.v1.Hook
-	(*Activity)(nil),            // 14: backplane.v1.Activity
-	(*Workflow)(nil),            // 15: backplane.v1.Workflow
-	(*UI)(nil),                  // 16: backplane.v1.UI
-	(*Schedule)(nil),            // 17: backplane.v1.Schedule
-	(*schemapb.Schema)(nil),     // 18: schemapb.Schema
-	(*durationpb.Duration)(nil), // 19: google.protobuf.Duration
+	(NodeKind)(0),                   // 0: backplane.v1.NodeKind
+	(RouteKind)(0),                  // 1: backplane.v1.RouteKind
+	(ActivityKind)(0),               // 2: backplane.v1.ActivityKind
+	(ScheduleOverlap)(0),            // 3: backplane.v1.ScheduleOverlap
+	(*Manifest)(nil),                // 4: backplane.v1.Manifest
+	(*TelemetrySourceSelector)(nil), // 5: backplane.v1.TelemetrySourceSelector
+	(*TelemetrySources)(nil),        // 6: backplane.v1.TelemetrySources
+	(*ConfigSection)(nil),           // 7: backplane.v1.ConfigSection
+	(*Node)(nil),                    // 8: backplane.v1.Node
+	(*Route)(nil),                   // 9: backplane.v1.Route
+	(*RoutePolicy)(nil),             // 10: backplane.v1.RoutePolicy
+	(*RetryPolicy)(nil),             // 11: backplane.v1.RetryPolicy
+	(*Cors)(nil),                    // 12: backplane.v1.Cors
+	(*Event)(nil),                   // 13: backplane.v1.Event
+	(*Subscription)(nil),            // 14: backplane.v1.Subscription
+	(*Hook)(nil),                    // 15: backplane.v1.Hook
+	(*Activity)(nil),                // 16: backplane.v1.Activity
+	(*Workflow)(nil),                // 17: backplane.v1.Workflow
+	(*UI)(nil),                      // 18: backplane.v1.UI
+	(*Schedule)(nil),                // 19: backplane.v1.Schedule
+	nil,                             // 20: backplane.v1.TelemetrySourceSelector.ResourceEntry
+	(*schemapb.Schema)(nil),         // 21: schemapb.Schema
+	(*durationpb.Duration)(nil),     // 22: google.protobuf.Duration
 }
 var file_backplanepb_v1_manifest_proto_depIdxs = []int32{
-	5,  // 0: backplane.v1.Manifest.config:type_name -> backplane.v1.ConfigSection
-	7,  // 1: backplane.v1.Manifest.routes:type_name -> backplane.v1.Route
-	11, // 2: backplane.v1.Manifest.events:type_name -> backplane.v1.Event
-	13, // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
-	14, // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
-	16, // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
-	6,  // 6: backplane.v1.Manifest.nodes:type_name -> backplane.v1.Node
-	12, // 7: backplane.v1.Manifest.subscriptions:type_name -> backplane.v1.Subscription
-	17, // 8: backplane.v1.Manifest.schedules:type_name -> backplane.v1.Schedule
-	15, // 9: backplane.v1.Manifest.workflows:type_name -> backplane.v1.Workflow
-	18, // 10: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
-	0,  // 11: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
-	1,  // 12: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
-	8,  // 13: backplane.v1.Route.policy:type_name -> backplane.v1.RoutePolicy
-	19, // 14: backplane.v1.RoutePolicy.timeout:type_name -> google.protobuf.Duration
-	19, // 15: backplane.v1.RoutePolicy.idle_timeout:type_name -> google.protobuf.Duration
-	9,  // 16: backplane.v1.RoutePolicy.retry:type_name -> backplane.v1.RetryPolicy
-	10, // 17: backplane.v1.RoutePolicy.cors:type_name -> backplane.v1.Cors
-	19, // 18: backplane.v1.RetryPolicy.per_try_timeout:type_name -> google.protobuf.Duration
-	19, // 19: backplane.v1.Cors.max_age:type_name -> google.protobuf.Duration
-	18, // 20: backplane.v1.Event.schema:type_name -> schemapb.Schema
-	18, // 21: backplane.v1.Hook.input:type_name -> schemapb.Schema
-	18, // 22: backplane.v1.Hook.output:type_name -> schemapb.Schema
-	19, // 23: backplane.v1.Hook.timeout:type_name -> google.protobuf.Duration
-	18, // 24: backplane.v1.Activity.input:type_name -> schemapb.Schema
-	18, // 25: backplane.v1.Activity.output:type_name -> schemapb.Schema
-	2,  // 26: backplane.v1.Activity.kind:type_name -> backplane.v1.ActivityKind
-	19, // 27: backplane.v1.Activity.start_to_close:type_name -> google.protobuf.Duration
-	19, // 28: backplane.v1.Activity.heartbeat:type_name -> google.protobuf.Duration
-	9,  // 29: backplane.v1.Activity.retry:type_name -> backplane.v1.RetryPolicy
-	18, // 30: backplane.v1.Workflow.input:type_name -> schemapb.Schema
-	18, // 31: backplane.v1.Workflow.output:type_name -> schemapb.Schema
-	19, // 32: backplane.v1.Schedule.every:type_name -> google.protobuf.Duration
-	3,  // 33: backplane.v1.Schedule.overlap:type_name -> backplane.v1.ScheduleOverlap
-	19, // 34: backplane.v1.Schedule.jitter:type_name -> google.protobuf.Duration
-	35, // [35:35] is the sub-list for method output_type
-	35, // [35:35] is the sub-list for method input_type
-	35, // [35:35] is the sub-list for extension type_name
-	35, // [35:35] is the sub-list for extension extendee
-	0,  // [0:35] is the sub-list for field type_name
+	7,  // 0: backplane.v1.Manifest.config:type_name -> backplane.v1.ConfigSection
+	9,  // 1: backplane.v1.Manifest.routes:type_name -> backplane.v1.Route
+	13, // 2: backplane.v1.Manifest.events:type_name -> backplane.v1.Event
+	15, // 3: backplane.v1.Manifest.hooks:type_name -> backplane.v1.Hook
+	16, // 4: backplane.v1.Manifest.activities:type_name -> backplane.v1.Activity
+	18, // 5: backplane.v1.Manifest.ui:type_name -> backplane.v1.UI
+	8,  // 6: backplane.v1.Manifest.nodes:type_name -> backplane.v1.Node
+	14, // 7: backplane.v1.Manifest.subscriptions:type_name -> backplane.v1.Subscription
+	19, // 8: backplane.v1.Manifest.schedules:type_name -> backplane.v1.Schedule
+	17, // 9: backplane.v1.Manifest.workflows:type_name -> backplane.v1.Workflow
+	6,  // 10: backplane.v1.Manifest.telemetry:type_name -> backplane.v1.TelemetrySources
+	20, // 11: backplane.v1.TelemetrySourceSelector.resource:type_name -> backplane.v1.TelemetrySourceSelector.ResourceEntry
+	5,  // 12: backplane.v1.TelemetrySources.selectors:type_name -> backplane.v1.TelemetrySourceSelector
+	21, // 13: backplane.v1.ConfigSection.schema:type_name -> schemapb.Schema
+	0,  // 14: backplane.v1.Node.kind:type_name -> backplane.v1.NodeKind
+	1,  // 15: backplane.v1.Route.kind:type_name -> backplane.v1.RouteKind
+	10, // 16: backplane.v1.Route.policy:type_name -> backplane.v1.RoutePolicy
+	22, // 17: backplane.v1.RoutePolicy.timeout:type_name -> google.protobuf.Duration
+	22, // 18: backplane.v1.RoutePolicy.idle_timeout:type_name -> google.protobuf.Duration
+	11, // 19: backplane.v1.RoutePolicy.retry:type_name -> backplane.v1.RetryPolicy
+	12, // 20: backplane.v1.RoutePolicy.cors:type_name -> backplane.v1.Cors
+	22, // 21: backplane.v1.RetryPolicy.per_try_timeout:type_name -> google.protobuf.Duration
+	22, // 22: backplane.v1.Cors.max_age:type_name -> google.protobuf.Duration
+	21, // 23: backplane.v1.Event.schema:type_name -> schemapb.Schema
+	21, // 24: backplane.v1.Hook.input:type_name -> schemapb.Schema
+	21, // 25: backplane.v1.Hook.output:type_name -> schemapb.Schema
+	22, // 26: backplane.v1.Hook.timeout:type_name -> google.protobuf.Duration
+	21, // 27: backplane.v1.Activity.input:type_name -> schemapb.Schema
+	21, // 28: backplane.v1.Activity.output:type_name -> schemapb.Schema
+	2,  // 29: backplane.v1.Activity.kind:type_name -> backplane.v1.ActivityKind
+	22, // 30: backplane.v1.Activity.start_to_close:type_name -> google.protobuf.Duration
+	22, // 31: backplane.v1.Activity.heartbeat:type_name -> google.protobuf.Duration
+	11, // 32: backplane.v1.Activity.retry:type_name -> backplane.v1.RetryPolicy
+	21, // 33: backplane.v1.Workflow.input:type_name -> schemapb.Schema
+	21, // 34: backplane.v1.Workflow.output:type_name -> schemapb.Schema
+	22, // 35: backplane.v1.Schedule.every:type_name -> google.protobuf.Duration
+	3,  // 36: backplane.v1.Schedule.overlap:type_name -> backplane.v1.ScheduleOverlap
+	22, // 37: backplane.v1.Schedule.jitter:type_name -> google.protobuf.Duration
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_v1_manifest_proto_init() }
@@ -1715,12 +1830,12 @@ func file_backplanepb_v1_manifest_proto_init() {
 	if File_backplanepb_v1_manifest_proto != nil {
 		return
 	}
-	file_backplanepb_v1_manifest_proto_msgTypes[3].OneofWrappers = []any{
+	file_backplanepb_v1_manifest_proto_msgTypes[5].OneofWrappers = []any{
 		(*Route_Openapi)(nil),
 		(*Route_Descriptors)(nil),
 		(*Route_Graphql)(nil),
 	}
-	file_backplanepb_v1_manifest_proto_msgTypes[13].OneofWrappers = []any{
+	file_backplanepb_v1_manifest_proto_msgTypes[15].OneofWrappers = []any{
 		(*Schedule_Cron)(nil),
 		(*Schedule_Every)(nil),
 	}
@@ -1730,7 +1845,7 @@ func file_backplanepb_v1_manifest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_v1_manifest_proto_rawDesc), len(file_backplanepb_v1_manifest_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

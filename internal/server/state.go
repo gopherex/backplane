@@ -4,14 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 
 	"github.com/hashicorp/consul/api"
 
+	"github.com/gopherex/backplane/internal/audit"
 	"github.com/gopherex/backplane/internal/bindings"
 	"github.com/gopherex/backplane/internal/config"
 	"github.com/gopherex/backplane/internal/console"
 	"github.com/gopherex/backplane/internal/executor"
+	"github.com/gopherex/backplane/internal/obs"
 	"github.com/gopherex/backplane/internal/ops"
+	"github.com/gopherex/backplane/internal/otlp"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/internal/rules"
 	"github.com/gopherex/backplane/internal/store"
@@ -60,6 +65,11 @@ type State struct {
 	// (backplane's own API and the relay to the services' internal API),
 	// plugin bundles.
 	Console *console.Console
+	// Obs reads deployment-owned stores; no dependency on their readiness.
+	Obs         *obs.Service
+	internalObs bool
+	// Audit delivers durable control events and serves AuditService.
+	Audit *audit.Service
 
 	// Extension points — one field and one constructor line in NewState per
 	// component, in the order they depend on each other:
@@ -74,14 +84,45 @@ type State struct {
 func NewState(root backplane.Root[Config]) (*State, error) {
 	cfg := root.Config()
 
+	var consoleOptions []console.Option
+
+	if cfg.Console.AssetsDir != "" {
+		shell := os.DirFS(cfg.Console.AssetsDir)
+		if _, err := fs.Stat(shell, "index.html"); err != nil {
+			return nil, fmt.Errorf("console assets: %w", err)
+		}
+
+		consoleOptions = append(consoleOptions, console.WithShell(shell))
+	}
+
+	if cfg.OTLP.URL != "" {
+		admission, err := otlp.New(cfg.OTLP)
+		if err != nil {
+			return nil, fmt.Errorf("OTLP admission: %w", err)
+		}
+
+		consoleOptions = append(consoleOptions, console.WithTelemetry(admission))
+
+		root.OnStop(func(context.Context) error { admission.Close(); return nil })
+	}
+
 	client, err := consulClient(cfg.Consul)
 	if err != nil {
 		return nil, err
 	}
 
-	st := &State{Consul: client}
+	st := &State{Consul: client, internalObs: cfg.InternalSecret.Reveal() != ""}
+
 	st.Store = deps.NewDependency(root, store.New(cfg.PG.DSN))
 	st.Registry = registry.New(root, client)
+	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention))
+
+	st.Obs, err = obs.New(cfg.Obs, obs.WithRegistry(st.Registry))
+	if err != nil {
+		return nil, fmt.Errorf("observability: %w", err)
+	}
+
+	root.OnStop(func(context.Context) error { st.Obs.Close(); return nil })
 	st.Config = config.New(root, cfg.LiveConfig, client, st.Store, st.Registry, config.Author(sessionAuthor))
 	st.Bindings = bindings.New(root, st.Store, st.Registry, bindings.Author(sessionAuthor))
 	st.XDS = xds.New(root, xdsConfig(cfg, root.Identity().Advertise), st.Registry)
@@ -92,10 +133,12 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 		executor.AbsenceGrace(cfg.Nexus.AbsenceGrace), executor.Resync(cfg.Nexus.ReconcileInterval))
 	workflows.Register(root, st.Executor.RegisterWorkflows)
 	st.Rules = rules.New(root, st.Bindings, st.Registry, rules.WithRuns(st.Ops.Workflows()))
-	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry,
-		console.WithServices(st.Config.Register), console.WithServices(st.Ops.Register),
-		console.WithServices(st.Executor.Register(st.Bindings.BindingAPI())),
-		console.WithServices(st.Rules.Register))
+	consoleOptions = append(consoleOptions,
+		console.WithServices(st.Config.Register), console.WithServices(st.Audit.Commands(st.Ops.Register, sessionAuthor)),
+		console.WithServices(st.Audit.Commands(st.Executor.Register(st.Bindings.BindingAPI()), sessionAuthor)),
+		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Obs.Register),
+		console.WithServices(st.Audit.Register))
+	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry, consoleOptions...)
 
 	return st, nil
 }

@@ -80,3 +80,30 @@ type BackplaneRuleCurrent struct {
 	Version   int64
 	UpdatedAt time.Time
 }
+
+type BackplaneAuditClock struct {
+	Singleton     bool
+	Sequence      int64
+	RetainedAfter int64
+}
+
+type BackplaneAuditEntry struct {
+	Sequence    int64
+	ID          uuid.UUID
+	CreatedAt   time.Time
+	Actor       string
+	Action      string
+	Subject     string
+	Outcome     string
+	OperationID uuid.UUID
+	Detail      json.RawMessage
+}
+
+type BackplaneAuditOutbox struct {
+	Sequence    int64
+	AvailableAt time.Time
+	Lease       *uuid.UUID
+	LeasedUntil time.Time
+	Attempts    int64
+	PublishedAt *time.Time
+}

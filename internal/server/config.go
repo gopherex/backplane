@@ -16,8 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gopherex/backplane/internal/audit"
 	liveconfig "github.com/gopherex/backplane/internal/config"
 	"github.com/gopherex/backplane/internal/console"
+	"github.com/gopherex/backplane/internal/obs"
+	"github.com/gopherex/backplane/internal/otlp"
 	"github.com/gopherex/backplane/internal/xds"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 )
@@ -40,8 +43,12 @@ type Config struct {
 	// is changing the secret and rolling the replicas; sessions opened with
 	// the old one last until they expire or are revoked.
 	AdminToken config.Secret `json:"admin_token,omitempty"`
-	// Observability backends the console links and proxies to (§15.2).
-	Obs Obs `json:"obs"`
+	// Read-only access to independent observability backends (§15.2).
+	Obs obs.Config `json:"obs"`
+	// Durable control audit settings belong to deployment.
+	Audit audit.Settings `json:"audit"`
+	// OTLP admission into a deployment-owned Collector; empty URL disables it.
+	OTLP otlp.Config `json:"otlp"`
 	// Live-value overrides: BACKPLANE_LIVE_CONFIG_* (§5.3).
 	LiveConfig liveconfig.Settings `json:"live_config"`
 	// Nexus endpoint reconciliation and retirement.
@@ -63,7 +70,9 @@ type XDS struct {
 
 // Console of the installation (§11): BACKPLANE_CONSOLE_*.
 type Console struct {
-	Listen string `json:"listen" schemapb:"default=:8081"`
+	// AssetsDir serves a built console shell from a deployment-owned directory.
+	AssetsDir string `json:"assets_dir,omitempty"`
+	Listen    string `json:"listen"               schemapb:"default=:8081"`
 	// The console lives on its own host (console.example.com) or under a
 	// prefix of a shared one (/backplane); one of them, or neither — then it
 	// takes `/` of the default virtual host.
@@ -88,13 +97,6 @@ func (c Config) consoleSettings() console.Settings {
 	}
 }
 
-// Obs are the observability backends: BACKPLANE_OBS_*; empty: not shown.
-type Obs struct {
-	MetricsURL string `json:"metrics_url,omitempty"`
-	LogsURL    string `json:"logs_url,omitempty"`
-	TracesURL  string `json:"traces_url,omitempty"`
-}
-
 // Errors of Validate.
 var (
 	ErrNoPG         = errors.New("pg.dsn is required (BACKPLANE_PG_DSN)")
@@ -105,7 +107,7 @@ var (
 	ErrPrefix       = errors.New("console.prefix: want /path without a trailing slash")
 	ErrOrigin       = errors.New("console.origins: want scheme://host[:port]")
 	ErrProxy        = errors.New("console.trusted_proxies: want an address or CIDR")
-	ErrURL          = errors.New("want an absolute http(s) URL")
+	ErrURL          = obs.ErrURL
 	ErrNoAdminToken = errors.New("admin_token is required (BACKPLANE_ADMIN_TOKEN): " +
 		"the console's login secret, set in the deployment")
 	ErrShortAdminToken = fmt.Errorf("want at least %d characters", console.MinAdminTokenLen)
@@ -130,14 +132,7 @@ func (c Config) Validate() error {
 
 	errs = append(errs, c.ports()...)
 	errs = append(errs, c.Console.validate()...)
-
-	for name, u := range map[string]string{
-		"obs.metrics_url": c.Obs.MetricsURL, "obs.logs_url": c.Obs.LogsURL, "obs.traces_url": c.Obs.TracesURL,
-	} {
-		if u != "" && !httpURL(u) {
-			errs = append(errs, fmt.Errorf("%s %q: %w", name, u, ErrURL))
-		}
-	}
+	errs = append(errs, c.OTLP.Validate(), c.Obs.Validate(), c.Audit.Validate())
 
 	return errors.Join(errs...)
 }

@@ -1,0 +1,39 @@
+{
+  "name": "@gopherex/backplane-theme",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/theme"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist",
+    "NOTICE.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/css.mjs",
+    "prepack": "yarn build"
+  },
+  "dependencies": {
+    "@grafana/data": "13.2.3"
+  },
+  "peerDependencies": {
+    "react": ">=19 <20",
+    "react-dom": ">=19 <20"
+  }
+}

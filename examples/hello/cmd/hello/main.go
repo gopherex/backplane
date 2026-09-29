@@ -62,10 +62,11 @@ const (
 type Config struct {
 	config.Backplane `json:"backplane"`
 
-	Greeter greeter.Config `json:"greeter"`
-	Store   store.Config   `json:"store"`
-	Cache   store.Config   `json:"cache"`
-	Legacy  legacy.Config  `json:"legacy"`
+	Greeter  greeter.Config `json:"greeter"`
+	Store    store.Config   `json:"store"`
+	Cache    store.Config   `json:"cache"`
+	Legacy   legacy.Config  `json:"legacy"`
+	UIAssets string         `json:"ui_assets,omitempty"`
 }
 
 // State is everything the service holds: a tree built under the Root.
@@ -76,11 +77,12 @@ type State struct {
 	// probe fails (ProbeOptional) Get reports it absent.
 	Cache deps.Optional[*store.DB]
 
-	Greeter *greeter.Greeter
-	Audit   *audit.Audit
-	Flows   *flows.Flows
-	Admin   *admin.Admin
-	Legacy  *legacy.Server
+	Greeter  *greeter.Greeter
+	Audit    *audit.Audit
+	Flows    *flows.Flows
+	Admin    *admin.Admin
+	Legacy   *legacy.Server
+	UIAssets string
 }
 
 // NewState wires the tree explicitly: every node gets what it needs by
@@ -89,7 +91,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	cfg := root.Config()
 
 	st := &State{
-		Store: deps.NewDependency(root, store.New(&cfg.Store), deps.ProbeTimeout(time.Second)),
+		UIAssets: cfg.UIAssets,
+		Store:    deps.NewDependency(root, store.New(&cfg.Store), deps.ProbeTimeout(time.Second)),
 		Cache: deps.NewOptional(root, store.New(&cfg.Cache), deps.Name("cache"),
 			deps.ProbeOptional(), deps.Backoff(time.Second, cacheRetry)),
 	}
@@ -150,6 +153,10 @@ func run(ctx context.Context) error {
 	bundle, err := fs.Sub(helloui.Dist, "dist")
 	if err != nil {
 		return errors.Join(fmt.Errorf("ui bundle: %w", err), svc.Close())
+	}
+
+	if st.UIAssets != "" {
+		bundle = os.DirFS(st.UIAssets)
 	}
 
 	svc.UI(bundle)

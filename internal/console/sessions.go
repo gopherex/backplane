@@ -70,14 +70,27 @@ func (p PG) q() *db.Queries { return p.st.Get().Q }
 
 // Create implements Sessions.
 func (p PG) Create(ctx context.Context, tokenHash []byte, s Session) (uuid.UUID, error) {
-	row, err := p.q().CreateSession(ctx, db.CreateSessionParams{
-		TokenHash: tokenHash, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt, Address: s.Address, UserAgent: s.UserAgent,
+	st := p.st.Get()
+
+	var id uuid.UUID
+
+	err := st.InTx(ctx, func(ctx context.Context) error {
+		row, createErr := p.q().CreateSession(ctx, db.CreateSessionParams{
+			TokenHash: tokenHash, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt, Address: s.Address, UserAgent: s.UserAgent,
+		})
+		if createErr != nil {
+			return fmt.Errorf("console: create session: %w", createErr)
+		}
+
+		id = row.ID
+
+		return st.AuditControl(ctx, "admin", "session.create", id.String(), store.AuditDetail{})
 	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("console: create session: %w", err)
+		return id, fmt.Errorf("console session transaction: %w", err)
 	}
 
-	return row.ID, nil
+	return id, nil
 }
 
 // ByToken implements Sessions.
@@ -134,30 +147,85 @@ func (p PG) List(ctx context.Context) ([]Session, error) {
 
 // Delete implements Sessions.
 func (p PG) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
-	n, err := p.q().DeleteSession(ctx, id)
+	st := p.st.Get()
+
+	var deleted bool
+
+	err := st.InTx(ctx, func(ctx context.Context) error {
+		n, deleteErr := p.q().DeleteSession(ctx, id)
+		if deleteErr != nil {
+			return fmt.Errorf("console: delete session: %w", deleteErr)
+		}
+
+		deleted = n > 0
+		if !deleted {
+			return nil
+		}
+
+		actor := id
+		if current, ok := SessionID(ctx); ok {
+			actor = current
+		}
+
+		return st.AuditControl(ctx, "console:"+actor.String(), "session.revoke", id.String(), store.AuditDetail{})
+	})
 	if err != nil {
-		return false, fmt.Errorf("console: delete session: %w", err)
+		return deleted, fmt.Errorf("console session transaction: %w", err)
 	}
 
-	return n > 0, nil
+	return deleted, nil
 }
 
 // DeleteOthers implements Sessions.
 func (p PG) DeleteOthers(ctx context.Context, keep uuid.UUID) (int64, error) {
-	n, err := p.q().DeleteOtherSessions(ctx, keep)
+	st := p.st.Get()
+
+	var affected int64
+
+	err := st.InTx(ctx, func(ctx context.Context) error {
+		n, deleteErr := p.q().DeleteOtherSessions(ctx, keep)
+		if deleteErr != nil {
+			return fmt.Errorf("console: delete other sessions: %w", deleteErr)
+		}
+
+		affected = n
+		if n == 0 {
+			return nil
+		}
+
+		return st.AuditControl(ctx, "console:"+keep.String(), "session.revoke_others", keep.String(), store.AuditDetail{
+			Affected: n,
+		})
+	})
 	if err != nil {
-		return 0, fmt.Errorf("console: delete other sessions: %w", err)
+		return affected, fmt.Errorf("console session transaction: %w", err)
 	}
 
-	return n, nil
+	return affected, nil
 }
 
 // DeleteStale implements Sessions.
 func (p PG) DeleteStale(ctx context.Context, now, idleSince time.Time) (int64, error) {
-	n, err := p.q().DeleteStaleSessions(ctx, db.DeleteStaleSessionsParams{Now: now, IdleSince: idleSince})
+	st := p.st.Get()
+
+	var affected int64
+
+	err := st.InTx(ctx, func(ctx context.Context) error {
+		n, deleteErr := p.q().DeleteStaleSessions(ctx, db.DeleteStaleSessionsParams{Now: now, IdleSince: idleSince})
+		if deleteErr != nil {
+			return fmt.Errorf("console: delete stale sessions: %w", deleteErr)
+		}
+
+		affected = n
+		if n == 0 {
+			return nil
+		}
+
+		return st.AuditControl(ctx, "system:session-expiry", "session.expire", "console", store.AuditDetail{Affected: n})
+	})
 	if err != nil {
-		return 0, fmt.Errorf("console: delete stale sessions: %w", err)
+		return affected, fmt.Errorf("console session transaction: %w", err)
 	}
 
-	return n, nil
+	return affected, nil
 }

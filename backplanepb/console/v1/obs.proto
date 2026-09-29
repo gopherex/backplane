@@ -1,0 +1,219 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "backplanepb/v1/manifest.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// Read-only access to deployment-owned telemetry storage. Cookie-authenticated
+// console WS and the installation-secret-protected internal API share this service.
+// All methods are retry-safe. Cancellation cancels the upstream HTTP request.
+// InvalidArgument: malformed request or unsupported language/signal combination.
+// FailedPrecondition: backend/language disabled. ResourceExhausted: admission or
+// response budget exceeded. Unavailable: backend failure. DeadlineExceeded and
+// Canceled retain their meaning. No storage credentials or upstream URLs escape.
+service ObsService {
+  rpc GetObsCapabilities(GetObsCapabilitiesRequest) returns (GetObsCapabilitiesResponse);
+  rpc QueryObs(QueryObsRequest) returns (QueryObsResponse);
+  // Complete backend-native Tempo JSON, including every available span field.
+  // NotFound: trace absent. A trace can still be incomplete while spans arrive.
+  rpc GetTrace(GetTraceRequest) returns (GetTraceResponse);
+  // Discovers stored sources independently of the module registry.
+  rpc ListObsSources(ListObsSourcesRequest) returns (ListObsSourcesResponse);
+  rpc ListObsFields(ListObsFieldsRequest) returns (ListObsFieldsResponse);
+  rpc ListObsFieldValues(ListObsFieldValuesRequest) returns (ListObsFieldValuesResponse);
+  // View presets only. Does not filter global discovery or admission.
+  rpc GetObsSelectors(GetObsSelectorsRequest) returns (GetObsSelectorsResponse);
+}
+
+enum ObsSignal {
+  OBS_SIGNAL_UNSPECIFIED = 0;
+  OBS_SIGNAL_LOGS = 1;
+  OBS_SIGNAL_METRICS = 2;
+  OBS_SIGNAL_TRACES = 3;
+}
+
+enum ObsLanguage {
+  OBS_LANGUAGE_UNSPECIFIED = 0;
+  OBS_LANGUAGE_LOGSQL = 1;
+  OBS_LANGUAGE_METRICSQL = 2;
+  OBS_LANGUAGE_PROMQL = 3;
+  // Experimental VictoriaTraces subset, advertised only when deployment enables it.
+  OBS_LANGUAGE_TRACEQL = 4;
+}
+
+message ObsTimeRange {
+  // Unix nanoseconds, nonnegative. start < end. LogsQL end is exclusive;
+  // MetricsQL and TraceQL follow their backend's endpoint semantics.
+  int64 start_unix_nano = 1;
+  int64 end_unix_nano = 2;
+}
+
+message ObsCapability {
+  ObsSignal signal = 1;
+  repeated ObsLanguage languages = 2;
+  // OTel resource identity -> actual backend field/label. Missing fields remain
+  // missing; resource attributes are untrusted data, not authenticated identities.
+  map<string, string> source_fields = 3;
+  bool trace_lookup = 4;
+}
+
+message GetObsCapabilitiesRequest {}
+
+message GetObsCapabilitiesResponse {
+  repeated ObsCapability signals = 1;
+  uint32 max_limit = 2;
+  uint32 max_points = 3;
+  int64 max_range_nanos = 4;
+  // Named compatibility profile, not a promise of full Tempo/TraceQL support.
+  string traceql_profile = 5;
+}
+
+message QueryObsRequest {
+  ObsSignal signal = 1;
+  ObsLanguage language = 2;
+  string expression = 3;
+  ObsTimeRange range = 4;
+  // Rows, series or traces. Zero uses the deployment default. No pagination:
+  // narrow the query when metadata.truncated is true.
+  uint32 limit = 5;
+  // Metrics only: zero = instant query at range.end; positive = range query.
+  // Also used by LogsQL statistics through QueryObs mode below.
+  int64 step_nanos = 6;
+  // LogsQL only: use stats_query[_range], returning metric series.
+  bool statistics = 7;
+}
+
+message ObsResultInfo {
+  bool truncated = 1;
+  // The backend explicitly reported a partial response. This does not prove
+  // ingestion completeness or that deployment-side retention preserved all data.
+  bool partial = 2;
+  repeated string warnings = 3;
+}
+
+message ObsRow {
+  // Native LogsQL fields, including flattened bodies/attributes. Numeric text
+  // is preserved exactly; no claim of original OTLP type reconstruction.
+  map<string, string> fields = 1;
+}
+
+message ObsRows {
+  repeated ObsRow rows = 1;
+}
+
+message ObsSample {
+  // Exact backend decimal seconds and value (including NaN/+Inf/-Inf).
+  string timestamp_seconds = 1;
+  string value = 2;
+}
+
+message ObsSeries {
+  map<string, string> labels = 1;
+  repeated ObsSample samples = 2;
+}
+
+message ObsTimeSeries {
+  repeated ObsSeries series = 1;
+  // matrix, vector, scalar or string, as returned by the query backend.
+  string result_type = 2;
+}
+
+message ObsTraceSummary {
+  string trace_id = 1;
+  string root_service = 2;
+  string root_name = 3;
+  string start_unix_nano = 4;
+  string duration_millis = 5;
+  // Original search result object, including span sets and backend extensions.
+  // UTF-8 JSON; consumers must use lossless number parsing.
+  bytes json = 6;
+}
+
+message ObsTraceSearch {
+  repeated ObsTraceSummary traces = 1;
+}
+
+message QueryObsResponse {
+  ObsResultInfo info = 1;
+  oneof result {
+    ObsRows rows = 2;
+    ObsTimeSeries time_series = 3;
+    ObsTraceSearch traces = 4;
+  }
+}
+
+message GetTraceRequest {
+  // Nonzero 32-digit hexadecimal W3C trace ID.
+  string trace_id = 1;
+}
+
+message GetTraceResponse {
+  string trace_id = 1;
+  // Original /select/tempo/api/v2/traces response, UTF-8 JSON. Preserve integer
+  // literals when parsing. OTLP traceId/spanId fields use protobuf JSON base64.
+  bytes tempo_json = 2;
+  ObsResultInfo info = 3;
+}
+
+message ObsSource {
+  // Standard keys: service.namespace, service.name, service.instance.id.
+  // Empty/missing backend grouping fields are omitted, never fabricated.
+  map<string, string> resource = 1;
+}
+
+message ListObsSourcesRequest {
+  ObsSignal signal = 1;
+  ObsTimeRange range = 2;
+  uint32 limit = 3;
+}
+
+message ListObsSourcesResponse {
+  // Metrics discovery deduplicates a bounded series set; truncated can be true
+  // even when fewer than limit distinct sources are returned.
+  repeated ObsSource sources = 1;
+  ObsResultInfo info = 2;
+}
+
+message ListObsFieldsRequest {
+  ObsSignal signal = 1;
+  ObsTimeRange range = 2;
+  uint32 limit = 3;
+  // Logs/spans: LogsQL filter; metrics: series selector. Empty = all sources.
+  string filter = 4;
+}
+
+message ListObsFieldsResponse {
+  repeated string fields = 1;
+  ObsResultInfo info = 2;
+}
+
+message ListObsFieldValuesRequest {
+  ObsSignal signal = 1;
+  ObsTimeRange range = 2;
+  uint32 limit = 3;
+  string filter = 4;
+  string field = 5;
+}
+
+message ListObsFieldValuesResponse {
+  repeated string values = 1;
+  ObsResultInfo info = 2;
+}
+
+message GetObsSelectorsRequest {
+  string service = 1;
+}
+
+enum ObsSelectorOrigin {
+  OBS_SELECTOR_ORIGIN_UNSPECIFIED = 0;
+  OBS_SELECTOR_ORIGIN_DEPLOYMENT = 1;
+  OBS_SELECTOR_ORIGIN_MANIFEST = 2;
+  OBS_SELECTOR_ORIGIN_CONVENTION = 3;
+}
+
+message GetObsSelectorsResponse {
+  backplane.v1.TelemetrySources sources = 1;
+  ObsSelectorOrigin origin = 2;
+}

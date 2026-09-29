@@ -9,8 +9,7 @@ lint:
     # Sources live in backplanepb/v1, package is backplane.v1.
     - PACKAGE_DIRECTORY_MATCH
 deps:
-  # schemapb has no release yet; pinned by commit.
-  - github.com/gopherex/schemapb@04fd8b1
+  - github.com/gopherex/schemapb@v1.7.0
 generate:
   inputs:
     - directory: backplanepb
@@ -23,5 +22,16 @@ generate:
       out: .
       opts:
         paths: source_relative
+    - name: es
+      out: web/packages/api/src/gen
+      with_imports: true
+      opts:
+        target: ts
+        import_extension: js
+    - name: ws-es
+      out: web/packages/api/src/gen
+      opts:
+        target: ts
+        import_extension: js
 breaking:
   against_git_ref: master

@@ -41,6 +41,20 @@ message Manifest {
   repeated Schedule schedules = 15;
   // The service's own workflows the console may start (§9).
   repeated Workflow workflows = 16;
+  // Optional telemetry view presets. Absence uses service.name convention;
+  // an explicitly empty declaration disables presets, never signal ingestion.
+  TelemetrySources telemetry = 17;
+}
+
+// Selectors are OR alternatives; attributes within one selector are AND exact
+// matches against OTel resource attributes. They never grant access or identify
+// trusted senders. The query driver maps resource names to storage fields.
+message TelemetrySourceSelector {
+  map<string, string> resource = 1;
+}
+
+message TelemetrySources {
+  repeated TelemetrySourceSelector selectors = 1;
 }
 
 // The configuration. `keys` is the declaration; `schema` is optional and,

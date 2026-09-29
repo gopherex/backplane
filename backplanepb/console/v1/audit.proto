@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// Durable control audit. Cookie authentication matches the other console APIs.
+// Reads are retry-safe and are not themselves audit entries. InvalidArgument:
+// bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
+// Unavailable: database unavailable. A stream is canceled with its caller.
+service AuditService {
+  // Newest first. The first page also supplies a watch cursor representing its
+  // committed snapshot. Subsequent pages retain that snapshot's upper bound.
+  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
+  // Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
+  // Never coalesces entries. Empty batches advance the cursor over nonmatching
+  // entries; save each returned cursor. Slow readers are bounded by database
+  // retention, not an in-memory backlog. Reconnect using the last saved cursor.
+  rpc WatchAudit(WatchAuditRequest) returns (stream WatchAuditResponse);
+}
+
+message AuditEntry {
+  string id = 1;
+  uint64 sequence = 2;
+  google.protobuf.Timestamp created_at = 3;
+  string actor = 4;
+  string action = 5;
+  string subject = 6;
+  // succeeded (database control change), intent, succeeded/failed/partial/rejected/unknown
+  // (external command result). Intent without a result has an unknown outcome;
+  // never replay the command merely because its result entry is missing.
+  string outcome = 7;
+  string operation_id = 8;
+  AuditDetail detail = 9;
+}
+
+// Safe control metadata only. No request payload, arbitrary error text,
+// configuration values, comments, credentials or session tokens.
+message AuditDetail {
+  uint64 revision = 1;
+  uint64 rollback_of = 2;
+  repeated string keys = 3;
+  optional bool paused = 4;
+  string code = 5;
+  string workflow_id = 6;
+  string run_id = 7;
+  uint64 affected = 8;
+}
+
+message AuditFilter {
+  string actor = 1;
+  string action = 2;
+  string subject = 3;
+  string outcome = 4;
+  string operation_id = 5;
+  // Inclusive start, exclusive end. Absent = unbounded.
+  google.protobuf.Timestamp start = 6;
+  google.protobuf.Timestamp end = 7;
+}
+
+message ListAuditRequest {
+  AuditFilter filter = 1;
+  // 0 = 100; maximum 500.
+  uint32 page_size = 2;
+  // Opaque. Reuse exactly the same filter on every page.
+  string page_cursor = 3;
+}
+
+message ListAuditResponse {
+  repeated AuditEntry entries = 1;
+  string next_page_cursor = 2;
+  // Starts a delta stream after the first page's consistent snapshot.
+  string watch_cursor = 3;
+}
+
+message WatchAuditRequest {
+  AuditFilter filter = 1;
+  // Required. Bound to installation and filter; expired cursors fail explicitly.
+  string after_cursor = 2;
+}
+
+message WatchAuditResponse {
+  repeated AuditEntry entries = 1;
+  string cursor = 2;
+}

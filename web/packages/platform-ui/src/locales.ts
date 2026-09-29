@@ -1,0 +1,28 @@
+import { useTranslation } from 'react-i18next';
+export const platformEnglish = {
+  loading: 'Loading…', stale: 'Reconnecting. Showing the last received data.', error: 'Could not load data.', retry: 'Retry', refresh: 'Refresh',
+  anonymous: 'Sign in to continue.', offline: 'The platform is unavailable.', connected: 'Connected',
+  save: 'Save', validate: 'Validate', valid: 'Validation passed.', invalid: 'Validation failed.', saved: 'Saved', pending: 'Working…',
+  mutationFailed: 'The action did not complete successfully. Check its outcome before retrying.',
+  comment: 'Comment', dirty: 'Unsaved changes', reset: 'Reset', newer: 'A newer revision is available. Reload after reviewing your changes.',
+  revision: 'Revision', revisions: 'Revision history', rollback: 'Roll back', rollbackConfirm: 'Create a revision from this version?',
+  configuration: 'Configuration', overrides: 'Live overrides', override: 'Override', key: 'Path', value: 'Value',
+  effective: 'Effective configuration', applied: 'Applied revision', rejected: 'Rejected revision', source: 'Source',
+  service: 'Service', instances: 'Instances', instance: 'Instance', version: 'Version', healthy: 'Healthy', readiness: 'Readiness', reason: 'Reason',
+  node: 'Node', nodes: 'Nodes', ready: 'Ready', notReady: 'Not ready', manifest: 'Manifest',
+  audit: 'Audit', actor: 'Actor', action: 'Action', subject: 'Subject', outcome: 'Outcome', operation: 'Operation ID', time: 'Time', detail: 'Details',
+  more: 'Load more', gap: 'The audit cursor has expired. Reload to establish a new snapshot.', bounded: 'Older entries are omitted from this view.',
+  signal: 'Signal', language: 'Language', expression: 'Query', sources: 'Stored sources', fields: 'Stored fields', filter: 'Field suggestions filter',
+  start: 'Start (Unix nanoseconds)', end: 'End (Unix nanoseconds)', limit: 'Result limit', step: 'Step (nanoseconds)', statistics: 'Log statistics',
+  logs: 'Logs', metrics: 'Metrics', traces: 'Traces', traceId: 'Trace ID', lookup: 'Open trace', raw: 'Raw response', partial: 'Results are incomplete.',
+  noCapability: 'This telemetry signal is unavailable.', warnings: 'Query warnings',
+  hook: 'Hook', activity: 'Activity', event: 'Event', definition: 'Definition', name: 'Name', when: 'Condition (CEL)',
+  bindings: 'Bindings', rules: 'Rules', runs: 'Runs', schedules: 'Schedules', deadLetters: 'Dead letters',
+  input: 'Input', output: 'Output', execute: 'Execute', cancel: 'Cancel run', terminate: 'Terminate run', signalRun: 'Send signal',
+  pause: 'Pause', resume: 'Resume', trigger: 'Trigger', redrive: 'Redrive selected', purge: 'Purge selected',
+  confirmTitle: 'Confirm action', confirmDescription: 'This changes the installation state.', status: 'Status', workflow: 'Workflow', runId: 'Run ID',
+  select: 'Select', consumer: 'Consumer', sequence: 'Sequence', failure: 'Failure', history: 'History', selectAction: 'Select an action',
+  draftHelp: 'JSON request fields follow the generated API contract. Integer fields use decimal strings.',
+  noSelection: 'Select at least one message.', schema: 'Configuration schema',
+} as const;
+export function usePlatformText() { const { t } = useTranslation('backplane.platform'); return (key: keyof typeof platformEnglish) => t(key, { defaultValue: platformEnglish[key] }); }

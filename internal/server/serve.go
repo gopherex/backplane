@@ -10,5 +10,11 @@ import (
 // from svc.State(): the readiness. The components' own listeners (xDS,
 // the console) belong to their nodes.
 func Declare(svc *backplane.Service[State]) {
+	// The SDK deliberately permits unguarded local mode with an empty secret.
+	// Telemetry reads are not exposed on that listener in this mode.
+	if svc.State().internalObs {
+		svc.Internal(svc.State().Obs.Register)
+	}
+
 	svc.ReadinessProbe(probe.FromError(svc.State().Ready))
 }

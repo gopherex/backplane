@@ -9,7 +9,7 @@ require (
 	github.com/google/cel-go v0.30.0
 	github.com/google/uuid v1.6.0
 	github.com/gopherex/pgtx v1.1.0
-	github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5
+	github.com/gopherex/schemapb/go v1.7.0
 	github.com/gopherex/sqld v1.1.3
 	github.com/gopherex/ws-proto v1.7.0
 	github.com/gopherex/xconf v1.4.0

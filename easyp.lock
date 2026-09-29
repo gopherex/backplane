@@ -1,3 +1,3 @@
 github.com/googleapis/googleapis common-protos-1_3_1 h1:s8d5N7+VjksySahU4JpUGSju5SqkmQNtweRfsin9SyM=
 github.com/gopherex/protoc-gen-go-graphql v1.0.6 h1:P7shYG+C7JCb+37y3qUXYENfL2Ix+1EnJqjWWk6AEZ0=
-github.com/gopherex/schemapb v0.0.0-20260923133231-06c47e842fa3197214952bd0c1a9675badca5a41 h1:5/O/Tiv96fAcf1xidKIFac1SkBSdU+qir89vad82+hI=
+github.com/gopherex/schemapb v1.7.0 h1:KXKOpLEEHeeDrnfxHhAiee1w6FGxK80l/8gfX+u6Wps=

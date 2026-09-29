@@ -77,9 +77,14 @@ func (s sessionService) RevokeSession(
 
 	if _, err := s.c.sessions.Get(ctx, id); errors.Is(err, ErrNoSession) {
 		return nil, status.Errorf(codes.NotFound, "no session %s", id)
+	} else if err != nil {
+		return nil, status.Error(codes.Unavailable, "console storage unavailable") //nolint:wrapcheck // RPC status
 	}
 
-	s.c.revoke(ctx, id)
+	if err := s.c.revoke(ctx, id); err != nil {
+		return nil, status.Error(codes.Unavailable, "console storage unavailable") //nolint:wrapcheck // RPC status
+	}
+
 	s.c.Log().Info("console: session revoked", xlog.String("session", id.String()))
 
 	return &consolev1.RevokeSessionResponse{}, nil

@@ -24,7 +24,7 @@ SQLD_VERSION               := v1.1.3
 DB_DEV_URL ?= postgres://backplane:backplane@localhost:5433/backplane_scratch?sslmode=disable
 
 # easyp resolves protoc-gen-* plugins from PATH: put ./bin first.
-EASYP := PATH="$(BIN):$$PATH" "$(BIN)/easyp"
+EASYP := PATH="$(CURDIR)/web/node_modules/.bin:$(BIN):$$PATH" "$(BIN)/easyp"
 
 # v2+ requires semantic import versioning (/v2 in the module path) — not
 # supported yet; releases stay on v0/v1.
@@ -36,7 +36,7 @@ help: ## List all targets with explanations
 	  awk -F':.*## ' '{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: configure
-configure: ## Bring environment to working state: fetch all pinned tools into ./bin
+configure: configure-web ## Bring environment to working state: fetch pinned Go and frontend tools
 	mkdir -p "$(BIN)"
 	echo "--- easyp $(EASYP_VERSION)"
 	GOBIN="$(BIN)" go install github.com/easyp-tech/easyp/cmd/easyp@$(EASYP_VERSION)
@@ -54,10 +54,12 @@ configure: ## Bring environment to working state: fetch all pinned tools into ./
 	echo "✓ configure done — tools in $(BIN)"
 
 .PHONY: gen
-gen: db ## Generate Go code: backplanepb, the hello example, the store's queries
+gen: db ## Generate Go/TS APIs, the hello example, and the store's queries
 	$(EASYP) mod download
 	$(EASYP) generate
 	$(EASYP) --cfg examples/hello/easyp.yaml generate
+	node web/scripts/api-index.mjs
+	node web/scripts/api-reference.mjs
 
 .PHONY: db
 db: ## Generate the store's typed queries (internal/store/db) from schema and queries
@@ -155,10 +157,42 @@ run-backplane: backplane ## Run backplane against the local stack (console token
 		"$(BIN)/backplane"
 
 .PHONY: check
-check: lint gen conformance ## Everything a release requires: lint, generated code is current, all tests
-	git diff --exit-code --stat -- '*.pb.go' internal/store/db go.mod go.sum || { echo "✗ generated code or go.mod is stale — commit the result of 'make gen'"; exit 1; }
+check: lint gen conformance web-check ## Everything a release requires: generated code, Go and frontend checks
+	git diff --exit-code --stat -- '*.pb.go' internal/store/db go.mod go.sum web/packages/api/src || { echo "✗ generated code or go.mod is stale — commit the result of 'make gen'"; exit 1; }
+
+.PHONY: configure-web web-check dev-ui dev-module
+configure-web: ## Install locked frontend dependencies (Node >=22.12, Yarn 1.22.22)
+	cd web
+	yarn install --frozen-lockfile
+
+web-check: ## Build packages and fixtures, typecheck, unit and browser tests
+	cd web
+	yarn build
+	yarn typecheck
+	yarn test:unit
+	yarn test:browser
+	yarn build:storybook
+	yarn test:storybook
+	cd ..
+	GOWORK=off BACKPLANE_TEST_BROWSER=1 go test -race -count=1 -run '^TestBrowserConsole$$' ./internal/console
+
+dev-ui: ## Run the component compatibility fixture
+	cd web
+	yarn dev
+
+dev-module: ## Run the module template independently of the platform
+	cd web
+	yarn dev:module
 
 .PHONY: release
+
+.PHONY: test-otlp
+test-otlp: ## OTLP admission -> isolated Collector -> Victoria storage (start observability compose first)
+	GOWORK=off BACKPLANE_TEST_OTLP=http://127.0.0.1:14318 \
+	BACKPLANE_TEST_LOGS_URL=http://127.0.0.1:19428 BACKPLANE_TEST_TRACES_URL=http://127.0.0.1:20428 \
+	BACKPLANE_TEST_METRICS_URL=http://127.0.0.1:18428 \
+		go test -race -count=1 -run '^TestStoredSignals$$' -v ./internal/otlp
+
 release: ## Interactive tag-driven release (runs `make check` first)
 	cd "$$(git rev-parse --show-toplevel)"
 	if [ -n "$$(git status --porcelain)" ]; then
@@ -245,3 +279,39 @@ test-replicas: ## Two backplanes + hello + formatter: crash/rejoin, config, rule
 	BACKPLANE_TEST_NATS=localhost:4222 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
 	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 		GOWORK=off go test -race -count=1 -timeout 20m -run '^TestReplicas$$' -v ./conformance/
+
+.PHONY: test-audit
+test-audit: ## Durable audit: real PostgreSQL transactions, replica leases, outage recovery and cursor expiry
+	GOWORK=off BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
+		go test -race -count=1 ./internal/audit ./internal/store
+
+# Development installation; product shell remains a separate design step.
+DEV_COMPOSE = docker compose -f docker-compose.yaml -f docker-compose.observability.yaml -f docker-compose.dev.yaml
+.PHONY: dev dev-down dev-build dev-logs test-dev
+dev-build: ## Build the live module and development host, then static Go binaries
+	cd web
+	yarn install --frozen-lockfile
+	yarn build
+	yarn workspace @backplane/embedding build --mode live --outDir dist-live
+	cd ..
+	CGO_ENABLED=0 GOWORK=off $(MAKE) backplane hello formatter
+	CGO_ENABLED=0 GOWORK=off go build -o "$(BIN)/setup-example" ./examples/demo/cmd/setup
+
+dev: dev-build ## Start the complete live installation with a seeded hello/formatter binding and rule
+	$(DEV_COMPOSE) up -d --wait
+	node web/scripts/dev-ready.mjs
+	$(DEV_COMPOSE) run --rm seed
+	curl --fail --silent --show-error 'http://127.0.0.1:10000/hello/?name=Developer'
+	echo 'Live component fixture: http://127.0.0.1:10000/backplane/ (DEV_ADMIN_TOKEN)'
+
+dev-down: ## Stop the development installation; retain stored data
+	$(DEV_COMPOSE) down
+
+dev-logs: ## Follow backplane and reference service logs
+	$(DEV_COMPOSE) logs -f backplane hello formatter
+
+test-dev: ## Browser acceptance against the installation started by make dev
+	cd web
+	node tests/login-browser.mjs
+	node tests/dev-browser.mjs
+	node tests/console-browser.mjs

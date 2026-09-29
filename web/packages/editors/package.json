@@ -1,0 +1,47 @@
+{
+  "name": "@gopherex/backplane-editors",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/editors"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "prepack": "yarn build"
+  },
+  "peerDependencies": {
+    "i18next": ">=26 <27",
+    "react": ">=19 <20",
+    "react-dom": ">=19 <20",
+    "react-i18next": ">=17 <18"
+  },
+  "dependencies": {
+    "@gopherex/backplane-ui": "0.1.0",
+    "@gopherex/backplane-theme": "0.1.0",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/merge": "6.12.2",
+    "@lezer/highlight": "1.2.5"
+  }
+}

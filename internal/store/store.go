@@ -147,6 +147,9 @@ func open(ctx context.Context, pool *pgxpool.Pool) (*Store, error) {
 	}
 
 	st.Installation = inst.ID
+	if err := st.Q.CreateAuditClock(ctx); err != nil {
+		return nil, fmt.Errorf("store: audit clock: %w", err)
+	}
 
 	return st, nil
 }

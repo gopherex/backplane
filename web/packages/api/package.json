@@ -1,0 +1,36 @@
+{
+  "name": "@gopherex/backplane-api",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/api"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/gen/*.d.ts",
+      "import": "./dist/gen/*.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "yarn build"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.16.0",
+    "@gopherex/ws-proto-transport": "1.7.0"
+  }
+}

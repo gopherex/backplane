@@ -1,0 +1,60 @@
+# Overlay for make dev; author modules do not need this installation.
+x-runtime: &runtime
+  image: gcr.io/distroless/static-debian12:nonroot
+  restart: unless-stopped
+  volumes:
+    - ./bin:/app/bin:ro
+    - ./web/apps/embedding/dist-live:/app/web/apps/embedding/dist-live:ro
+    - ./web/templates/module/dist/plugin:/app/web/templates/module/dist/plugin:ro
+  environment: &environment
+    BACKPLANE_CONSUL_ADDR: consul:8500
+    BACKPLANE_NATS_URL: nats://nats:4222
+    BACKPLANE_TEMPORAL_ADDR: temporal:7233
+    BACKPLANE_INTERNAL_SECRET: dev-internal-secret-change-me
+    BACKPLANE_ENVIRONMENT: development
+    OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+    OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+    OTEL_METRIC_EXPORT_INTERVAL: "5000"
+  depends_on: [consul, postgres, nats, temporal, collector]
+services:
+  envoy:
+    volumes: ["./deployments/envoy/envoy.dev.yaml:/etc/envoy/envoy.yaml:ro"]
+  backplane:
+    <<: *runtime
+    command: [/app/bin/backplane]
+    ports: ["127.0.0.1:8081:8081"]
+    environment:
+      <<: *environment
+      BACKPLANE_INSTANCE: backplane-dev
+      BACKPLANE_INTERNAL_PORT: "9410"
+      BACKPLANE_PUBLIC_PORT: "8090"
+      BACKPLANE_ADMIN_TOKEN: ${DEV_ADMIN_TOKEN:-dev-admin-token-change-me}
+      BACKPLANE_PG_DSN: postgres://backplane:backplane@postgres:5432/backplane?sslmode=disable
+      BACKPLANE_CONSOLE_PREFIX: /backplane
+      BACKPLANE_CONSOLE_INSECURE_COOKIE: "true"
+      BACKPLANE_CONSOLE_ASSETS_DIR: /app/web/apps/embedding/dist-live
+      BACKPLANE_OTLP_URL: http://collector:4318
+      BACKPLANE_OBS_LOGS_URL: http://victorialogs:9428
+      BACKPLANE_OBS_METRICS_URL: http://victoriametrics:8428
+      BACKPLANE_OBS_TRACES_URL: http://victoriatraces:10428
+  hello:
+    <<: *runtime
+    command: [/app/bin/hello]
+    environment:
+      <<: *environment
+      BACKPLANE_INSTANCE: hello-dev
+      HELLO_UI_ASSETS: /app/web/templates/module/dist/plugin
+  formatter:
+    <<: *runtime
+    command: [/app/bin/formatter]
+    environment:
+      <<: *environment
+      BACKPLANE_INSTANCE: formatter-dev
+  seed:
+    <<: *runtime
+    restart: "no"
+    profiles: [tools]
+    command: [/app/bin/setup-example]
+    environment:
+      BACKPLANE_ADMIN_TOKEN: ${DEV_ADMIN_TOKEN:-dev-admin-token-change-me}
+      BACKPLANE_DEMO_URL: http://backplane:8081/backplane

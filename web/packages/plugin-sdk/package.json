@@ -1,0 +1,43 @@
+{
+  "name": "@gopherex/backplane-plugin-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/plugin-sdk"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "yarn build"
+  },
+  "peerDependencies": {
+    "react": ">=19 <20",
+    "react-dom": ">=19 <20",
+    "react-router-dom": ">=7 <8",
+    "i18next": ">=26 <27",
+    "react-i18next": ">=17 <18"
+  },
+  "dependencies": {
+    "@module-federation/runtime": "2.9.1",
+    "@gopherex/backplane-theme": "0.1.0"
+  }
+}

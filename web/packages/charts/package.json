@@ -1,0 +1,42 @@
+{
+  "name": "@gopherex/backplane-charts",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/charts"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "prepack": "yarn build"
+  },
+  "peerDependencies": {
+    "i18next": ">=26 <27",
+    "react": ">=19 <20",
+    "react-dom": ">=19 <20",
+    "react-i18next": ">=17 <18"
+  },
+  "dependencies": {
+    "@gopherex/backplane-ui": "0.1.0",
+    "@gopherex/backplane-theme": "0.1.0",
+    "@grafana/data": "13.2.3",
+    "@grafana/ui": "13.2.3",
+    "@grafana/schema": "13.2.3",
+    "uplot": "1.6.32"
+  }
+}

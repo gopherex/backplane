@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -144,15 +145,16 @@ func (c *Console) watch(ctx context.Context, cur *conn) {
 
 // revoke deletes a session and closes its connections on this replica
 // (others notice within recheckEvery).
-func (c *Console) revoke(ctx context.Context, id uuid.UUID) bool {
-	deleted, err := c.sessions.Delete(ctx, id)
+func (c *Console) revoke(ctx context.Context, id uuid.UUID) error {
+	_, err := c.sessions.Delete(ctx, id)
 	if err != nil {
 		c.Log().Warn("console: revoke session", xlog.Err(err))
+		return fmt.Errorf("revoke session: %w", err)
 	}
 
 	c.conns.close(id, uuid.Nil)
 
-	return deleted
+	return nil
 }
 
 // conn is one open /ws connection.

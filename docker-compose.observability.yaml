@@ -1,0 +1,33 @@
+# Optional local storage stack: docker compose -f docker-compose.observability.yaml up -d
+# Loopback query/Collector ports are for development and acceptance tests only.
+services:
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.52.0
+    command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
+    mem_limit: 384m
+    ports: ["127.0.0.1:19428:9428"]
+    volumes: ["logs:/storage"]
+  victoriatraces:
+    image: victoriametrics/victoria-traces:v0.12.0
+    command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
+    mem_limit: 384m
+    ports: ["127.0.0.1:20428:10428"]
+    volumes: ["traces:/storage"]
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.151.0
+    command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
+    mem_limit: 384m
+    ports: ["127.0.0.1:18428:8428"]
+    volumes: ["metrics:/storage"]
+  collector:
+    image: otel/opentelemetry-collector:0.147.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    mem_limit: 256m
+    environment: {GOMEMLIMIT: 154MiB}
+    volumes: ["./deployments/otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
+    ports: ["127.0.0.1:14318:4318"]
+    depends_on: [victorialogs, victoriatraces, victoriametrics]
+volumes:
+  logs: {}
+  traces: {}
+  metrics: {}
