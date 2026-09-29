@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// SessionService manages the console's sessions and its admin token.
+// Served on the console's ws-proto connection (/ws).
+service SessionService {
+  // Every live session, newest first.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // Ends a session: its connections close, its cookie stops working.
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse);
+  // Replaces the admin token with a new random one, shown once in the
+  // response; every other session is revoked.
+  rpc RotateToken(RotateTokenRequest) returns (RotateTokenResponse);
+}
+
+message Session {
+  // Public id of the session (not the cookie's secret).
+  string id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  // Absolute end of the session.
+  google.protobuf.Timestamp expires_at = 3;
+  // Last activity; the session ends after the idle timeout without one.
+  google.protobuf.Timestamp last_seen_at = 4;
+  // Client address at login (X-Forwarded-For through trusted proxies).
+  string address = 5;
+  string user_agent = 6;
+  // The session of this connection.
+  bool current = 7;
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+}
+
+message RevokeSessionRequest {
+  string id = 1;
+}
+
+message RevokeSessionResponse {}
+
+message RotateTokenRequest {}
+
+message RotateTokenResponse {
+  // The new admin token: shown once, stored as a hash only.
+  string token = 1;
+  // Sessions revoked by the rotation.
+  uint32 revoked_sessions = 2;
+}

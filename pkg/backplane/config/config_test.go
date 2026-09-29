@@ -405,3 +405,50 @@ func TestServiceNamedBackplane(t *testing.T) {
 		t.Fatalf("pg %q consul %q", cfg.PG.DSN.Reveal(), cfg.Consul.Addr)
 	}
 }
+
+type unsetLiveConfig struct {
+	config.Backplane `json:"backplane"`
+
+	Tags config.Live[[]string] `json:"tags,omitempty"` // no default, no layer sets it
+}
+
+// A Live field no layer set at Open still takes a later KV value, and a
+// copy taken before it did sees it too.
+func TestUnsetLiveTakesKV(t *testing.T) {
+	addr := os.Getenv("BACKPLANE_TEST_CONSUL")
+	if addr == "" {
+		t.Skip("BACKPLANE_TEST_CONSUL not set")
+	}
+
+	client, err := api.NewClient(&api.Config{Address: addr})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _, _ = client.KV().DeleteTree("config/unset-live/", nil) })
+	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
+
+	rt, err := config.Open[unsetLiveConfig](t.Context(), config.Service("unset-live"), config.WithoutFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+
+	copied := *rt.Value() // a component's copy, taken before any value
+	applied := make(chan []string, 1)
+
+	copied.Tags.Watch(func(v []string) { applied <- v })
+
+	if _, err := client.KV().Put(&api.KVPair{Key: "config/unset-live/tags", Value: []byte(`["a","b"]`)}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case v := <-applied:
+		if fmt.Sprint(v) != "[a b]" || fmt.Sprint(copied.Tags.Get()) != "[a b]" {
+			t.Fatalf("applied %v, copy reads %v", v, copied.Tags.Get())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("KV value never reached the unset Live field")
+	}
+}

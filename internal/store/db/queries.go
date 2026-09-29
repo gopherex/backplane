@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,349 @@ type Queries struct {
 func New(db DBTX) *Queries { return &Queries{db: db} }
 
 func (q *Queries) WithTx(tx pgx.Tx) *Queries { return &Queries{db: tx} }
+
+const nextConfigRevisionSQL = `SELECT (COALESCE(max(revision), 0) + 1)::bigint AS revision
+FROM backplane.config_revision WHERE service = $1;`
+
+type NextConfigRevisionRow struct {
+	Revision int64
+}
+
+func (q *Queries) NextConfigRevision(ctx context.Context, service string) (NextConfigRevisionRow, error) {
+	row := q.db.QueryRow(ctx, nextConfigRevisionSQL, service)
+	var i NextConfigRevisionRow
+	err := row.Scan(&i.Revision)
+	return i, err
+}
+
+const insertConfigRevisionSQL = `INSERT INTO backplane.config_revision (service, revision, overrides, kv, author, comment, rollback_of)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING service, revision, overrides, kv, author, comment, created_at, rollback_of;`
+
+type InsertConfigRevisionParams struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	RollbackOf *int64
+}
+
+type InsertConfigRevisionRow struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+func (q *Queries) InsertConfigRevision(ctx context.Context, arg InsertConfigRevisionParams) (InsertConfigRevisionRow, error) {
+	row := q.db.QueryRow(ctx, insertConfigRevisionSQL, arg.Service, arg.Revision, arg.Overrides, arg.Kv, arg.Author, arg.Comment, arg.RollbackOf)
+	var i InsertConfigRevisionRow
+	err := row.Scan(&i.Service, &i.Revision, &i.Overrides, &i.Kv, &i.Author, &i.Comment, &i.CreatedAt, &i.RollbackOf)
+	return i, err
+}
+
+const setConfigCurrentSQL = `INSERT INTO backplane.config_current (service, revision) VALUES ($1, $2)
+ON CONFLICT (service) DO UPDATE SET revision = EXCLUDED.revision, updated_at = now();`
+
+type SetConfigCurrentParams struct {
+	Service  string
+	Revision int64
+}
+
+func (q *Queries) SetConfigCurrent(ctx context.Context, arg SetConfigCurrentParams) error {
+	_, err := q.db.Exec(ctx, setConfigCurrentSQL, arg.Service, arg.Revision)
+	return err
+}
+
+const getConfigRevisionSQL = `SELECT service, revision, overrides, kv, author, comment, created_at, rollback_of
+FROM backplane.config_revision WHERE service = $1 AND revision = $2;`
+
+type GetConfigRevisionParams struct {
+	Service  string
+	Revision int64
+}
+
+type GetConfigRevisionRow struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+func (q *Queries) GetConfigRevision(ctx context.Context, arg GetConfigRevisionParams) (GetConfigRevisionRow, error) {
+	row := q.db.QueryRow(ctx, getConfigRevisionSQL, arg.Service, arg.Revision)
+	var i GetConfigRevisionRow
+	err := row.Scan(&i.Service, &i.Revision, &i.Overrides, &i.Kv, &i.Author, &i.Comment, &i.CreatedAt, &i.RollbackOf)
+	return i, err
+}
+
+const getCurrentConfigRevisionSQL = `SELECT r.service, r.revision, r.overrides, r.kv, r.author, r.comment, r.created_at, r.rollback_of
+FROM backplane.config_current c
+JOIN backplane.config_revision r ON r.service = c.service AND r.revision = c.revision
+WHERE c.service = $1;`
+
+type GetCurrentConfigRevisionRow struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+func (q *Queries) GetCurrentConfigRevision(ctx context.Context, service string) (GetCurrentConfigRevisionRow, error) {
+	row := q.db.QueryRow(ctx, getCurrentConfigRevisionSQL, service)
+	var i GetCurrentConfigRevisionRow
+	err := row.Scan(&i.Service, &i.Revision, &i.Overrides, &i.Kv, &i.Author, &i.Comment, &i.CreatedAt, &i.RollbackOf)
+	return i, err
+}
+
+const listCurrentConfigKvSQL = `SELECT r.service, r.revision, r.kv
+FROM backplane.config_current c
+JOIN backplane.config_revision r ON r.service = c.service AND r.revision = c.revision
+ORDER BY r.service;`
+
+type ListCurrentConfigKvRow struct {
+	Service  string
+	Revision int64
+	Kv       json.RawMessage
+}
+
+func (q *Queries) ListCurrentConfigKv(ctx context.Context) ([]ListCurrentConfigKvRow, error) {
+	rows, err := q.db.Query(ctx, listCurrentConfigKvSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCurrentConfigKvRow
+	for rows.Next() {
+		var i ListCurrentConfigKvRow
+		if err := rows.Scan(&i.Service, &i.Revision, &i.Kv); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConfigRevisionsSQL = `SELECT service, revision, overrides, kv, author, comment, created_at, rollback_of
+FROM backplane.config_revision
+WHERE service = $1 AND revision < $2
+ORDER BY revision DESC
+LIMIT $3;`
+
+type ListConfigRevisionsParams struct {
+	Service  string
+	Before   int64
+	PageSize int64
+}
+
+type ListConfigRevisionsRow struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+func (q *Queries) ListConfigRevisions(ctx context.Context, arg ListConfigRevisionsParams) ([]ListConfigRevisionsRow, error) {
+	rows, err := q.db.Query(ctx, listConfigRevisionsSQL, arg.Service, arg.Before, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListConfigRevisionsRow
+	for rows.Next() {
+		var i ListConfigRevisionsRow
+		if err := rows.Scan(&i.Service, &i.Revision, &i.Overrides, &i.Kv, &i.Author, &i.Comment, &i.CreatedAt, &i.RollbackOf); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getAdminTokenSQL = `SELECT token_hash FROM backplane.console_admin;`
+
+type GetAdminTokenRow struct {
+	TokenHash string
+}
+
+func (q *Queries) GetAdminToken(ctx context.Context) (GetAdminTokenRow, error) {
+	row := q.db.QueryRow(ctx, getAdminTokenSQL)
+	var i GetAdminTokenRow
+	err := row.Scan(&i.TokenHash)
+	return i, err
+}
+
+const initAdminTokenSQL = `INSERT INTO backplane.console_admin (token_hash) VALUES ($1)
+ON CONFLICT (singleton) DO NOTHING;`
+
+func (q *Queries) InitAdminToken(ctx context.Context, tokenHash string) (int64, error) {
+	tag, err := q.db.Exec(ctx, initAdminTokenSQL, tokenHash)
+	return tag.RowsAffected(), err
+}
+
+const setAdminTokenSQL = `INSERT INTO backplane.console_admin (token_hash) VALUES ($1)
+ON CONFLICT (singleton) DO UPDATE SET token_hash = EXCLUDED.token_hash, updated_at = now();`
+
+func (q *Queries) SetAdminToken(ctx context.Context, tokenHash string) error {
+	_, err := q.db.Exec(ctx, setAdminTokenSQL, tokenHash)
+	return err
+}
+
+const createSessionSQL = `INSERT INTO backplane.console_session (token_hash, created_at, expires_at, last_seen_at, address, user_agent)
+VALUES ($1, $2, $3, $2, $4, $5)
+RETURNING id;`
+
+type CreateSessionParams struct {
+	TokenHash []byte
+	CreatedAt time.Time
+	ExpiresAt time.Time
+	Address   string
+	UserAgent string
+}
+
+type CreateSessionRow struct {
+	ID uuid.UUID
+}
+
+func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error) {
+	row := q.db.QueryRow(ctx, createSessionSQL, arg.TokenHash, arg.CreatedAt, arg.ExpiresAt, arg.Address, arg.UserAgent)
+	var i CreateSessionRow
+	err := row.Scan(&i.ID)
+	return i, err
+}
+
+const getSessionByTokenSQL = `SELECT id, created_at, expires_at, last_seen_at, address, user_agent
+FROM backplane.console_session WHERE token_hash = $1;`
+
+type GetSessionByTokenRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	Address    string
+	UserAgent  string
+}
+
+func (q *Queries) GetSessionByToken(ctx context.Context, tokenHash []byte) (GetSessionByTokenRow, error) {
+	row := q.db.QueryRow(ctx, getSessionByTokenSQL, tokenHash)
+	var i GetSessionByTokenRow
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.ExpiresAt, &i.LastSeenAt, &i.Address, &i.UserAgent)
+	return i, err
+}
+
+const getSessionSQL = `SELECT id, created_at, expires_at, last_seen_at, address, user_agent
+FROM backplane.console_session WHERE id = $1;`
+
+type GetSessionRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	Address    string
+	UserAgent  string
+}
+
+func (q *Queries) GetSession(ctx context.Context, id uuid.UUID) (GetSessionRow, error) {
+	row := q.db.QueryRow(ctx, getSessionSQL, id)
+	var i GetSessionRow
+	err := row.Scan(&i.ID, &i.CreatedAt, &i.ExpiresAt, &i.LastSeenAt, &i.Address, &i.UserAgent)
+	return i, err
+}
+
+const touchSessionSQL = `UPDATE backplane.console_session SET last_seen_at = $1
+WHERE id = $2 AND last_seen_at < $1;`
+
+type TouchSessionParams struct {
+	LastSeenAt time.Time
+	ID         uuid.UUID
+}
+
+func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) error {
+	_, err := q.db.Exec(ctx, touchSessionSQL, arg.LastSeenAt, arg.ID)
+	return err
+}
+
+const listSessionsSQL = `SELECT id, created_at, expires_at, last_seen_at, address, user_agent
+FROM backplane.console_session ORDER BY created_at DESC;`
+
+type ListSessionsRow struct {
+	ID         uuid.UUID
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	Address    string
+	UserAgent  string
+}
+
+func (q *Queries) ListSessions(ctx context.Context) ([]ListSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listSessionsSQL)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSessionsRow
+	for rows.Next() {
+		var i ListSessionsRow
+		if err := rows.Scan(&i.ID, &i.CreatedAt, &i.ExpiresAt, &i.LastSeenAt, &i.Address, &i.UserAgent); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const deleteSessionSQL = `DELETE FROM backplane.console_session WHERE id = $1;`
+
+func (q *Queries) DeleteSession(ctx context.Context, id uuid.UUID) (int64, error) {
+	tag, err := q.db.Exec(ctx, deleteSessionSQL, id)
+	return tag.RowsAffected(), err
+}
+
+const deleteOtherSessionsSQL = `DELETE FROM backplane.console_session WHERE id <> $1;`
+
+func (q *Queries) DeleteOtherSessions(ctx context.Context, id uuid.UUID) (int64, error) {
+	tag, err := q.db.Exec(ctx, deleteOtherSessionsSQL, id)
+	return tag.RowsAffected(), err
+}
+
+const deleteStaleSessionsSQL = `DELETE FROM backplane.console_session WHERE expires_at <= $1 OR last_seen_at <= $2;`
+
+type DeleteStaleSessionsParams struct {
+	Now       time.Time
+	IdleSince time.Time
+}
+
+func (q *Queries) DeleteStaleSessions(ctx context.Context, arg DeleteStaleSessionsParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, deleteStaleSessionsSQL, arg.Now, arg.IdleSince)
+	return tag.RowsAffected(), err
+}
 
 const createInstallationSQL = `INSERT INTO backplane.installation DEFAULT VALUES ON CONFLICT (singleton) DO NOTHING;`
 

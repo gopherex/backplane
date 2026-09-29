@@ -1,7 +1,10 @@
-# Envoy bootstrap for platform-in-a-box. Everything except the admin
-# interface comes from backplane over xDS (ADS, delta), see
-# platform-design.md §6. Until backplane's control plane runs (M1) Envoy
-# starts empty and keeps retrying the xds cluster.
+# Envoy bootstrap for platform-in-a-box: the minimum — admin, the node,
+# and the xds cluster ADS runs over. Listeners (the public one on 10000),
+# routes, clusters and endpoints come from backplane over xDS (ADS, delta;
+# platform-design.md §6). Every Envoy gets the same snapshot: id and
+# cluster only name it in backplane's log. Until backplane runs, Envoy
+# starts empty and keeps retrying the xds cluster; after backplane
+# restarts it keeps what it has until the new snapshot arrives.
 node:
   id: edge
   cluster: backplane-edge

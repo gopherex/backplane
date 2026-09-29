@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "backplanepb/v1/instance.proto";
+import "backplanepb/v1/manifest.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// CatalogService is the installation as backplane's registry sees it: the
+// services, their manifests per version, their instances with state and
+// health. Served on the console's ws-proto connection (/ws).
+service CatalogService {
+  // Every service, summarized.
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  // One service in full: latest manifest, manifests per version, instances.
+  rpc GetService(GetServiceRequest) returns (GetServiceResponse);
+  // The summary now and after every change of the catalog, until the call
+  // is cancelled; a slow reader skips intermediate snapshots.
+  rpc WatchCatalog(WatchCatalogRequest) returns (stream WatchCatalogResponse);
+  // Console plugins: services whose latest manifest declares a UI bundle.
+  rpc ListPlugins(ListPluginsRequest) returns (ListPluginsResponse);
+}
+
+// How a service is doing, from its instances.
+enum ServiceHealth {
+  SERVICE_HEALTH_UNSPECIFIED = 0;
+  // Every instance is registered and passing.
+  SERVICE_HEALTH_HEALTHY = 1;
+  // Some instances are passing, some are not.
+  SERVICE_HEALTH_DEGRADED = 2;
+  // No instance is passing (or there are none).
+  SERVICE_HEALTH_DOWN = 3;
+}
+
+message ServiceSummary {
+  string name = 1;
+  // Version of the latest manifest (the highest a live instance runs).
+  string latest_version = 2;
+  // Every version a manifest is known for, highest first.
+  repeated string versions = 3;
+  // Instances known (catalog or published state).
+  uint32 instances = 4;
+  // Registered and passing the health check.
+  uint32 healthy = 5;
+  ServiceHealth health = 6;
+  // The latest manifest declares an internal API (the relay forwards to it).
+  bool internal_api = 7;
+  // The latest manifest declares a UI bundle (a console plugin).
+  bool ui = 8;
+}
+
+message Instance {
+  string id = 1;
+  // The SDK's published state; unset when only the catalog knows the
+  // instance.
+  backplane.v1.InstanceState state = 2;
+  // In the Consul catalog.
+  bool registered = 3;
+  // The catalog health check passes.
+  bool healthy = 4;
+  // Where public traffic goes (catalog registration); port 0 without
+  // managed routes.
+  string address = 5;
+  uint32 port = 6;
+  repeated string tags = 7;
+}
+
+message ListServicesRequest {}
+
+message ListServicesResponse {
+  // Sorted by name.
+  repeated ServiceSummary services = 1;
+  // Index of the registry snapshot the answer comes from.
+  uint64 index = 2;
+}
+
+message GetServiceRequest {
+  string name = 1;
+}
+
+message GetServiceResponse {
+  ServiceSummary summary = 1;
+  // The latest manifest (see ServiceSummary.latest_version).
+  backplane.v1.Manifest latest = 2;
+  // Every known manifest, highest version first.
+  repeated backplane.v1.Manifest manifests = 3;
+  // Sorted by id.
+  repeated Instance instances = 4;
+  uint64 index = 5;
+}
+
+message WatchCatalogRequest {}
+
+message WatchCatalogResponse {
+  // Sorted by name.
+  repeated ServiceSummary services = 1;
+  uint64 index = 2;
+}
+
+message ListPluginsRequest {}
+
+message Plugin {
+  string service = 1;
+  // Content hash of the bundle (manifest ui.hash).
+  string hash = 2;
+  // Major of the UI SDK the bundle is built against; the shell loads only
+  // its own major.
+  uint32 sdk_major = 3;
+  // Where the console serves the bundle: <console>/plugins/<service>/<hash>/
+  // relative to the console's base.
+  string path = 4;
+  // A live instance serves this bundle: without one the plugin is not in
+  // the navigation (its service card stays).
+  bool available = 5;
+}
+
+message ListPluginsResponse {
+  // Sorted by service.
+  repeated Plugin plugins = 1;
+}

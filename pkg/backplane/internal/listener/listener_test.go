@@ -101,14 +101,14 @@ func get(ctx context.Context, url string) (string, error) {
 	return string(body), err
 }
 
-func healthCheck(ctx context.Context, addr string) error {
+func healthCheck(ctx context.Context, addr string, opts ...grpc.CallOption) error {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	out, err := hv1.NewHealthClient(conn).Check(ctx, &hv1.HealthCheckRequest{})
+	out, err := hv1.NewHealthClient(conn).Check(ctx, &hv1.HealthCheckRequest{}, opts...)
 	if err != nil {
 		return err
 	}
@@ -135,6 +135,11 @@ func TestGRPCAndHTTPOnOnePort(t *testing.T) {
 
 	if err := healthCheck(t.Context(), l.Addr()); err != nil {
 		t.Fatalf("grpc: %v", err)
+	}
+
+	// content-type application/grpc+proto is gRPC too.
+	if err := healthCheck(t.Context(), l.Addr(), grpc.CallContentSubtype("proto")); err != nil {
+		t.Fatalf("grpc+proto: %v", err)
 	}
 
 	if _, err := g.stop(l); err != nil {

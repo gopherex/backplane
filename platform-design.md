@@ -219,7 +219,8 @@ listener, роуты с одним адресом делят один серве
 
 Политика Envoy — опции любого роута, managed и declarative:
 `route.Timeout(d)` (весь запрос, стрим тоже; стриминговому роуту её
-задают явно — у Envoy по умолчанию 15s), `route.IdleTimeout(d)`,
+задают явно — у Envoy по умолчанию 15s; у ws-proto по умолчанию её нет,
+§6), `route.IdleTimeout(d)`,
 `route.Retry(attempts, perTry, on...)` (`on` — условия `retry_on` Envoy:
 `5xx`, `reset`, `unavailable`, ...), `route.CORS(route.CORSPolicy{Origins,
 Methods, Headers, ExposeHeaders, Credentials, MaxAge})`,
@@ -899,50 +900,127 @@ KV — верхний, необязательный слой и видит то�
 обычного поля в KV игнорируется. Появился — применился горячо, пропал —
 остались значения из env/файла.
 
-### 5.2 Роль backplane [backplane]
+### 5.2 Роль backplane
 
 Consul KV — **канал доставки**, не источник правды: у KV нет истории,
 аудита и отката, а правки через Consul UI реплицируются мгновенно без
 следа (норма зрелых установок — в KV пишет автоматика, не человек).
+Сервер — пакет `internal/config` (компонент `config` дерева backplane).
 
-- Источник правды override-слоя — **PostgreSQL backplane**: ревизии
-  (значения, автор, комментарий, время), откат = новая ревизия.
-- Валидация **до** сохранения: override накладывается на эффективный
-  конфигурацию каждого живого инстанса (из состояния инстанса, §4.2) и
-  проверяется по схеме, если она есть (schemapb, включая CEL между
-  полями); нет живых инстансов — на defaults схемы. Без схемы —
-  проверяется только, что это JSON и что ключи объявлены. Невалидное не
-  сохраняется.
+- Источник правды override-слоя — **PostgreSQL backplane**: таблица
+  `config_revision` — ревизии сервиса (номер с 1 на сервис, значения,
+  автор, комментарий, время, `rollback_of`), append-only; `config_current`
+  — текущая ревизия сервиса (всегда последняя). Откат — новая ревизия со
+  значениями старой и `rollback_of` = её номер.
+- **Override** — плоская карта «Live-путь манифеста (`config.live`,
+  через точку: `greeter.suffix`) → JSON-значение». Переопределяются
+  только Live-пути целиком: путь не из `config.live` (обычное поле,
+  секция, путь внутри Live-поля) — отказ `NOT_LIVE`; `null` — отказ
+  (чтобы снять override, путь не передают). Путь, которого нет в
+  ревизии, берёт значение из слоёв инстанса (defaults, файл, env).
+- Валидация **до** сохранения: override кодируется в KV (§5.3) и
+  раскладывается тем же декодером, что читает SDK (xconf env-кодирование
+  против схемы инстанса), затем накладывается как слой xconf (объекты
+  сливаются по ключам, остальное заменяется) на эффективную конфигурацию
+  **каждого живого инстанса** (`config` его состояния, §4.2) и
+  проверяется схемой манифеста **версии этого инстанса** (schemapb:
+  типы, границы, CEL); пути, которые в его версии не Live, для него
+  пропускаются — его SDK их игнорирует. Нет живых инстансов — база —
+  defaults схемы старшего манифеста. Ошибки, которые конфигурация инстанса
+  даёт и без override, не сообщаются: так маскированные секреты (`***` в
+  состоянии) считаются присутствующими и валидными, а схема
+  проверяет только то, что ломает override. Пути, которые текущая ревизия
+  переопределяла, а новая — нет, валидируются на значении из состояния
+  инстанса (значения нижних слоёв backplane не видит). Без схемы —
+  проверяется только JSON, Live-путь и что его первый сегмент есть в
+  `config.keys`. Невалидное не сохраняется; ответ — нарушения с путём,
+  инстансом (пусто — не зависит от инстанса или проверено на defaults),
+  кодом (`ErrorCode` schemapb без `ERROR_CODE_`, либо `NOT_LIVE`,
+  `INVALID_JSON`, `NULL_VALUE`, `UNDECLARED`) и сообщением. `Validate`
+  кода автора здесь не вызывается (§5.5).
 - Консоль показывает поле по каждому инстансу: эффективное значение и его
   источник (default / файл / env / KV), применённую ревизию и ошибку
   применения — из состояния инстанса.
+- API — `backplane.console.v1.ConfigService` (`backplanepb/console/v1/config.proto`),
+  значения — карта «Live-путь → JSON-текст»: `GetConfig` (схема, ключи и
+  Live-пути старшего манифеста, текущая ревизия, по инстансу — фаза,
+  эффективная конфигурация, значение и источник каждого Live-пути,
+  применённая и отвергнутая ревизия, ошибка), `ListRevisions` (новые
+  первыми; `before`, `page_size` — 50 по умолчанию, до 500;
+  `next_before`), `ValidateOverride` (сухой прогон), `SaveRevision`,
+  `Rollback` (нарушения вместо ревизии, если отвергнуто;
+  `delivery_error` — ревизия сохранена, но в KV ещё не доставлена),
+  `WatchConfig` (стрим: текущее состояние, затем при каждом изменении —
+  снапшот реестра, ревизия этой или другой реплики). Автор ревизии —
+  `console:<сессия>` из metadata `bp-console-session`, без неё — `admin`.
+  Сервис зарегистрирован во внутреннем API backplane (платформенный порт);
+  консоль отдаёт его по `/ws`.
 - Сервис читает KV любым способом (in-process watch через SDK,
   consul-template, envconsul) и о backplane не знает.
 
-### 5.3 Репликация PostgreSQL → Consul [backplane]
+Метрики: `backplane.config.revisions{outcome=saved|rejected}`,
+`backplane.config.kv.rewrites{reason=missing|stale|edited}`,
+`backplane.config.kv.failures`. Логи: сохранение (сервис, ревизия, автор,
+откат), отказ (число нарушений, первое), доставка, перезапись ручной
+правки (warn с ключами), начало и конец серии ошибок reconciler'а.
 
-Сторона SDK здесь — чтение `_revision` и отчёт в состоянии инстанса;
-остальное — сервер. Consul может умереть или потерять данные — мы не теряем ничего:
+### 5.3 Репликация PostgreSQL → Consul
 
-- сохранение ревизии = транзакция в PostgreSQL, затем запись значений в
-  `config/<service>/` одной `txn`-операцией вместе с
-  `config/<service>/_revision = <n>`. SDK читает `_revision` тем же
-  запросом к префиксу, что и значения (сам ключ в конфигурацию не
-  попадает), и публикует в состоянии инстанса (`config_revision`) ровно
-  ревизию применённых значений; отвергнутая — в
-  `config_rejected_revision` (§5.5);
-- **reconciler** в backplane: при старте, по таймеру и по blocking query на
-  префикс `config/` сверяет `_revision` в KV с текущей ревизией в
-  PostgreSQL и при расхождении переписывает KV из PostgreSQL. Пустой KV
-  восстанавливается за один проход; правки руками в Consul UI
-  перетираются;
-- пока Consul недоступен, сервисы работают на последних значениях или на
+Сторона SDK — чтение `_revision` и отчёт в состоянии инстанса; остальное
+— сервер. Consul может умереть или потерять данные — мы не теряем ничего:
+
+- **Кодирование KV** — ровно то, что читает Consul-источник SDK (xconf
+  `NewPrefix`, env-кодирование): ключ — `config/<service>/<Live-путь, `.`
+  → `/`>`; значение Live-поля контейнерного вида схемы (object, ref, map,
+  list, one-of, json) — его JSON, скалярного — текст: строка как есть,
+  bool — `true`/`false`, число — десятичное (целое поле — без дроби и
+  экспоненты: `1e3` → `1000`), duration — текст Go (`1m30s`; число —
+  наносекунды). Без схемы решает форма значения: объект и список — JSON,
+  остальное — текст. Ревизия хранит и сохранённые значения, и
+  закодированные строки, так что доставка от реестра не зависит.
+- **Сохранение** = serializable-транзакция в PostgreSQL (следующий номер,
+  строка ревизии, `config_current`; параллельные сохранения сервиса
+  повторяются), затем доставка в `config/<service>/` (до 10 s; ошибка
+  доставки ревизию не откатывает — её допишет reconciler).
+- **Доставка** читает префикс, затем текущую ревизию из PostgreSQL и
+  пишет разницу: изменённые значения, удаление ключей, которых нет в
+  ревизии, и последним — `config/<service>/_revision = <n>`. Последняя
+  транзакция начинается с CAS на `_revision` (`check-index` прочитанного,
+  `check-not-exists`, если его не было): реплика со старой ревизией не
+  перетирает новую, проигравший CAS перечитывает и повторяет (до 3 раз).
+  До 62 изменений — одна атомарная `txn`; больше — транзакции по 64
+  (лимит Consul): сначала значения, затем удаления, `_revision` — в
+  последней; пока она не прошла, читатель может увидеть часть новых
+  значений под старой `_revision`. Папки Consul UI (ключ на `/` без
+  значения) — не значения: не сравниваются и не удаляются.
+- SDK читает `_revision` тем же запросом к префиксу, что и значения (сам
+  ключ в конфигурацию не попадает), и публикует в состоянии инстанса
+  (`config_revision`) ровно ревизию применённых значений; отвергнутая — в
+  `config_rejected_revision` (§5.5).
+- **Reconciler** — горутина компонента `config`: проход при старте, раз в
+  `BACKPLANE_LIVE_CONFIG_RECONCILE_INTERVAL` (30s) и по каждому изменению
+  префикса `config/` (blocking query, ожидание 5m). Проход — один `List`
+  `config/` и один запрос текущих ревизий всех сервисов; сервис, у которого
+  `_revision`, значения или набор ключей отличаются от ревизии, проходит
+  доставку. Причина в логе и метрике: `missing` (пусто — Consul потерял
+  данные), `stale` (другая `_revision`), `edited` (ревизия совпадает,
+  значения нет — ручная правка в Consul UI перетирается, warn с ключами).
+  Сервисы без ревизий в PostgreSQL backplane не трогает: `config/<service>/`
+  становится управляемым с первой сохранённой ревизии. Реплики работают
+  одновременно: все пишут то, что в PostgreSQL, через CAS, так что
+  проходы сходятся; сохранение на одной реплике другие видят по изменению
+  `config/` (и шлют в свои `WatchConfig`).
+- Пока Consul недоступен, сервисы работают на последних значениях или на
   env/файле; backplane копит ревизии и доставляет, когда Consul вернётся.
   Исключение — обязательное Live-поле без default, которое есть только в
   KV: оно держит `Open`, пока Consul не ответит или не кончится ctx
   `Open` — тогда `Open` возвращает ошибку. ctx `Open` ограничивает только
   загрузку: запущенный сервис от него не зависит. Ошибка в обычном поле
   при этом не ждёт Consul — `Open` падает сразу.
+- Необязательное Live-поле без default, которого нет ни в одном слое,
+  читается нулевым значением и получает значение из KV, как только оно
+  появится; все копии секции видят его (ячейки Live-полей создаются при
+  `Open`).
 
 ### 5.4 GitOps [backplane]
 
@@ -984,32 +1062,102 @@ backplane проверяет override до сохранения только с�
 
 ## 6. Gateway — Envoy [backplane]
 
-Раздел — сервер платформы: SDK только объявляет роуты с политикой в
-манифесте (§3.1), xDS-сервера в репозитории нет; есть bootstrap Envoy
-(`deployments/envoy/envoy.yaml`), ждущий его на порту 18000.
+Envoy — единственный вход. backplane — его control-plane по **xDS**
+(`internal/xds`, `envoyproxy/go-control-plane`): ADS — один gRPC
+bidi-стрим на все ресурсы; сервер отвечает и в Delta-режиме (им ходит
+bootstrap), и в state-of-the-world. ADS слушает свой адрес
+`BACKPLANE_XDS_LISTEN` (`:18000`) — узел дерева backplane (адрес
+открывается при старте, занятый адрес — ошибка старта), а не публичный
+порт SDK: публичный роут попал бы в манифест backplane и в маршруты самого
+Envoy.
 
-Envoy — единственный вход. backplane — его control-plane по **xDS**: ADS
-(один gRPC bidi-стрим на все ресурсы), Delta-режим,
-`envoyproxy/go-control-plane`. Ресурсы:
+**Снапшот.** Один на всех: все Envoy — одна группа узлов, node id и
+cluster из bootstrap только пишутся в лог. Снапшот строится из `Catalog`
+registry (`xds.Build` — чистая функция каталога) после каждого изменения,
+с debounce 200 мс; одинаковое содержимое (хэш ресурсов) не отдаётся
+повторно, версия снапшота — счётчик. Пока registry не синхронизирован,
+снапшота нет — Envoy после рестарта backplane держит прежний конфиг, а не
+пустой; readiness backplane ждёт первого снапшота. От сервиса берутся
+роуты его `Latest()` манифеста, трафик идёт на `Healthy()` инстансы.
 
-- **LDS** — listeners: порты, TLS, HTTP connection manager;
-- **RDS** — маршруты из роутов, объявленных сервисами (§3.1), плюс роуты
-  самой консоли (§11.3). Роут с `host` попадает в virtual host этого
-  домена (`*.example.com` — wildcard-домен), без `host` — в общий; внутри
-  virtual host маршрут матчится по `prefix`. `Route.policy` становится
-  настройками маршрута: `timeout` — `route.timeout` (0 — отключён;
-  стриминговые роуты задают его явно), `idle_timeout` —
+- **LDS** — один listener `public` на `0.0.0.0:BACKPLANE_XDS_HTTP_PORT`
+  (10000, как в compose): HTTP connection manager (HTTP/1.1 и h2c,
+  `use_remote_address`, порт в Host отбрасывается перед выбором virtual
+  host), RDS `public` по ADS. HTTP-фильтры по порядку: `cors`,
+  `grpc_web`, `grpc_json_transcoder`, `buffer`, `router`. `cors` и
+  `router` работают всегда; `grpc_web` — везде, кроме роутов, где он
+  выключен (все, кроме Connect: Envoy не принимает пустой per-route
+  конфиг, включающий выключенный фильтр, а своего конфига у `grpc_web`
+  нет); `grpc_json_transcoder` и `buffer` выключены на listener'е и
+  включаются конфигом роута. WebSocket upgrade выключен на listener'е и
+  включается роутам ws-proto и консоли. TLS — позже (параметр конфигурации
+  listener'а).
+- **RDS** — таблица `public`. Роут с `host` попадает в virtual host этого
+  домена (`*.example.com` — wildcard), без `host` — в `default` (`*`).
+  Порядок как в Go-муксе SDK (§3.1): длиннее префикс — раньше, при равном
+  префиксе — точный хост, затем самый длинный wildcard, затем роут без
+  хоста; поэтому virtual host домена содержит и роуты покрывающих его
+  wildcard'ов, и роуты без хоста. Совпадение хоста и префикса у двух
+  сервисов — выигрывает первый по имени, второй пропускается с
+  предупреждением. Матч — по `prefix` (gRPC — `/<service>/`).
+  `Route.policy` → маршрут: `timeout` — `route.timeout`, `idle_timeout` —
   `route.idle_timeout`, `retry` — `retry_policy` (`num_retries` =
-  `attempts − 1`, `per_try_timeout`, `retry_on`), `cors` — CORS-фильтр
-  маршрута (`allow_origin_string_match` точными строками, `*` — любой),
-  `max_request_bytes` — буфер тела запроса маршрута. Незаданное поле —
-  умолчание платформы;
-- **CDS** — cluster на сервис;
-- **EDS** — endpoints из каталога Consul: адрес и `Port` живых инстансов.
+  `attempts − 1`, `per_try_timeout`, `retry_on` через запятую; пусто —
+  `connect-failure,refused-stream`), `cors` — per-route `CorsPolicy`
+  фильтра `cors` (`allow_origin_string_match` точными строками, `*` —
+  любой origin), `max_request_bytes` — per-route `buffer` (тело
+  буферизуется, больше лимита — 413; только HTTP и GraphQL: буфер сломал
+  бы стримы gRPC и WebSocket, там действует лимит сообщений самого
+  сервиса, backplane пишет предупреждение). Незаданное поле — умолчание
+  Envoy (timeout 15s), кроме ws-proto: у него route timeout выключен
+  (upgrade-соединение — не запрос; его ограничивает `idle_timeout`).
+  По видам: ws-proto — upgrade `websocket`; Connect — gRPC-Web и
+  REST-JSON: `grpc_json_transcoder` с дескрипторами роута, иначе
+  `Manifest.descriptors`, `services` роута, `auto_mapping` (`POST
+  /<service>/<Method>` с JSON-телом), пути `google.api.http` — если лежат
+  под префиксом роута. Дескрипторы проверяются до отдачи: без сервиса
+  роута транскодинга нет (остаются gRPC и gRPC-Web) и есть
+  предупреждение — иначе Envoy отверг бы всю таблицу. Нативный Connect
+  protocol не транскодируется.
+- **Консоль** (§11.3) — роут на cluster `backplane_console`: с
+  `BACKPLANE_CONSOLE_HOST` — `/` своего virtual host (на этом хосте только
+  консоль), с `BACKPLANE_CONSOLE_PREFIX` — path-separated prefix
+  (`/backplane` и `/backplane/...`) в `default`, без обоих — `/` в
+  `default` после всех роутов сервисов. Путь не переписывается: консоль
+  получает полный путь. WebSocket upgrade включён, timeout выключен.
+  Endpoints — `Address:<порт BACKPLANE_CONSOLE_LISTEN>` здоровых
+  инстансов сервиса `backplane` в каталоге, пока их нет — advertise-адрес
+  этой реплики.
+- **CDS** — EDS-cluster'ы по ADS на сервис, порт и протокол. Публичный
+  порт SDK — cmux, выбирающий gRPC по content-type первого запроса
+  соединения, поэтому соединение несёт один вид трафика: gRPC и Connect —
+  cluster `<service>_grpc` с HTTP/2 upstream (gRPC-Web и JSON к этому
+  моменту уже gRPC), HTTP, GraphQL и ws-proto — `<service>_http` с
+  HTTP/1.1 (WebSocket — upgrade HTTP/1.1). Роут с `port` ≠ 0 идёт в
+  `<service>_p<port>_<grpc|http>` — endpoints на этом порту; managed-роуты
+  SDK всегда несут свой порт, так что `<service>_<grpc|http>` (порт из
+  регистрации) — у declarative-роутов без `route.Port`. `_` в имени
+  сервиса не бывает: сервис — часть имени до первого `_`
+  (`envoy_cluster_name=~"<service>_.*"`).
+- **EDS** — endpoints из каталога Consul: `Address` здоровых инстансов и
+  порт cluster'а (или `Port` из регистрации; `Port` 0 — инстанс без
+  публичного порта — не endpoint). Адрес не IP — инстанс пропускается с
+  предупреждением (EDS принимает только IP).
+
+Наблюдаемость: лог на каждый новый снапшот (версия, индекс каталога,
+сервисы, роуты, cluster'ы), предупреждения сборки — при их изменении,
+подключение и отключение Envoy (node id, cluster), каждый NACK с текстом
+ошибки Envoy. Метрики узла `xds`: `backplane.xds.snapshot.version`,
+`backplane.xds.services`, `backplane.xds.routes`,
+`backplane.xds.clusters`, `backplane.xds.endpoints` (gauge),
+`backplane.xds.streams` (открытые ADS-стримы),
+`backplane.xds.errors{stage=build|snapshot|nack}`.
 
 Балансировка, health checking upstream'ов, retries, timeouts, rate limit,
 CORS, TLS, gRPC-Web/Connect-транскодинг, WebSocket — Envoy; backplane
-только описывает. Envoy получает адрес backplane и node id в bootstrap.
+только описывает. Envoy получает адрес backplane и node id в bootstrap
+(`deployments/envoy/envoy.yaml`: admin, cluster `xds` и ADS для LDS/CDS —
+остальное приходит по xDS; запуск локально — `deployments/README.md`).
 
 В установке с Consul Connect вход обычно делает Consul API Gateway; тогда
 backplane пишет роуты как config entries вместо xDS — второй драйвер
@@ -1574,27 +1722,58 @@ Shell — собственный UI backplane. Два слоя:
 
 ### 11.1 Транспорт — одно ws-proto соединение
 
-Консоль держит одно ws-proto соединение к backplane. На нём:
+Консоль держит одно ws-proto соединение к backplane: `GET /ws`
+(`internal/console`). На нём:
 
-- **собственный API backplane** — зарегистрированные обработчики wsrpc;
+- **собственный API backplane** (`backplanepb/console/v1`, пакет
+  `backplane.console.v1`), зарегистрированный через `wsrpc.GRPCRegistrar`:
+  - `CatalogService` — `ListServices` (сводка: последняя версия, версии,
+    инстансы, здоровые, health `HEALTHY`/`DEGRADED`/`DOWN`, есть ли
+    внутреннее API и UI), `GetService` (последний манифест, манифесты всех
+    версий, инстансы с состоянием и health; нет сервиса — `NOT_FOUND`),
+    `WatchCatalog` (сводка сразу и после каждого нового снапшота registry;
+    медленный читатель пропускает промежуточные), `ListPlugins` (§11.2);
+  - `SessionService` — `ListSessions`, `RevokeSession`, `RotateToken`
+    (§11.3);
+  - `ConfigService` — Live-конфигурация (§5), компонент `internal/config`;
 - **всё остальное — relay**: `WithUnknownHandler` по полному имени метода
-  находит в манифестах, чьё это внутреннее API, берёт адрес и
-  платформенный порт живого инстанса из его состояния в KV (§4.2) и
-  пробрасывает кадры как есть
-  (`RecvRaw → gRPC → SendRaw`), стриминг включительно. Транскодинга нет,
-  backplane содержимое не видит.
+  находит сервис, чей **последний** манифест (`registry.Service.Latest`)
+  объявляет этот gRPC-сервис в `internal_services`, выбирает инстанс и
+  пробрасывает кадры как есть (`RecvRaw → gRPC → SendRaw`), стриминг
+  включительно: gRPC-поток в обе стороны с кодеком «байты как есть».
+  Транскодинга нет, backplane содержимое не видит. Заголовки ответа
+  сервиса уходят в браузер leading-заголовком, trailers — в END, статус
+  ошибки (с details) — как есть.
+
+Выбор инстанса: состояние инстанса есть, фаза `SERVING`, есть адрес и
+платформенный порт, и манифест **его** версии объявляет этот сервис
+(старые версии, где метода нет, не выбираются). Сначала — зарегистрированные
+в каталоге и проходящие health check, среди них случайный; нет таких —
+любой подходящий. Соединения к платформенным портам (plaintext gRPC) —
+пул по адресу; адреса, которых нет в каталоге, закрываются по изменению
+снапшота. Лимит сообщения — 16 MiB в обе стороны.
 
 Правила relay:
 
 1. пробрасываются только методы, объявленные в манифесте как внутреннее
-   API этого сервиса; всё прочее — `PERMISSION_DENIED`;
+   API; всё прочее — `PERMISSION_DENIED`; объявлен, но нет подходящего
+   инстанса — `UNAVAILABLE`;
 2. платформенный порт доступен только backplane (сеть); дополнительно
-   backplane ставит секрет (`BACKPLANE_INTERNAL_SECRET`) в metadata
-   `bp-internal-secret` (HTTP-заголовок `Bp-Internal-Secret` для бандла),
-   SDK проверяет; без него — `PERMISSION_DENIED` (HTTP 403);
-3. входящие от браузера `authorization` и `bp-*` срезаются; backplane
-   ставит `bp-console-session`;
+   backplane ставит секрет установки (`BACKPLANE_INTERNAL_SECRET` в своей
+   конфигурации) в metadata `bp-internal-secret` (HTTP-заголовок
+   `Bp-Internal-Secret` для бандла), SDK проверяет; без него —
+   `PERMISSION_DENIED` (HTTP 403);
+3. от браузера срезаются `authorization`, `cookie`, все `bp-*` и
+   транспортные ключи (`:*`, `grpc-*`, `ws-*`, `content-type`, `te`,
+   `host`, `connection`, `user-agent`); backplane ставит
+   `bp-console-session` = id сессии соединения. Для собственного API
+   backplane то же: `authorization` и `bp-*` срезаются, `bp-console-session`
+   ставится, а обработчики берут сессию и из контекста
+   (`console.SessionID`);
 4. плагины не различаются: один администратор, один origin.
+
+Дедлайн вызова браузера доходит до сервиса; отмена вызова браузером
+отменяет вызов к сервису.
 
 В mesh backplane — член mesh и ходит через sidecar; relay не меняется.
 
@@ -1607,42 +1786,100 @@ Shell — собственный UI backplane. Два слоя:
   объявлены `shared: singleton`. Плагин их импортирует, не бандлит.
 - **Плагин — MF-remote.** `mf-manifest.json` + чанки; экспонирует
   `./Routes` и `./Nav`. Рядом наш `plugin.json`: `sdk_major`, навигация.
-- **Загрузка — динамическая и ленивая.** Shell получает список плагинов по
-  API backplane, для совместимых делает `registerRemotes`, страницы грузит
-  `loadRemote` при переходе на `/s/<service>/...`. `sdk_major` ≠ shell'у —
-  карточка сообщает, код не грузится.
+- **Загрузка — динамическая и ленивая.** Shell получает список плагинов
+  `CatalogService.ListPlugins`: сервисы, чей последний манифест объявляет
+  `ui`, с `hash`, `sdk_major`, путём бандла
+  (`<база консоли>/plugins/<service>/<hash>/`) и `available` — есть ли
+  живой инстанс с этим бандлом. Для совместимых и доступных shell делает
+  `registerRemotes`, страницы грузит `loadRemote` при переходе на
+  `/s/<service>/...`. `sdk_major` ≠ shell'у — карточка сообщает, код не
+  грузится. Недоступен — плагина нет в навигации, карточка остаётся.
 - **Единый UI** = один роутер, один layout (плагин рендерит только
   контент), один UI-kit из shared.
 - **Доставка бандла — у сервиса.** Бандл встроен в бинарь (`embed`), SDK
   отдаёт его на платформенном порту по `GET /_backplane/ui/<path>` с
   `ETag` = `ui.hash` и `Cache-Control: no-cache` (§3.6). backplane
-  раздаёт со своего origin `/plugins/<service>/<hash>/...`, забирая у
-  любого живого инстанса (перепроверка по `ETag` — `304`) и кэшируя по
-  хэшу из манифеста (`Cache-Control: immutable`: путь с хэшем не меняет
-  содержимого). Один origin → нет CORS, cookie работают, браузер сервис не
-  видит. Нет живого инстанса — плагина нет в навигации, карточка остаётся.
+  раздаёт его со своего origin: `GET /plugins/<service>/<hash>/<path>`
+  (только с сессией). Файл берётся у инстанса `SERVING`, манифест версии
+  которого объявляет этот `ui.hash` (здоровые первыми), с
+  `Bp-Internal-Secret`; ответ принимается, только если его `ETag` равен
+  хэшу (иначе инстанс отдаёт другой бандл — следующий инстанс); `404`
+  инстанса — `404`. Путь с хэшем не меняет содержимого, поэтому кэш —
+  по `(service, hash, path)` в памяти, LRU с лимитом 64 MiB (файл больше
+  четверти лимита отдаётся без кэширования), без перепроверки; одновременные
+  промахи одного файла — один запрос к инстансу. Ответ:
+  `Cache-Control: public, max-age=31536000, immutable`, `ETag` = хэш;
+  `If-None-Match` с ним — `304`. Закэшированный файл отдаётся и без
+  живого инстанса. Один origin → нет CORS, cookie работают, браузер
+  сервис не видит.
 
 ### 11.3 Auth консоли
 
 v0 — один оператор.
 
-- **Admin-токен** — единственная учётка. Bootstrap: `BACKPLANE_ADMIN_TOKEN`
-  в env backplane, либо генерируется при первом старте, печатается один
-  раз, хранится хэшем в PostgreSQL. Ротация из консоли.
-- **Вход** — `POST /auth/login` с токеном → cookie `HttpOnly; Secure;
-  SameSite=Strict`. Сессии в PostgreSQL: id, создана, истекает, last seen,
-  адрес, user-agent; абсолютный срок 12 ч, idle 1 ч; список и отзыв.
-- **`/ws` upgrade** — только с cookie и только если `Origin` входит в
-  `BACKPLANE_CONSOLE_ORIGINS` (по умолчанию свой host).
-- **Brute force** — лимит на адрес + глобальный backoff;
-  `BACKPLANE_CONSOLE_TRUSTED_PROXIES` для `X-Forwarded-For` за Envoy.
+- **Admin-токен** — единственная учётка, хранится в
+  `backplane.console_admin` (одна строка) хэшем argon2id (PHC-строка;
+  m=19 MiB, t=2, p=1). Bootstrap при старте компонента консоли, когда
+  строки нет: `BACKPLANE_ADMIN_TOKEN`, либо генерируется (`bpat_` + 32
+  случайных байта, base64url) и печатается один раз в stderr процесса.
+  Реплики стартуют конкурентно: пишет первая (`ON CONFLICT DO NOTHING`),
+  печатает только она. Записанный токен главнее env: `BACKPLANE_ADMIN_TOKEN`,
+  не совпадающий с ним, игнорируется с предупреждением в лог. Сброс —
+  удалить строку `backplane.console_admin` и перезапустить.
+- **Ротация** — `SessionService.RotateToken`: новый случайный токен,
+  показывается один раз в ответе; в одной транзакции заменяет хэш и
+  удаляет все сессии, кроме текущей; их соединения закрываются.
+- **Вход** — `POST /auth/login` с `{"token": "..."}` → `200` с
+  `{id, created_at, expires_at, idle_timeout_seconds}` и cookie
+  `bp_session` (`HttpOnly; Secure; SameSite=Strict; Path=<база консоли>`).
+  В cookie — случайный токен сессии (32 байта); в PostgreSQL
+  (`backplane.console_session`) — только его SHA-256, плюс публичный id,
+  создана, истекает, last seen, адрес, user-agent. Абсолютный срок 12 ч,
+  idle 1 ч: активность — запрос с cookie или RPC на `/ws` (пишется не чаще
+  раза в минуту). `POST /auth/logout` удаляет сессию и закрывает её
+  соединения; `GET /auth/session` — текущая сессия или `401`.
+  `SessionService.ListSessions` — живые сессии (текущая помечена),
+  `RevokeSession` — удалить сессию и закрыть её соединения. Истёкшие
+  сессии удаляются раз в 10 минут.
+- **`/ws` upgrade** — только с живой сессией и только если `Origin` входит
+  в `BACKPLANE_CONSOLE_ORIGINS` (точное `scheme://host[:port]`), а без
+  списка — если host `Origin` равен `Host` запроса. Без `Origin` —
+  отказ (`403`). Соединение живёт, пока жива сессия: отзыв на этой
+  реплике закрывает его сразу, на другой — перечитывание сессии раз в
+  30 с.
+- **CSRF** — cookie `SameSite=Strict`; `/ws` проверяет `Origin`;
+  `POST /auth/login` и `/auth/logout` отвергают чужой `Origin`, а без
+  `Origin` — `Sec-Fetch-Site`, отличный от `same-origin`/`none`
+  (клиент не из браузера не шлёт ни того, ни другого).
+- **Brute force** — на адрес: 5 попыток сразу, дальше одна в 12 с;
+  глобально: после 10 неудачных подряд (с любых адресов) каждый вход
+  ждёт 1 с, удваиваясь с каждой следующей неудачей до 1 мин; успешный вход
+  сбрасывает. Отказ — `429` с `Retry-After`. Адрес клиента — адрес пира,
+  а если пир входит в `BACKPLANE_CONSOLE_TRUSTED_PROXIES` (Envoy) — первый
+  справа в `X-Forwarded-For`, не входящий в список.
+- **Заголовки** всех ответов: CSP `default-src 'self'; script-src 'self'`
+  (без inline-скриптов; `style-src` допускает inline-стили UI-kit),
+  `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+  COOP/CORP `same-origin`, `Strict-Transport-Security`. Ответы `/auth/*` —
+  `Cache-Control: no-store`.
+- **Разработка по HTTP** — `BACKPLANE_CONSOLE_INSECURE_COOKIE=true`
+  убирает `Secure` у cookie и HSTS.
 - **Позже** — вход через identity-сервис по OIDC; сессия остаётся
-  абстракцией. Не в v0.
+  абстракцией (`console.Sessions`). Не в v0.
 
-Консоль ходит через Envoy как любой сервис: backplane объявляет свои роуты
-(`/`, `/ws`, `/plugins/*`, `/auth/*`). Один адрес на всё. Чтобы консоль не
-спорила с приложением за `/`, она живёт на своём host'е (SNI/Host-роутинг
-в Envoy: `console.<domain>`) либо на префиксе — выбор установки.
+Консоль ходит через Envoy: компонент `console` в дереве backplane слушает
+свой адрес (`BACKPLANE_CONSOLE_LISTEN`, `:8081`) от старта узла до его
+остановки (остановка закрывает listener и открытые `/ws`-соединения), а
+xDS строит на него отдельный роут в cluster `backplane_console` (§6):
+здоровые инстансы `backplane` на порту консоли. В манифест backplane
+консоль не попадает — это не managed-роут. Один адрес на всё (`/`, `/ws`,
+`/auth/*`, `/plugins/*`). Чтобы консоль не спорила с приложением за `/`,
+она живёт на своём host'е (`BACKPLANE_CONSOLE_HOST`, Host-роутинг в
+Envoy: `console.<domain>`) либо на префиксе (`BACKPLANE_CONSOLE_PREFIX`,
+`/backplane`: Envoy передаёт путь как есть, консоль обслуживает всё под
+`/backplane/`, cookie с этим `Path`) — выбор установки. `GET /` — shell;
+пока он не встроен в бинарь, отдаётся заглушка.
 
 ### 11.4 UI SDK — `@backplane/ui`
 
@@ -1676,7 +1913,7 @@ Consul KV персистентен (Raft, снапшоты), но это не Б
 | где | что |
 |---|---|
 | **PostgreSQL**, схема `backplane` | биндинги, правила; ревизии Live-значений; сессии консоли; хэш admin-токена; аудит |
-| **Consul KV** | манифесты и состояние инстансов — proto binary (пишет SDK); `config/<service>/` — JSON-значения, доставка Live-значений (пишет backplane) |
+| **Consul KV** | манифесты и состояние инстансов — proto binary (пишет SDK); `config/<service>/` — доставка Live-значений: скаляр — текстом, контейнер — JSON, плюс `_revision` (пишет backplane, §5.3) |
 | **Temporal** | запуски хуков, биндингов, правил с историей — не дублируются |
 
 backplane горизонтально масштабируется: всё состояние — в PostgreSQL,
@@ -1693,11 +1930,14 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 |---|---|
 | `BACKPLANE_PG_DSN` | обязателен; схема `backplane` — создаётся и мигрируется при старте |
 | `BACKPLANE_CONSUL_ADDR` | обязателен для backplane (у сервисов — опционален) |
-| `BACKPLANE_XDS_LISTEN` | порт для Envoy (`:18000`) |
+| `BACKPLANE_XDS_LISTEN` | ADS для Envoy (`:18000`) |
+| `BACKPLANE_XDS_HTTP_PORT` | порт публичного listener'а, который описывает снапшот (Envoy его слушает; `10000`) |
 | `BACKPLANE_CONSOLE_LISTEN` | HTTP консоли (`/`, `/ws`, `/auth`, `/plugins`) — за Envoy (`:8081`) |
 | `BACKPLANE_ADMIN_TOKEN` | bootstrap консоли (опционально) |
 | `BACKPLANE_CONSOLE_HOST` или `_PREFIX`, `_ORIGINS`, `_TRUSTED_PROXIES` | консоль; host и prefix взаимоисключающие, списки — JSON |
+| `BACKPLANE_CONSOLE_INSECURE_COOKIE` | `true` — cookie сессии без `Secure` и без HSTS: только разработка по HTTP (`false`) |
 | `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | observability (опционально) |
+| `BACKPLANE_LIVE_CONFIG_RECONCILE_INTERVAL` | период прохода reconciler'а `config/` сверх прохода на старте и по изменению KV (`30s`, больше 0; §5.3) |
 
 ## 13. Безопасность (v0)
 
@@ -1996,7 +2236,7 @@ case в SDK ради них — дефект модели.
 | Temporal | namespace один (`BACKPLANE_TEMPORAL_NS`); task queue сервиса `<service>`; очередь вызовов хуков `<service>.hooks`; Nexus endpoint `<service>`, Nexus service `<service>.Hooks`, операция `<Name>`; activity type — имя активити; workflow type активити на workflow и `workflows.Declare` — объявленное имя; workflow вызова хука вне workflow `backplane.CallHook.v1`, id `hook/<service>/<Name>/<uuid>` или `hook/<service>/<Name>/<key>`, memo `source` = `<service>/<instance>`, search attributes `BpService`, `BpHook`; расписание `<service>/<Name>`, его запуски — workflow id `<service>/<Name>-<время>`, memo `backplane.service`, `backplane.schedule`; типы application error: `backplane.NoBinding` (нет биндинга), `backplane.HookFailed`, `backplane.Timeout` (вызов хука), `backplane.NonRetryable` (активити); **[backplane]** очередь backplane `backplane`, workflow id правила `rule/<id>/<ce-id>` |
 | имена хуков, активити, событий, workflows | `<service>.<Name>`, `Name` — CamelCase `[A-Z][A-Za-z0-9]*`; имя расписания — `[A-Za-z][A-Za-z0-9_]*` |
 | proto-пакеты | внутреннее API — `<service>.console.v1` (`-` → `_`; другой пакет — ошибка `Run`); конвенция генератора, SDK её не проверяет: хуки `<service>.hooks.v1`, активити `<service>.activities.v1`, события `<service>.events.v1` |
-| **[backplane]** консоль | `/s/<service>/...` — плагин; `/plugins/<service>/<hash>/...` — бандл |
+| **[backplane]** консоль | под базой консоли (`/` или `<prefix>/`): `/auth/login`, `/auth/logout`, `/auth/session`, `/ws`, `/plugins/<service>/<hash>/<path>` — бандл, `/s/<service>/...` — плагин в shell; cookie сессии `bp_session`; собственный API — proto-пакет `backplane.console.v1`; relay ставит metadata `bp-console-session` (id сессии) и `bp-internal-secret` |
 
 ## 18. Раскладка репозитория
 
@@ -2010,6 +2250,7 @@ backplane/
   deployments/               что даёт деплой: README для девопсов (§4.3, §15.3), envoy/envoy.yaml —
                              bootstrap Envoy (admin 9901, xDS ADS от backplane на 18000)
   backplanepb/v1/            proto-контракт backplane.v1 (manifest, instance, call) и сгенерированный Go
+  backplanepb/console/v1/    API консоли backplane.console.v1 (catalog, session, config) и сгенерированный Go
   cmd/
     backplane/               бинарь платформы: сервис на своём SDK (имя backplane)
   internal/                  приватное backplane (сервер):
@@ -2021,6 +2262,15 @@ backplane/
     registry/                каталог установки из Consul: blocking queries на каталог, health
                              сервисов и backplane/services/; неизменяемые снапшоты Catalog, Source
                              (Current, Changes), Hub — источник снапшотов и фейк для тестов
+    config/                  Live-конфигурация (§5.2, §5.3): ревизии override в PostgreSQL, валидация
+                             на инстансах схемой, доставка в config/<service>/ (txn + CAS на _revision),
+                             reconciler, ConfigService консоли (Manager.API)
+    xds/                     control-plane Envoy (§6): ADS-сервер на своём адресе, снапшот из Catalog
+                             (Build: listener, маршруты, cluster'ы, endpoints), метрики, NACK в лог
+    console/                 консоль (§11): компонент со своим listener'ом — вход по
+                             admin-токену (argon2id), сессии (Sessions: PostgreSQL, PG), brute force,
+                             /ws (ws-proto: CatalogService, SessionService, ConfigService; relay во
+                             внутреннее API сервисов), бандлы плагинов с LRU-кэшем, заголовки безопасности
   pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed
     activity/                активити: Handle, Workflow, опции для биндинга, InfoOf, Heartbeat, NonRetryable
     backplanetest/           harness для тестов компонентов без Open/Run/портов/Consul (§4.6)
@@ -2066,7 +2316,7 @@ backplane/
 ```
   cmd/
     protoc-gen-backplane/    генератор (удобство)
-  internal/                  config (PG ↔ KV), xds, nexus (handler и binding-workflow), rules,
+  internal/                  xds, nexus (handler и binding-workflow), rules,
                              console (ws-proto server, relay, auth), obs (query-proxy)
   web/                       yarn workspace
     packages/console/        shell (MF-хост)

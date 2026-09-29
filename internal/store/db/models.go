@@ -3,6 +3,7 @@
 package db
 
 import (
+	"encoding/json"
 	"github.com/google/uuid"
 	"time"
 )
@@ -11,4 +12,37 @@ type BackplaneInstallation struct {
 	ID        uuid.UUID
 	Singleton bool
 	CreatedAt time.Time
+}
+
+type BackplaneConfigRevision struct {
+	Service    string
+	Revision   int64
+	Overrides  json.RawMessage
+	Kv         json.RawMessage
+	Author     string
+	Comment    string
+	CreatedAt  time.Time
+	RollbackOf *int64
+}
+
+type BackplaneConfigCurrent struct {
+	Service   string
+	Revision  int64
+	UpdatedAt time.Time
+}
+
+type BackplaneConsoleAdmin struct {
+	Singleton bool
+	TokenHash string
+	UpdatedAt time.Time
+}
+
+type BackplaneConsoleSession struct {
+	ID         uuid.UUID
+	TokenHash  []byte
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	Address    string
+	UserAgent  string
 }

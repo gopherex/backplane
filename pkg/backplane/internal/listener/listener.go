@@ -75,7 +75,7 @@ func (l *Listener) Start(ctx context.Context, g node.Group) error {
 	m.SetReadTimeout(l.silent)
 
 	if l.grpc != nil {
-		gl := m.MatchWithWriters(cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"))
+		gl := m.MatchWithWriters(cmux.HTTP2MatchHeaderFieldPrefixSendSettings("content-type", "application/grpc"))
 
 		// Serve fails with cmux.ErrServerClosed when the shared socket closes
 		// before GracefulStop marks the server as stopping.

@@ -15,6 +15,9 @@ import (
 	"strconv"
 	"strings"
 
+	liveconfig "github.com/gopherex/backplane/internal/config"
+	"github.com/gopherex/backplane/internal/console"
+	"github.com/gopherex/backplane/internal/xds"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
@@ -36,6 +39,8 @@ type Config struct {
 	AdminToken config.Secret `json:"admin_token,omitempty"`
 	// Observability backends the console links and proxies to (§15.2).
 	Obs Obs `json:"obs"`
+	// Live-value overrides: BACKPLANE_LIVE_CONFIG_* (§5.3).
+	LiveConfig liveconfig.Settings `json:"live_config"`
 }
 
 // PG is the store's connection: BACKPLANE_PG_DSN.
@@ -43,9 +48,12 @@ type PG struct {
 	DSN config.Secret `json:"dsn,omitempty"`
 }
 
-// XDS is the control plane Envoy connects to: BACKPLANE_XDS_LISTEN.
+// XDS is the control plane Envoy connects to: BACKPLANE_XDS_*.
 type XDS struct {
 	Listen string `json:"listen" schemapb:"default=:18000"`
+	// HTTPPort is the port of Envoy's public HTTP listener the snapshot
+	// describes (Envoy binds it, not backplane).
+	HTTPPort int64 `json:"http_port" schemapb:"default=10000;gte=1;lte=65535"`
 }
 
 // Console of the installation (§11): BACKPLANE_CONSOLE_*.
@@ -61,6 +69,18 @@ type Console struct {
 	Origins []string `json:"origins,omitempty"`
 	// Proxies whose X-Forwarded-For is trusted: addresses or CIDRs.
 	TrustedProxies []string `json:"trusted_proxies,omitempty"`
+	// InsecureCookie drops Secure from the session cookie (and HSTS):
+	// plain-HTTP development only.
+	InsecureCookie bool `json:"insecure_cookie" schemapb:"default=false"`
+}
+
+// Settings of the console component.
+func (c Config) consoleSettings() console.Settings {
+	return console.Settings{
+		Listen: c.Console.Listen, Host: c.Console.Host, Prefix: c.Console.Prefix,
+		Origins: c.Console.Origins, TrustedProxies: c.Console.TrustedProxies, InsecureCookie: c.Console.InsecureCookie,
+		AdminToken: c.AdminToken, InternalSecret: c.InternalSecret,
+	}
 }
 
 // Obs are the observability backends: BACKPLANE_OBS_*; empty: not shown.
@@ -191,4 +211,23 @@ func httpURL(s string) bool {
 	u, err := url.Parse(s)
 
 	return err == nil && u.Host != "" && (u.Scheme == "http" || u.Scheme == "https")
+}
+
+// xdsConfig is the xDS server's configuration: its listener, Envoy's
+// public listener and the console's routes, which lead to the console
+// listener of every healthy backplane instance (this one's advertise
+// address while the catalog lists none).
+func xdsConfig(c Config, advertise string) xds.Config {
+	port, _ := listenPort(c.Console.Listen) // Validate checked it
+
+	return xds.Config{
+		Listen: c.XDS.Listen,
+		Gateway: xds.Gateway{
+			Port: uint32(c.XDS.HTTPPort), //nolint:gosec // 1..65535 by the schema
+			Console: xds.Console{
+				Host: c.Console.Host, Prefix: c.Console.Prefix,
+				Port: uint32(port), Service: Name, Fallback: advertise, //nolint:gosec // a port
+			},
+		},
+	}
 }

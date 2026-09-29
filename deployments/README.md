@@ -114,12 +114,14 @@ variables — the same `BACKPLANE_` prefix, since the service is named
 |---|---|---|
 | `BACKPLANE_PG_DSN` | — | **required**: PostgreSQL (secret); everything lives in schema `backplane`, created and migrated at start (the role needs `CREATE` on the database) |
 | `BACKPLANE_CONSUL_ADDR` | — | **required** for backplane (optional for services): the registry follows the catalog and `backplane/services/` |
-| `BACKPLANE_XDS_LISTEN` | `:18000` | xDS (ADS) for Envoy |
+| `BACKPLANE_XDS_LISTEN` | `:18000` | xDS (ADS, delta and state-of-the-world) for Envoy; must be reachable from every Envoy |
+| `BACKPLANE_XDS_HTTP_PORT` | `10000` | port of Envoy's public HTTP listener the xDS snapshot describes (Envoy binds it, backplane does not) |
 | `BACKPLANE_CONSOLE_LISTEN` | `:8081` | console HTTP (`/`, `/ws`, `/auth`, `/plugins`), behind Envoy |
 | `BACKPLANE_CONSOLE_HOST` or `BACKPLANE_CONSOLE_PREFIX` | — | the console on its own host, or under a prefix (`/backplane`) of a shared one; not both |
-| `BACKPLANE_CONSOLE_ORIGINS` | the console's host | origins allowed to open `/ws`, JSON list |
-| `BACKPLANE_CONSOLE_TRUSTED_PROXIES` | — | addresses/CIDRs whose `X-Forwarded-For` is trusted, JSON list |
-| `BACKPLANE_ADMIN_TOKEN` | — | bootstrap admin token of the console (secret); empty: generated at the first start |
+| `BACKPLANE_CONSOLE_ORIGINS` | the request's own host | origins (`scheme://host[:port]`, exact) allowed to open `/ws` and to log in, JSON list |
+| `BACKPLANE_CONSOLE_TRUSTED_PROXIES` | — | addresses/CIDRs whose `X-Forwarded-For` is trusted (Envoy's), JSON list |
+| `BACKPLANE_CONSOLE_INSECURE_COOKIE` | `false` | `true`: the session cookie without `Secure` and no HSTS — plain-HTTP development only (`make run-backplane` sets it) |
+| `BACKPLANE_ADMIN_TOKEN` | — | bootstrap admin token of the console (secret); empty: generated at the first start and printed once to stderr |
 | `BACKPLANE_OBS_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL` | — | observability backends for the console |
 
 Listen ports must differ from each other and from the platform and public
@@ -138,6 +140,81 @@ make run-hello       # another terminal: the registry logs hello's manifest and 
 curl localhost:9410/healthz/readiness
 ```
 
+### Envoy in front, locally
+
+The compose Envoy (`envoy/envoy.yaml`) asks for everything over ADS at
+`host.docker.internal:18000` — backplane on the host (`make
+run-backplane`). Once backplane has synced with Consul it serves one
+snapshot to every Envoy: the public listener on 10000 and every service's
+routes; `backplane` logs `xds snapshot` and `envoy connected`.
+
+Envoy runs in a container, so the address a service registers in Consul
+(`BACKPLANE_ADVERTISE`) must be reachable from the Envoy (and Consul)
+containers. The SDK's default — the IP of the host name — usually is the
+host's LAN address and works; when it is a loopback, set the source
+address of the default route:
+
+```sh
+make up
+make run-backplane                                   # xDS on :18000
+BACKPLANE_ADVERTISE=$(ip -4 route get 192.0.2.1 | awk '{print $7; exit}') make run-hello
+curl 'localhost:10000/hello/?name=x'                 # Hello, x! — through Envoy
+curl localhost:9901/config_dump                      # what Envoy got
+```
+
+`host.docker.internal` (the bridge gateway, `extra_hosts:
+host-gateway`) is how Envoy finds backplane; it is not an address a
+service knows as its own, so services advertise the LAN address instead.
+A host firewall must let containers reach these ports. Envoy keeps the
+last snapshot while backplane is down; `curl
+localhost:9901/stats?filter=update_rejected` shows NACKs (backplane logs
+each with Envoy's reason).
+
+Cluster names in Envoy (and its stats): `<service>_grpc` / `<service>_http`
+at the port registered in Consul, `<service>_p<port>_grpc|http` at a
+route's own port (every managed route carries its port), and
+`backplane_console`. gRPC and Connect clusters speak HTTP/2 upstream, the
+others HTTP/1.1.
+
+### The console
+
+The console (`internal/console`) listens on its own address
+(`BACKPLANE_CONSOLE_LISTEN`); Envoy reaches it through the cluster
+`backplane_console` at `<host or prefix>/`, WebSocket upgrade on, path
+passed as is. Everything is under that base:
+
+| path | what |
+|---|---|
+| `POST /auth/login` | `{"token": "<admin token>"}` → cookie `bp_session` (`HttpOnly; Secure; SameSite=Strict`); `429` with `Retry-After` when rate-limited |
+| `POST /auth/logout`, `GET /auth/session` | end the session; the current session or `401` |
+| `GET /ws` | ws-proto: `backplane.console.v1` (`CatalogService`, `SessionService`, `ConfigService`) and the relay to the services' internal API; needs the cookie and an allowed `Origin` |
+| `GET /plugins/<service>/<hash>/<path>` | console plugin bundles (with the cookie), fetched from a live instance's platform port and cached by hash |
+| `GET /` | the shell (a placeholder until it is built in) |
+
+The admin token: at the first start of an installation backplane stores
+`BACKPLANE_ADMIN_TOKEN`'s argon2id hash in PostgreSQL, or generates a token
+and prints it **once** to stderr — keep that output. Afterwards the stored
+token wins over the variable (it may have been rotated from the console;
+rotation shows the new token once and revokes every other session). Lost
+it: delete the row of `backplane.console_admin` and restart backplane.
+Sessions last 12 h, end after 1 h without activity, and are listed and
+revoked from the console.
+
+What the deployment provides:
+
+- **one secret everywhere**: backplane's `BACKPLANE_INTERNAL_SECRET` is what
+  it presents to every service's platform port (relay and bundles); every
+  service must accept it (`BACKPLANE_INTERNAL_SECRET`, or `_PREVIOUS` while
+  it rotates, §13 of the design);
+- **network**: backplane reaches every service's platform port
+  (`BACKPLANE_INTERNAL_PORT`) at the address the instance publishes;
+- **TLS in front**: the cookie is `Secure` — serve the console over HTTPS
+  (Envoy or a load balancer terminates it); `BACKPLANE_CONSOLE_TRUSTED_PROXIES`
+  lists Envoy's addresses so the brute-force limit and the session list see
+  the real client address;
+- **origins**: behind a proxy that rewrites `Host`, list the public origin
+  in `BACKPLANE_CONSOLE_ORIGINS` (`["https://console.example.com"]`).
+
 Development of the store (`internal/store`, sqld):
 
 | command | does |
@@ -154,9 +231,10 @@ without it:
 
 | variable | enables |
 |---|---|
-| `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`) |
+| `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`); the console's relay to hello's `AdminService` and its bundle through `/plugins/` (`internal/console`: builds and runs its own `hello` without Consul, so it never meets the conformance one) |
 | `BACKPLANE_TEST_NATS=localhost:4222` | events end to end, reactors: dead letters and redrive, stop without dead letters, schema evolution |
-| `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`) |
+| `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`); console sessions and the admin token (`internal/console`, in a scratch database it creates and drops — the role needs `CREATEDB`) |
+| `BACKPLANE_TEST_ENVOY=localhost:9901` with `BACKPLANE_TEST_CONSUL` | xDS end to end (`internal/xds`, `make test-envoy`): the control plane on `:18000` against the live catalog, `examples/hello` through the compose Envoy — HTTP, gRPC and a stream, gRPC-Web, REST-JSON, ws-proto, CORS, a route on its own port, the console under a prefix — and no NACK; needs `:18000` free (no `make run-backplane`) and waits for a running conformance `hello` to go |
 | `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
 
 ```sh
@@ -182,7 +260,7 @@ backplane shows what it can find in the deployment's telemetry stack
 | source | endpoint | labels expected |
 |---|---|---|
 | services | OTLP from the SDK (`OTEL_EXPORTER_OTLP_ENDPOINT`) | resource `service.name`, `service.instance.id`, `service.version`, `deployment.environment.name` |
-| Envoy | `:9901/stats/prometheus` | `envoy_cluster_name` = service name |
+| Envoy | `:9901/stats/prometheus` | `envoy_cluster_name` = `<service>_<…>`: the service is the part before the first `_` |
 | Temporal server | its Prometheus endpoint | `task_queue` = service name |
 | NATS | `prometheus-nats-exporter` against `:8222` | `stream_name` = `bp_<service>` |
 
@@ -191,5 +269,7 @@ The SDK's own metrics and spans are listed in `platform-design.md` §15.4.
 
 ## Files here
 
-- `envoy/envoy.yaml` — Envoy bootstrap: admin on 9901, everything else over
-  xDS (ADS, delta) from backplane on port 18000 (`host.docker.internal`).
+- `envoy/envoy.yaml` — Envoy bootstrap, the minimum: admin on 9901, node
+  id and cluster, the `xds` cluster; listeners, routes, clusters and
+  endpoints come over xDS (ADS, delta) from backplane on port 18000
+  (`host.docker.internal`).

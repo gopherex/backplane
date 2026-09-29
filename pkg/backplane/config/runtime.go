@@ -150,6 +150,8 @@ func (r *Runtime[C]) open(ctx context.Context, sources []xconf.Source) (*Runtime
 		return nil, errors.Join(fmt.Errorf("config: %w", err), rt.Close())
 	}
 
+	ensureLive(reflect.ValueOf(&value).Elem())
+
 	r.value, r.rt, r.stop = &value, rt, stop
 	r.applied = rt.Snapshot()
 	r.revision = r.revisionOf(r.applied)
@@ -344,6 +346,31 @@ func (r *Runtime[C]) info(msg string) {
 }
 
 // transfer publishes every Live field of next into dst, in place.
+// ensureLive gives every Live field of v a cell before anyone copies v.
+func ensureLive(v reflect.Value) {
+	if v.CanAddr() {
+		if l, ok := v.Addr().Interface().(liveField); ok {
+			l.ensure()
+
+			return
+		}
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Type().Field(i).IsExported() {
+				ensureLive(v.Field(i))
+			}
+		}
+	case reflect.Pointer:
+		if !v.IsNil() {
+			ensureLive(v.Elem())
+		}
+	default:
+	}
+}
+
 func transfer(dst, next reflect.Value) {
 	if dst.CanAddr() {
 		if l, ok := dst.Addr().Interface().(liveField); ok {

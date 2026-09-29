@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/timestamp.proto";
+import "schemapb/schema.proto";
+import "backplanepb/v1/instance.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// ConfigService is the console's view of Live configuration (§5): the
+// override of a service's Live fields kept as revisions in PostgreSQL and
+// delivered to Consul KV config/<service>/.
+//
+// An override is a map from a Live path of the service's manifest
+// (config.live, dot-separated: "greeter.suffix") to the JSON text of its
+// value ("\"!\"", "5", "{\"max\":10}"). Only Live paths may be overridden;
+// a Live field is replaced whole. A path absent from the override takes
+// its value from the instance's own layers (defaults, file, env).
+service ConfigService {
+  // GetConfig is the service's configuration: schema, Live paths, the
+  // current revision and what every live instance runs with.
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse);
+  // ListRevisions pages through the revisions, newest first.
+  rpc ListRevisions(ListRevisionsRequest) returns (ListRevisionsResponse);
+  // ValidateOverride is SaveRevision without saving: the violations it
+  // would be rejected with.
+  rpc ValidateOverride(ValidateOverrideRequest) returns (ValidateOverrideResponse);
+  // SaveRevision validates the override and, when valid, saves it as the
+  // next revision and delivers it to Consul KV. Invalid: nothing is saved,
+  // violations say why.
+  rpc SaveRevision(SaveRevisionRequest) returns (SaveRevisionResponse);
+  // Rollback saves a new revision with the values of an older one
+  // (rollback_of), validated as any save.
+  rpc Rollback(RollbackRequest) returns (RollbackResponse);
+  // WatchConfig streams the service's configuration: the current one
+  // first, then a new one whenever the service's instances, manifests or revision
+  // change.
+  rpc WatchConfig(WatchConfigRequest) returns (stream WatchConfigResponse);
+}
+
+message GetConfigRequest {
+  string service = 1;
+}
+
+message GetConfigResponse {
+  ServiceConfig config = 1;
+}
+
+// ServiceConfig is a service's configuration as the console shows it.
+message ServiceConfig {
+  string service = 1;
+  // Version of the manifest the schema and Live paths come from: the
+  // highest version a live instance runs.
+  string manifest_version = 2;
+  // Configuration schema; absent when the service declares none (then the
+  // console edits JSON).
+  schemapb.Schema schema = 3;
+  // Top-level configuration keys.
+  repeated string keys = 4;
+  // Live paths: the only ones an override may set.
+  repeated string live = 5;
+  // Current revision; absent before the first save.
+  Revision current = 6;
+  // Every instance with a published state, by id.
+  repeated InstanceConfig instances = 7;
+}
+
+// Revision is one saved override.
+message Revision {
+  string service = 1;
+  // Counts from 1 per service.
+  uint64 revision = 2;
+  // Live path -> JSON text of the value.
+  map<string, string> values = 3;
+  string author = 4;
+  string comment = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // The revision this one rolls back to; 0 when it is not a rollback.
+  uint64 rollback_of = 7;
+}
+
+// InstanceConfig is what one instance runs with, from its state (§4.2).
+message InstanceConfig {
+  string id = 1;
+  string version = 2;
+  backplane.v1.InstancePhase phase = 3;
+  // Effective configuration as JSON, secrets masked.
+  bytes config = 4;
+  // Every Live path of the manifest.
+  repeated LiveValue live = 5;
+  // Revision of the applied KV values; 0 when none.
+  uint64 applied_revision = 6;
+  // Revision the instance rejected and why; 0 and empty when none.
+  uint64 rejected_revision = 7;
+  string error = 8;
+}
+
+// LiveValue is the effective value of one Live path on an instance.
+message LiveValue {
+  string path = 1;
+  // JSON text; empty when the instance has no value there.
+  string value = 2;
+  backplane.v1.ConfigSource source = 3;
+}
+
+message ListRevisionsRequest {
+  string service = 1;
+  // Revisions below this one; 0: from the newest.
+  uint64 before = 2;
+  // At most this many (default 50, at most 500).
+  uint32 page_size = 3;
+}
+
+message ListRevisionsResponse {
+  repeated Revision revisions = 1;
+  // `before` of the next page; 0 when this is the last one.
+  uint64 next_before = 2;
+}
+
+message ValidateOverrideRequest {
+  string service = 1;
+  // Live path -> JSON text of the value.
+  map<string, string> values = 2;
+}
+
+message ValidateOverrideResponse {
+  // Empty: the override is valid.
+  repeated Violation violations = 1;
+}
+
+// Violation is one reason an override is rejected.
+message Violation {
+  // Path of the failure ("greeter.suffix", "limits.max", "items[2]");
+  // empty for a failure of the whole configuration (a form-wide rule).
+  string path = 1;
+  // Instance whose effective configuration the override fails on; empty
+  // when the failure does not depend on an instance (not a Live path,
+  // malformed JSON) or no instance is live (validated on schema defaults).
+  string instance = 2;
+  // Machine code: schemapb's ErrorCode name, or NOT_LIVE, INVALID_JSON,
+  // NULL_VALUE.
+  string code = 3;
+  string message = 4;
+}
+
+message SaveRevisionRequest {
+  string service = 1;
+  // Live path -> JSON text of the value; empty clears every override.
+  map<string, string> values = 2;
+  string comment = 3;
+}
+
+message SaveRevisionResponse {
+  // The saved revision; absent when the override is rejected.
+  Revision revision = 1;
+  // Why the override is rejected; empty when saved.
+  repeated Violation violations = 2;
+  // Why the revision is saved but not yet in Consul KV; the reconciler
+  // delivers it once Consul answers.
+  string delivery_error = 3;
+}
+
+message RollbackRequest {
+  string service = 1;
+  // The revision whose values become the new revision.
+  uint64 revision = 2;
+  string comment = 3;
+}
+
+message RollbackResponse {
+  // The saved revision; absent when the values are rejected.
+  Revision revision = 1;
+  // Why the values are rejected (the schema may have changed since); empty
+  // when saved.
+  repeated Violation violations = 2;
+  // Why the revision is saved but not yet in Consul KV.
+  string delivery_error = 3;
+}
+
+message WatchConfigRequest {
+  string service = 1;
+}
+
+message WatchConfigResponse {
+  ServiceConfig config = 1;
+}

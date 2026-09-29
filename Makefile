@@ -95,6 +95,11 @@ conformance: ## SDK contract and integration tests against platform-in-a-box (ma
 	BACKPLANE_TEST_PG="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 		go test -race -count=1 ./...
 
+.PHONY: test-envoy
+test-envoy: ## xDS end to end: backplane's control plane on :18000, hello through the compose Envoy (make up)
+	BACKPLANE_TEST_ENVOY=localhost:9901 BACKPLANE_TEST_CONSUL=localhost:8500 \
+		GOWORK=off go test -race -count=1 -run TestEnvoy -v ./internal/xds/
+
 .PHONY: up down
 up: ## Start platform-in-a-box (docker compose)
 	docker compose up -d --wait
@@ -126,6 +131,7 @@ run-backplane: backplane ## Run backplane against the local stack
 	BACKPLANE_CONSUL_ADDR=localhost:8500 \
 	BACKPLANE_PG_DSN="postgres://backplane:backplane@localhost:5433/backplane?sslmode=disable" \
 	BACKPLANE_INTERNAL_PORT=9410 BACKPLANE_PUBLIC_PORT=8090 \
+	BACKPLANE_CONSOLE_INSECURE_COOKIE=true \
 		"$(BIN)/backplane"
 
 .PHONY: check

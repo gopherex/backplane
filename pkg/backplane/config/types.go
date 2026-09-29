@@ -73,11 +73,30 @@ func (l *Live[T]) MarshalJSON() ([]byte, error) { return json.Marshal(l.Get()) }
 // when it differs.
 func (l *Live[T]) replaceFrom(next any) {
 	n, _ := next.(*Live[T])
-	if l.c == nil || n == nil || n.c == nil {
+	if n == nil {
+		return
+	}
+
+	if n.c == nil {
+		// The update carries no value for this field (no layer sets it):
+		// it reads the zero value.
+		var zero T
+
+		l.set(zero)
+
 		return
 	}
 
 	l.set(*n.c.value.Load())
+}
+
+// ensure gives a field no layer set its cell, so every copy of the
+// enclosing section shares it and later values reach them all.
+func (l *Live[T]) ensure() {
+	if l.c == nil {
+		l.c = &cell[T]{}
+		l.c.value.Store(&l.c.storage)
+	}
 }
 
 func (l *Live[T]) setAny(v any) {
@@ -139,7 +158,10 @@ func (l *Live[T]) SchemaDecodeTarget() any {
 	return &l.c.storage
 }
 
-type liveField interface{ replaceFrom(next any) }
+type liveField interface {
+	replaceFrom(next any)
+	ensure()
+}
 
 // Secret is a string that never prints: every fmt verb, text, JSON and logs
 // show "***". The schema marks it secret, so the console and the instance
