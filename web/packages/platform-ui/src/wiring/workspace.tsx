@@ -50,7 +50,7 @@ export function WiringWorkspace({ mode, state, onStateChange }: { mode: 'dark' |
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
   }, [unsaved]);
-  const [search, setSearch] = useState(''), [creating, setCreating] = useState(false), [paletteOpen, setPaletteOpen] = useState(true);
+  const [search, setSearch] = useState(''), [creating, setCreating] = useState<'binding' | 'rule'>(), [paletteOpen, setPaletteOpen] = useState(true);
   const hooks = hookWatch.value?.bindings ?? [], allRules = (ruleWatch.value?.rules ?? []).filter((rule) => !rule.current?.deleted);
   const deletedRules = (ruleWatch.value?.rules ?? []).filter((rule) => rule.current?.deleted);
   const [showDeleted, setShowDeleted] = useState(false);
@@ -68,10 +68,13 @@ export function WiringWorkspace({ mode, state, onStateChange }: { mode: 'dark' |
 
   return <div className="grid h-full min-h-0 grid-cols-[300px_minmax(0,1fr)] gap-4">
     <div className="flex min-h-0 min-w-0 flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <span className="relative flex-1"><Search className="pointer-events-none absolute top-2 left-2 size-3.5 text-muted-foreground" />
+      <div className="grid gap-2">
+        <span className="relative"><Search className="pointer-events-none absolute top-2 left-2 size-3.5 text-muted-foreground" />
           <Input className="h-8 pl-7 text-xs" aria-label={text('filterWiring')} placeholder={text('filterWiring')} value={search} onChange={(event) => setSearch(event.target.value)} /></span>
-        <Button size="sm" variant="outline" onClick={() => setCreating(true)}><Plus />{text('newRule')}</Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button size="sm" variant="outline" onClick={() => setCreating('binding')}><Plus />{text('newBinding')}</Button>
+          <Button size="sm" variant="outline" onClick={() => setCreating('rule')}><Plus />{text('newRule')}</Button>
+        </div>
       </div>
       <Panel fill flush className="min-h-0" title={<><Blocks className="size-4 text-muted-foreground" />{text('wiring')}</>} count={hooks.filter((entry) => entry.current && !entry.current.deleted).length + allRules.length}>
         {hookWatch.status === 'loading' && !hooks.length && <div className="grid gap-2 p-3">{[0, 1, 2].map((at) => <Skeleton key={at} className="h-7" />)}</div>}
@@ -112,7 +115,9 @@ export function WiringWorkspace({ mode, state, onStateChange }: { mode: 'dark' |
         hookInfo={hookInfo} latestVersion={latest} onSaved={(next) => onStateChange({ target: next, view: state.view })} onDeleted={() => onStateChange({ view: state.view })} />
         : <Overview hooks={hooks} rules={allRules} loading={hookWatch.status === 'loading'} onOpen={open} />}
     </div>
-    <NewRule open={creating} onOpenChange={setCreating} events={[...catalog.index.events.keys()].sort()} onCreate={(event) => { setCreating(false); onStateChange({ target: { kind: 'rule', id: '', event }, view: 'yaml' }); }} />
+    <NewBinding open={creating === 'binding'} onOpenChange={(value) => setCreating(value ? 'binding' : undefined)} hooks={hooks}
+      onPick={(hook, bound) => { setCreating(undefined); onStateChange({ target: { kind: 'binding', hook }, view: bound ? 'graph' : 'yaml' }); }} />
+    <NewRule open={creating === 'rule'} onOpenChange={(value) => setCreating(value ? 'rule' : undefined)} events={[...catalog.index.events.keys()].sort()} onCreate={(event) => { setCreating(undefined); onStateChange({ target: { kind: 'rule', id: '', event }, view: 'yaml' }); }} />
   </div>;
 }
 
@@ -174,6 +179,33 @@ function Overview({ hooks, rules, loading, onOpen }: { hooks: api.HookBinding[];
       <p className="m-0 text-sm text-muted-foreground">{text('wiringHelp')}</p>
     </>}
   </div>;
+}
+
+/**
+ * Bindings implement hooks services declare, so a new one starts from a hook:
+ * those without a binding first (required ones on top); a bound hook opens
+ * its binding.
+ */
+function NewBinding({ open, onOpenChange, hooks, onPick }: { open: boolean; onOpenChange: (open: boolean) => void; hooks: api.HookBinding[]; onPick: (hook: string, bound: boolean) => void }) {
+  const text = usePlatformText();
+  const isBound = (entry: api.HookBinding) => !!entry.current && !entry.current.deleted;
+  const free = hooks.filter((entry) => !isBound(entry)).sort((a, b) => Number(b.required) - Number(a.required) || a.hook.localeCompare(b.hook));
+  const bound = hooks.filter(isBound).sort((a, b) => a.hook.localeCompare(b.hook));
+  const row = (entry: api.HookBinding) => <li key={entry.hook}><button type="button" onClick={() => onPick(entry.hook, isBound(entry))}
+    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-raised">
+    <span className="min-w-0 flex-1"><span className="block truncate font-mono text-xs">{entry.hook}</span>
+      {entry.description && <span className="block truncate text-2xs text-muted-foreground">{entry.description}</span>}</span>
+    <StatusBadge tone={bindingTone[entry.state]} className="shrink-0">{enumLabel(api.BindingState, entry.state)}</StatusBadge>
+  </button></li>;
+  return <DetailDrawer open={open} onOpenChange={onOpenChange} title={text('newBinding')} description={text('newBindingHelp')}>
+    <div className="grid gap-4">
+      <div className="grid gap-1"><SectionLabel>{text('unboundHooks')}</SectionLabel>
+        {free.length ? <ul className="m-0 grid list-none gap-0.5 p-0">{free.map(row)}</ul>
+          : <p className="m-0 text-xs text-muted-foreground">{hooks.length ? text('allHooksBound') : text('noHooks')}</p>}</div>
+      {!!bound.length && <div className="grid gap-1"><SectionLabel>{text('boundHooks')}</SectionLabel>
+        <ul className="m-0 grid list-none gap-0.5 p-0">{bound.map(row)}</ul></div>}
+    </div>
+  </DetailDrawer>;
 }
 
 function NewRule({ open, onOpenChange, events, onCreate }: { open: boolean; onOpenChange: (open: boolean) => void; events: string[]; onCreate: (event: string) => void }) {

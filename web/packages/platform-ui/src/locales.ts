@@ -154,6 +154,8 @@ export const platformEnglish = {
   continueOnError: 'continue', itemPort: 'the item, for every step inside', forEachTitle: 'For each', forEachList: 'Items', forEachHelp: 'CEL list or map: the step runs once per item', itemVar: 'Item variable',
   itemVarHelp: '{{name}} and {{name}}Index inside', concurrency: 'Concurrency', onError: 'On item error', onErrorFail: 'Fail', onErrorContinue: 'Continue', onErrorFailHelp: 'The first failed item fails the step and the run', onErrorContinueHelp: 'A failed item\'s output is null; the step lists it in failed and errors',
   maxItems: 'Max items', maxItemsHelp: 'more fails the step (default {{count}})', bodyResult: 'Item result', bodyResultHelp: 'CEL over the body\'s steps: one element of the list',
+  newBinding: 'New binding', newBindingHelp: 'A binding implements a hook a service declares. Pick the hook; you write its steps next.',
+  unboundHooks: 'Hooks without a binding', boundHooks: 'Already bound', allHooksBound: 'Every declared hook is bound. A new hook comes from a service manifest.',
   itemType: 'Item type', makeForEach: 'Run for each item…', stopForEach: 'Run once', inLoop: 'in {{name}}', itemN: 'item {{item}}', items_one: '{{count}} item', items_other: '{{count}} items',
 } as const;
 type PlatformKey = keyof typeof platformEnglish extends infer K ? K extends `${infer B}_${'one' | 'other'}` ? B : K : never;

@@ -23,6 +23,11 @@ router-agnostic: navigation leaves them through callbacks (`onNavigate`,
 
 ## Wiring
 
+Bindings implement hooks that services declare, so "New binding" starts from
+a hook: hooks without a binding first (required ones on top), then bound ones,
+which open their binding; a new hook comes from a service manifest. "New rule"
+starts from an event.
+
 A binding or rule is edited as YAML (its protojson written as YAML: steps
 by name, values as JSON trees whose strings are CEL) or as a graph; both
 change the same draft text, so switching views loses nothing and the YAML

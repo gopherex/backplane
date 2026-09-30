@@ -84,6 +84,11 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await page.getByRole('button', { name: /Greeted rule/ }).click();
       await expect(page.getByRole('textbox', { name: 'Definition', exact: true })).toContainText('formatter.Record');
       await expect(page.getByRole('textbox', { name: 'Rule name', exact: true })).toHaveValue('Greeted rule');
+      await page.getByRole('button', { name: 'New binding', exact: true }).click();
+      const drawer = page.getByRole('dialog');
+      await expect(drawer.getByText('Hooks without a binding', { exact: true })).toBeVisible();
+      await drawer.getByRole('button', { name: /hello\.Farewell/ }).click();
+      await expect(page.getByRole('textbox', { name: 'Definition', exact: true })).toContainText('hook: hello.Farewell');
     }
     if (story === 'workflows') {
       const table = page.getByRole('table', { name: 'Runs', exact: true }); await expect(table.getByRole('cell', { name: '9007199254740993', exact: true })).toBeVisible();
