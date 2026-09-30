@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { create } from '@bufbuild/protobuf';
 import * as api from '@gopherex/backplane-api';
 import { useClient, useSnapshotWatch } from '@gopherex/backplane-react';
@@ -42,8 +42,18 @@ export function WiringWorkspace({ mode, state, onStateChange }: { mode: 'dark' |
   const hookWatch = useSnapshotWatch(useCallback((signal: AbortSignal) => bindings.watchBindings(create(api.WatchBindingsRequestSchema), { signal }), [bindings]));
   const ruleWatch = useSnapshotWatch(useCallback((signal: AbortSignal) => rules.watchRules(create(api.WatchRulesRequestSchema), { signal }), [rules]));
   const catalog = useWiringCatalog(), drafts = useDraftStore();
+  // Drafts live in this page: leaving it with unsaved ones asks first.
+  const unsaved = drafts.keys.size > 0;
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [unsaved]);
   const [search, setSearch] = useState(''), [creating, setCreating] = useState(false), [paletteOpen, setPaletteOpen] = useState(true);
   const hooks = hookWatch.value?.bindings ?? [], allRules = (ruleWatch.value?.rules ?? []).filter((rule) => !rule.current?.deleted);
+  const deletedRules = (ruleWatch.value?.rules ?? []).filter((rule) => rule.current?.deleted);
+  const [showDeleted, setShowDeleted] = useState(false);
   const query = search.trim().toLowerCase();
   const matches = (...values: (string | undefined)[]) => !query || values.some((value) => value?.toLowerCase().includes(query));
   const bindingGroups = group(hooks.filter((entry) => matches(entry.hook, entry.description)), (entry) => entry.service || owner(entry.hook));
@@ -85,6 +95,15 @@ export function WiringWorkspace({ mode, state, onStateChange }: { mode: 'dark' |
             {draftDot(itemKey)}<StatusBadge tone={ruleTone[rule.state]} className="shrink-0">{enumLabel(api.RuleState, rule.state)}</StatusBadge>
           </button>; })}
         </div>)}
+        {!!deletedRules.length && <div className="border-t border-border">
+          <button type="button" aria-expanded={showDeleted} onClick={() => setShowDeleted((value) => !value)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-2xs font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground">
+            <ChevronRight className={`size-3 transition-transform ${showDeleted ? 'rotate-90' : ''}`} />{text('deletedRules', { count: deletedRules.length })}</button>
+          {showDeleted && deletedRules.map((rule) => { const itemKey = targetKey({ kind: 'rule', id: rule.id }); return <button key={rule.id} type="button" aria-pressed={key === itemKey} className={itemClass}
+            onClick={() => onStateChange({ target: { kind: 'rule', id: rule.id }, view: 'versions' })} title={text('restoreHelp')}>
+            <span className="min-w-0 flex-1"><span className="block truncate text-xs text-muted-foreground line-through">{rule.current?.name || rule.id}</span>
+              <span className="block truncate font-mono text-2xs text-muted-foreground">v{rule.current?.version.toString()}</span></span>
+          </button>; })}
+        </div>}
       </Panel>
       <Palette open={paletteOpen} onOpenChange={setPaletteOpen} services={catalog.index.services} />
     </div>

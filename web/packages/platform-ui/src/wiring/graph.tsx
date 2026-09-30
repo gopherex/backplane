@@ -77,13 +77,15 @@ export interface WiringGraphProps {
   problems: DraftProblem[]; run?: api.StepRun[]; selected?: string; onSelect: (node: string | undefined) => void;
   /** A graph edit: the draft's new text. */
   onText: (text: string) => void;
+  /** Show the mini-map. */
+  minimap?: boolean;
 }
 
 export function WiringGraph(props: WiringGraphProps) {
   return <ReactFlowProvider><Graph {...props} /></ReactFlowProvider>;
 }
 
-function Graph({ kind, definition, draft, analysis, index, mode, problems, run, selected, onSelect, onText }: WiringGraphProps) {
+function Graph({ kind, definition, draft, analysis, index, mode, problems, run, selected, onSelect, onText, minimap }: WiringGraphProps) {
   const text = usePlatformText(), flow = useReactFlow();
   const editable = !draft.problems.some((problem) => problem.source === 'yaml' && problem.severity === 'error');
   const apply = useCallback((changes: Change[]) => { if (editable) onText(editAll(draft, changes)); }, [draft, editable, onText]);
@@ -223,7 +225,7 @@ function Graph({ kind, definition, draft, analysis, index, mode, problems, run, 
       }}>
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--border)" />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable className="backplane-minimap" nodeColor={(node) => (node.data as { color?: string }).color ?? 'var(--subtle)'} maskColor="color-mix(in oklab, var(--background) 70%, transparent)" />
+      {minimap && <MiniMap pannable zoomable className="backplane-minimap" nodeColor={(node) => (node.data as { color?: string }).color ?? 'var(--subtle)'} maskColor="color-mix(in oklab, var(--background) 70%, transparent)" style={{ width: 160, height: 100 }} />}
     </ReactFlow>
     {!editable && <div className="absolute top-2 left-1/2 -translate-x-1/2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive">{text('graphReadOnly')}</div>}
   </div>;

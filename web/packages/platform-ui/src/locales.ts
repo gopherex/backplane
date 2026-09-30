@@ -147,7 +147,10 @@ export const platformEnglish = {
   noSchema: 'No schema declared: any JSON.', wholeValue: 'Whole value', wholeValueHelp: 'one expression', undeclaredField: 'not in the schema', editInYaml: 'Edit this value in YAML',
   stepName: 'Step name', pickActivity: 'Pick an activity', runsAfter: 'Runs after', noOtherSteps: 'No other steps', undoActivity: 'Undo activity', undoHelp: 'runs when a later step fails',
   undoInput: 'Undo input', none: 'None', attempts: 'Attempts', backoff: 'Backoff', initialInterval: 'Initial interval', maxInterval: 'Max interval', startToClose: 'Attempt timeout', heartbeat: 'Heartbeat',
-  deleteStep: 'Delete step', exampleFromSchema: 'Example from schema', testDraft: 'Test the draft', runDraftTest: 'Run draft', showOnGraph: 'Show on graph', noSteps: 'no steps',
+  deleteStep: 'Delete step', addStep: 'Add step…', tidy: 'Tidy', tidyHelp: 'Forget saved positions and lay the graph out by levels', minimap: 'Mini-map',
+  fixProblemsToSave: 'Fix the problems to save', ruleNameRequired: 'Rule name (required)', nameToSave: 'Name the rule to save', rollbackToVersion: 'Roll back to v{{version}}', openAsDraft: 'Open as draft',
+  deletedRules_one: '{{count}} deleted rule', deletedRules_other: '{{count}} deleted rules', restoreHelp: 'Open its versions to restore it',
+  usedBy: 'Used by', usedByHelp: 'Bindings and rules that call this service\'s activities.', notUsed: 'No wiring calls this service.', exampleFromSchema: 'Example from schema', testDraft: 'Test the draft', runDraftTest: 'Run draft', showOnGraph: 'Show on graph', noSteps: 'no steps',
 } as const;
 type PlatformKey = keyof typeof platformEnglish extends infer K ? K extends `${infer B}_${'one' | 'other'}` ? B : K : never;
 export function usePlatformText() {

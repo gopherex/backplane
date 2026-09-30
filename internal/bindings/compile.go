@@ -148,6 +148,7 @@ const (
 	pathEvent  = "/event"
 	pathWhen   = "/when"
 	pathResult = "/result"
+	pathSteps  = "/steps"
 )
 
 func compileBinding(b Binding, cat Catalog) (*Program, Analysis, error) {
@@ -185,6 +186,12 @@ func compileRule(r Rule, cat Catalog) (*Program, Analysis, error) {
 	}
 
 	c.input = c.shapes.of(in, "bp.event")
+
+	// A binding without steps may still answer (its result); a rule without
+	// steps does nothing.
+	if len(r.Steps) == 0 {
+		c.violate(pathSteps, CodeMissingField, "a rule needs at least one step")
+	}
 
 	return c.compile(source{kind: KindRule, name: r.Event, when: r.When}, r.Steps, in, nil)
 }

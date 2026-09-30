@@ -67,7 +67,7 @@ function compact(doc: Document) {
 export function templateYAML(kind: WiringKind, source: string): string {
   return kind === 'binding'
     ? `hook: ${source}\nsteps:\n  # name:\n  #   activity: <service>.<Activity>\n  #   input: {field: req.field}\nresult: {}\n`
-    : `event: ${source}\nwhen: "true"\nsteps:\n  # name:\n  #   activity: <service>.<Activity>\n  #   input: {field: event.field}\n`;
+    : `event: ${source}\nsteps:\n  # name:\n  #   activity: <service>.<Activity>\n  #   input: {field: event.field}\n`;
 }
 
 const goDuration = /^(?:\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h))+$/;

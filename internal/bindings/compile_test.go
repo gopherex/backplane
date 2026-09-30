@@ -337,6 +337,7 @@ steps:
 		{"event: iam.UserRegistered\nwhen: event.nope\nsteps: {x: {activity: billing.Charge}}", "/when", bindings.CodeCEL},
 		{"event: iam.UserRegistered\nwhen: x.a == 1\nsteps: {x: {activity: billing.Charge}}", "/when", bindings.CodeUnknownStep},
 		{"event: iam.UserRegistered\nsteps: {x: {activity: billing.Charge, input: {v: req.a}}}", "/steps/x/input/v", bindings.CodeCEL},
+		{"event: iam.UserRegistered\nwhen: event.name != ''", "/steps", bindings.CodeMissingField},
 	} {
 		vs, err := bindings.ValidateRule(mustRule(t, tc.text), cat)
 		if err != nil {

@@ -3,18 +3,19 @@ import { create } from '@bufbuild/protobuf';
 import * as api from '@gopherex/backplane-api';
 import { WsStatusError } from '@gopherex/backplane-client';
 import { useClient } from '@gopherex/backplane-react';
-import { Badge, Button, ConfirmAction, DetailDrawer, EmptyState, EntityHeader, Input, MetaItem, MetaList, Panel, Skeleton, StatusBadge, TabBar, Timestamp, type StatusTone } from '@gopherex/backplane-ui';
+import { Badge, Button, Combobox, ConfirmAction, DetailDrawer, EmptyState, EntityHeader, Input, MetaItem, MetaList, Panel, Skeleton, StatusBadge, TabBar, Timestamp, type StatusTone } from '@gopherex/backplane-ui';
 import { CodeEditor, DiffViewer, type EditorDiagnostic } from '@gopherex/backplane-editors';
-import { AlertTriangle, Cable, CircleAlert, CircleCheck, FileWarning, GitFork, History, Info, Pause, Play, Redo2, Save, Trash2, Undo2, User, Wand2, Zap } from 'lucide-react';
+import { AlertTriangle, Cable, CircleAlert, CircleCheck, FileWarning, LayoutGrid, Map as MapIcon, GitFork, History, Info, Pause, Play, Redo2, Save, Trash2, Undo2, User, Wand2, Zap } from 'lucide-react';
 import { usePlatformAction, usePlatformQuery } from '../runtime.js';
 import { usePlatformText } from '../locales.js';
 import { date, enumLabel } from '../format.js';
 import type { RunRef } from '../runs.js';
 import { completeYAML } from './complete.js';
-import { edit, editAll, nodeAt, parseDraft, pathAt, templateYAML, toYAML, type Definition, type Draft, type DraftProblem, type WiringKind } from './document.js';
+import { addStep, edit, editAll, nodeAt, parseDraft, pathAt, templateYAML, toYAML, type Definition, type Draft, type DraftProblem, type WiringKind } from './document.js';
 import { lineColumn, problemsOf, sameDefinition, useAnalysis, useDraftText, useParsedDraft } from './draft.js';
 import { Runs, TestRun, Versions, useRunSteps, type Subject } from './history.js';
 import { WiringGraph } from './graph.js';
+import { shortActor } from './actor.js';
 import { StepInspector } from './inspector.js';
 import { shapeAt, shapeLabel, shapeOf } from './shape.js';
 import type { WiringIndex } from './catalog.js';
@@ -87,6 +88,7 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
   const draft = useDraftText(stored?.text ?? baseline);
   const [name, setName] = useState(stored?.name ?? savedName), [base, setBase] = useState(stored?.base ?? loadedVersion);
   const [comment, setComment] = useState(''), [reveal, setReveal] = useState<{ from: number; to: number; key: number }>();
+  const [minimap, setMinimap] = useState(false);
   const [cursor, setCursor] = useState(0), [selected, setSelected] = useState<string>(), [run, setRun] = useState<RunRef>(), [conflictOpen, setConflictOpen] = useState(false);
   const parsed = useParsedDraft(kind, draft.text);
   const lastGood = useRef<Definition | undefined>(parsed.definition ?? saved);
@@ -136,13 +138,15 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
     }
   };
   const canSave = changed && !errors.length && !action.pending && !action.disabled && !!parsed.definition && (kind === 'binding' || !!name.trim());
+  // Why Save is off, when the reason is the author's to fix.
+  const blockedBy = !parsed.definition || errors.length ? 'fixProblemsToSave' as const : kind === 'rule' && !name.trim() ? 'nameToSave' as const : undefined;
   const state = kind === 'binding' ? hookInfo?.state : loaded.rule?.state;
   const broken = loaded.violations.length > 0 && !textChanged;
   const title = kind === 'binding' ? source : savedName || text('newRule');
   const meta = <MetaList>
     <MetaItem icon={kind === 'binding' ? <Cable /> : <Zap />} mono>{kind === 'binding' ? text('bindingOf', { hook: source }) : source || text('noEvent')}</MetaItem>
     {version && <MetaItem icon={<History />} mono>v{version.version.toString()}</MetaItem>}
-    {version && <MetaItem icon={<User />} mono>{version.author}</MetaItem>}
+    {version && <MetaItem icon={<User />} mono title={version.author}>{shortActor(version.author)}</MetaItem>}
     {version && <MetaItem><Timestamp value={date(version.createdAt)} /></MetaItem>}
     {textChanged && <Badge variant="outline" className="h-4 border-warning/40 px-1 text-2xs text-warning">{text('draft')}</Badge>}
   </MetaList>;
@@ -169,6 +173,12 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
         <div className="flex min-h-10 shrink-0 items-center gap-2 border-b border-border px-2 py-1">
           <Button size="icon-sm" variant="ghost" aria-label={text('undo')} title={text('undo')} disabled={!draft.canUndo} onClick={draft.undo}><Undo2 /></Button>
           <Button size="icon-sm" variant="ghost" aria-label={text('redo')} title={text('redo')} disabled={!draft.canRedo} onClick={draft.redo}><Redo2 /></Button>
+          {view === 'graph' && parsed.definition && <>
+            <div className="w-56"><Combobox label={text('addStep')} placeholder={text('addStep')} options={[...index.activities.keys()].sort().map((value) => ({ value, label: value }))} values={[]}
+              onValuesChange={(values) => { if (!values[0]) return; const added = addStep(parsed.definition, values[0], { x: 0, y: 0 }); draft.apply(editAll(parsed, added.changes.slice(0, 1))); setSelected(added.name); }} /></div>
+            <Button size="xs" variant="ghost" title={text('tidyHelp')} disabled={!Object.keys(parsed.definition.editor?.nodes ?? {}).length} onClick={() => draft.apply(edit(parsed, ['editor', 'nodes'], undefined))}><LayoutGrid />{text('tidy')}</Button>
+            <Button size="xs" variant="ghost" aria-pressed={minimap} onClick={() => setMinimap((value) => !value)}><MapIcon />{text('minimap')}</Button>
+          </>}
           {view === 'yaml' && <Button size="xs" variant="ghost" disabled={!parsed.definition} title={text('formatHelp')} onClick={() => parsed.definition && draft.apply(toYAML(kind, parsed.definition))}><Wand2 />{text('format')}</Button>}
           <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
             {analysis.pending ? text('checking') : errors.length ? <><CircleAlert className="size-3.5 text-destructive" />{text('problemsCount', { count: errors.length })}</> : parsed.definition ? <><CircleCheck className="size-3.5 text-success" />{text('valid')}</> : null}
@@ -179,20 +189,21 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
             complete={async ({ value, position }) => completeYAML({ kind, index, definition, text: value, position })}
             hover={(position) => hoverText(parsed, position, analysis.analysis)} />
             : <WiringGraph kind={kind} definition={definition} draft={parsed} analysis={analysis.analysis} index={index} mode={mode} problems={problems} run={runSteps.value}
-              selected={selected} onSelect={setSelected} onText={draft.apply} />}
+              selected={selected} onSelect={setSelected} onText={draft.apply} minimap={minimap} />}
         </div>
         <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border px-2 py-2">
-          {kind === 'rule' && <Input className="h-8 w-56" aria-label={text('ruleName')} placeholder={text('ruleName')} value={name} onChange={(event) => setName(event.target.value)} />}
+          {kind === 'rule' && <Input className="h-8 w-56" aria-label={text('ruleName')} placeholder={text('ruleNameRequired')} aria-invalid={!name.trim() && textChanged} value={name} onChange={(event) => setName(event.target.value)} />}
           <Input className="h-8 min-w-40 flex-1" aria-label={text('comment')} placeholder={text('commentPlaceholder')} value={comment} onChange={(event) => setComment(event.target.value)} />
           <Button size="sm" variant="ghost" disabled={!textChanged} onClick={discard}><Undo2 />{text('discardDraft')}</Button>
-          <Button size="sm" disabled={!canSave} onClick={save} title={text('saveShortcut')}><Save />{action.pending ? text('pending') : text('save')}</Button>
+          <Button size="sm" disabled={!canSave} onClick={save} title={blockedBy ? text(blockedBy) : text('saveShortcut')}><Save />{action.pending ? text('pending') : text('save')}</Button>
+
           {action.error !== undefined && !conflict && <span className="basis-full text-xs text-destructive" role="alert">{text('mutationFailed')}</span>}
           {!!action.value?.violations.length && <span className="basis-full text-xs text-destructive" role="alert">{text('saveRejected', { count: action.value.violations.length })}</span>}
         </footer>
       </section>
       <aside className="flex min-h-0 min-w-0 flex-col gap-3">
-        <Panel fill flush title={<><AlertTriangle className="size-4 text-muted-foreground" />{text('problems')}</>} count={shown.length}>
-          {!shown.length ? <EmptyState className="py-6" icon={<CircleCheck />} title={parsed.definition ? text('noProblems') : text('loading')} />
+        <Panel flush className="max-h-[40%] min-h-0" title={<><AlertTriangle className="size-4 text-muted-foreground" />{text('problems')}</>} count={shown.length}>
+          {!shown.length ? <p className="m-0 flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground"><CircleCheck className="size-3.5 text-success" />{parsed.definition ? text('noProblems') : text('loading')}</p>
             : <ul className="m-0 list-none p-0">{shown.map((problem, at) => { const place = lineColumn(draft.text, problem.from); return <li key={at}>
               <button type="button" onClick={() => goTo(problem)} className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-xs hover:bg-raised">
                 {problem.severity === 'error' ? <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" /> : <Info className="mt-0.5 size-3.5 shrink-0 text-warning" />}
@@ -200,14 +211,15 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
                   <span className="block truncate font-mono text-2xs text-muted-foreground">{place.line}:{place.column}{problem.path && ` · ${problem.path}`}{problem.code && ` · ${problem.code}`}</span></span>
               </button></li>; })}</ul>}
         </Panel>
-        <Panel fill className="max-h-[55%]" title={<><Info className="size-4 text-muted-foreground" />{text(view === 'graph' ? 'inspector' : 'atCursor')}</>}>
+        <Panel fill title={<><Info className="size-4 text-muted-foreground" />{text(view === 'graph' ? 'inspector' : 'atCursor')}</>}>
           {view === 'graph' ? <StepInspector kind={kind} definition={definition} step={selected} index={index} analysis={analysis.analysis} run={runSteps.value} mode={mode}
             onEdit={(path, value) => draft.apply(edit(parsed, path, value))} onChanges={(changes) => draft.apply(editAll(parsed, changes))} onText={draft.apply} onSelect={setSelected} />
             : <CursorContext kind={kind} parsed={parsed} cursor={cursor} analysis={analysis.analysis} index={index} definition={definition} />}
         </Panel>
       </aside>
     </div>}
-    {view === 'versions' && subject && <div className="flex min-h-0 flex-1 flex-col"><Versions subject={subject} current={loadedVersion || undefined} mode={mode} onChanged={reload} /></div>}
+    {view === 'versions' && subject && <div className="flex min-h-0 flex-1 flex-col"><Versions subject={subject} current={loadedVersion || undefined} mode={mode} onChanged={reload}
+      onOpenDraft={(text) => { draft.apply(text); onView('yaml'); }} /></div>}
     {view === 'test' && <div className="flex min-h-0 flex-1 flex-col"><TestRun subject={subject ?? { kind: 'rule', id: '' }} draft={parsed.definition} dirty={changed} mode={mode}
       schema={kind === 'binding' ? index.hooks.get(source)?.value.input : index.events.get(source)?.value.schema}
       onRun={(ref) => { setRun(ref); }} />

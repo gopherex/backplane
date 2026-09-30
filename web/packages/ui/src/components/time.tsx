@@ -5,12 +5,22 @@ import { cn } from '../lib/utils.js';
 // One shared ticker keeps every relative time on screen consistent.
 const listeners = new Set<() => void>();
 let now = Date.now(), timer: ReturnType<typeof setInterval> | undefined;
+const TICK = 15_000;
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  timer ??= setInterval(() => { now = Date.now(); listeners.forEach((notify) => notify()); }, 15_000);
+  if (!timer) {
+    // The ticker stops while nothing shows a time: resume from the real now, not the last tick.
+    now = Date.now();
+    timer = setInterval(() => { now = Date.now(); listeners.forEach((notify) => notify()); }, TICK);
+  }
   return () => { listeners.delete(listener); if (!listeners.size && timer) { clearInterval(timer); timer = undefined; } };
 }
-export function useNow(): number { return useSyncExternalStore(subscribe, () => now, () => now); }
+function snapshot(): number {
+  // Stable between ticks (a snapshot must not change on every read), never staler than one tick.
+  if (Date.now() - now > TICK) now = Date.now();
+  return now;
+}
+export function useNow(): number { return useSyncExternalStore(subscribe, snapshot, snapshot); }
 
 /** Converts unix nanoseconds to a Date; sub-millisecond precision stays in the source value. */
 export function nanosToDate(nanos: bigint): Date { return new Date(Number(nanos / 1_000_000n)); }
@@ -18,7 +28,8 @@ export function nanosToDate(nanos: bigint): Date { return new Date(Number(nanos 
 const steps: [Intl.RelativeTimeFormatUnit, number][] = [['second', 60], ['minute', 60], ['hour', 24], ['day', 30], ['month', 12], ['year', Infinity]];
 export function formatRelative(date: Date, reference: number, language = 'en'): string {
   let value = (date.getTime() - reference) / 1000;
-  if (Math.abs(value) < 10) return new Intl.RelativeTimeFormat(language, { numeric: 'auto' }).format(0, 'second');
+  // A moment just ahead of the reference is clock skew or a tick not yet taken: it is now.
+  if (value > -10 && value < TICK / 1000 + 5) return new Intl.RelativeTimeFormat(language, { numeric: 'auto' }).format(0, 'second');
   for (const [unit, size] of steps) {
     if (Math.abs(value) < size) return new Intl.RelativeTimeFormat(language, { numeric: 'auto', style: 'short' }).format(Math.round(value), unit);
     value /= size;

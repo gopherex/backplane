@@ -4,12 +4,13 @@ import * as api from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
 import { Badge, Button, ConfirmAction, Count, DetailDrawer, EmptyState, Panel, StatusBadge, Switch, Timestamp, type StatusTone } from '@gopherex/backplane-ui';
 import { CodeEditor, DiffViewer, JSONViewer } from '@gopherex/backplane-editors';
-import { CircleCheck, CircleX, FlaskConical, History, Play, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
+import { CircleCheck, CircleX, FilePen, FlaskConical, History, Play, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import { usePlatformAction, usePlatformQuery } from '../runtime.js';
 import { usePlatformText } from '../locales.js';
 import { date, durationText, enumLabel } from '../format.js';
 import { RunDrawer, RunPager, RunStatusFilter, RunTable, useRunPages, type RunRef } from '../runs.js';
 import { toYAML, type Definition, type WiringKind } from './document.js';
+import { shortActor } from './actor.js';
 import { shapeOf, type Shape } from './shape.js';
 
 type Mode = 'dark' | 'light';
@@ -25,7 +26,7 @@ export type Subject = { kind: 'binding'; hook: string } | { kind: 'rule'; id: st
 interface VersionEntry { version: bigint; author: string; comment: string; createdAt?: api.BindingVersion['createdAt']; deleted: boolean; rollbackOf: bigint; name?: string; definition?: Definition }
 
 /** Saved versions, newest first; one opens as a YAML diff against the current version, with rollback. */
-export function Versions({ subject, current, mode, onChanged }: { subject: Subject; current?: bigint; mode: Mode; onChanged: () => void }) {
+export function Versions({ subject, current, mode, onChanged, onOpenDraft }: { subject: Subject; current?: bigint; mode: Mode; onChanged: () => void; onOpenDraft?: (text: string) => void }) {
   const bindings = useClient(api.BindingServiceClient), rules = useClient(api.RuleServiceClient), text = usePlatformText(), action = usePlatformAction<unknown>();
   const key = subject.kind === 'binding' ? subject.hook : subject.id;
   const state = usePlatformQuery(`wiring-versions:${subject.kind}:${key}:${current}`, async (signal): Promise<VersionEntry[]> => subject.kind === 'binding'
@@ -49,12 +50,15 @@ export function Versions({ subject, current, mode, onChanged }: { subject: Subje
     <ol className="m-0 list-none p-0">{versions.map((entry) => <li key={entry.version.toString()}><button type="button" onClick={() => setSelected(entry)} className="flex w-full items-start gap-2.5 border-b border-border px-3 py-2 text-left hover:bg-raised">
       <Count className="mt-0.5">v{entry.version.toString()}</Count>
       <span className="min-w-0 flex-1"><span className="block truncate text-sm">{entry.deleted ? <span className="text-destructive">{text('deleted')}</span> : entry.comment || <span className="text-muted-foreground italic">{text('noComment')}</span>}</span>
-        <span className="block truncate text-xs text-muted-foreground">{entry.name && <>{entry.name} · </>}{entry.author} · <Timestamp value={date(entry.createdAt)} />{entry.rollbackOf > 0n && ` · ${text('rollbackOf', { revision: entry.rollbackOf.toString() })}`}</span></span>
+        <span className="block truncate text-xs text-muted-foreground">{entry.name && <>{entry.name} · </>}<span title={entry.author}>{shortActor(entry.author)}</span> · <Timestamp value={date(entry.createdAt)} />{entry.rollbackOf > 0n && ` · ${text('rollbackOf', { revision: entry.rollbackOf.toString() })}`}</span></span>
       {entry.version === current && <StatusBadge tone="accent" dot={false}>{text('current')}</StatusBadge>}
     </button></li>)}</ol>
     <DetailDrawer open={!!selected} onOpenChange={(open) => { if (!open) setSelected(undefined); }} size="xl" title={selected && `${selected.name ? `${selected.name} ` : ''}v${selected.version}`} description={selected?.comment}
-      actions={selected && selected.version !== current && <ConfirmAction trigger={<><RotateCcw className="size-3.5" />{text('rollbackTo', { revision: selected.version.toString() })}</>}
-        title={text('rollbackConfirm')} description={text(subject.kind === 'binding' ? 'rollbackBindingHelp' : 'rollbackRuleHelp')} disabled={action.pending || action.disabled} onConfirm={rollback(selected)} />}>
+      actions={selected && selected.version !== current && <>
+        <ConfirmAction trigger={<><RotateCcw className="size-3.5" />{text('rollbackToVersion', { version: selected.version.toString() })}</>}
+          title={text('rollbackConfirm')} description={text(subject.kind === 'binding' ? 'rollbackBindingHelp' : 'rollbackRuleHelp')} disabled={action.pending || action.disabled} onConfirm={rollback(selected)} />
+        {onOpenDraft && selected.definition && <Button size="sm" variant="outline" onClick={() => { onOpenDraft(yaml(selected)); setSelected(undefined); }}><FilePen />{text('openAsDraft')}</Button>}
+      </>}>
       {selected && <div className="grid gap-2"><div className="text-xs text-muted-foreground">{text('diffAgainstCurrent')}</div>
         <DiffViewer label={text('versions')} before={yaml(selected)} after={yaml(latest)} language="yaml" mode={mode} height={520} /></div>}
       {action.error !== undefined && <p className="m-0 mt-2 text-xs text-destructive" role="alert">{text('mutationFailed')}</p>}
