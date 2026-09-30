@@ -37,11 +37,12 @@ type (
 		Text    string `json:"text"`
 	}
 	sendIn struct {
-		To       string  `json:"to"`
-		Subject  string  `json:"subject"`
-		Text     string  `json:"text"`
-		Priority int64   `json:"priority,omitempty"`
-		Weight   float64 `json:"weight,omitempty"`
+		To       string   `json:"to"`
+		Subject  string   `json:"subject"`
+		Text     string   `json:"text"`
+		Priority int64    `json:"priority,omitempty"`
+		Weight   float64  `json:"weight,omitempty"`
+		Tags     []string `json:"tags,omitempty"`
 	}
 	sendOut struct {
 		ID   string `json:"id"`
@@ -108,21 +109,38 @@ func manifests(t *testing.T) bindings.Manifests {
 }
 
 // sendEmail is §7.1's example.
-const sendEmail = `iam.SendEmail :=
-  render = template.Exec(name: req.template, data: req.data)
-  send   = smtp.Send(to: req.to, subject: render.subject, text: render.text)
-  return { message_id: send.id }
+const sendEmail = `
+hook: iam.SendEmail
+steps:
+  render:
+    activity: template.Exec
+    input: {name: req.template, data: req.data}
+  send:
+    activity: smtp.Send
+    input: {to: req.to, subject: render.subject, text: render.text}
+result: {message_id: send.id}
 `
 
-func mustParse(t *testing.T, text string) bindings.Binding {
+func mustBinding(t *testing.T, text string) bindings.Binding {
 	t.Helper()
 
-	b, err := bindings.ParseBinding(text)
+	b, err := bindings.BindingYAML(text)
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("binding: %v", err)
 	}
 
 	return b
+}
+
+func mustRule(t *testing.T, text string) bindings.Rule {
+	t.Helper()
+
+	r, err := bindings.RuleYAML(text)
+	if err != nil {
+		t.Fatalf("rule: %v", err)
+	}
+
+	return r
 }
 
 func mustCompile(t *testing.T, b bindings.Binding) *bindings.Program {

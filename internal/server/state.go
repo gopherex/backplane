@@ -136,7 +136,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	consoleOptions = append(consoleOptions,
 		console.WithServices(st.Config.Register), console.WithServices(st.Audit.Commands(st.Ops.Register, sessionAuthor)),
 		console.WithServices(st.Audit.Commands(st.Executor.Register(st.Bindings.BindingAPI()), sessionAuthor)),
-		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Obs.Register),
+		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Bindings.Register),
+		console.WithServices(st.Obs.Register),
 		console.WithServices(st.Audit.Register))
 	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry, consoleOptions...)
 

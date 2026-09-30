@@ -108,9 +108,11 @@ save/rollback responses; a nil revision with violations is not success.
 
 `Unavailable`: catalog/executor not synchronized or execution dependency absent.
 `NotFound`: binding/version absent. `FailedPrecondition`: tombstoned binding.
-Malformed run/request identifiers may return `InvalidArgument`. Unexpected
-backend failures map to `Internal`; executor statuses propagate. Parse errors
-and validation violations are response fields. Test calls return `CallResult`.
+`Aborted`: `base_version` is set and the current version is another one (an
+edit raced another editor; reload and reapply). Malformed run/request
+identifiers may return `InvalidArgument`. Unexpected backend failures map to
+`Internal`; executor statuses propagate. Validation violations are response
+fields. Test calls return `CallResult`.
 
 ## Rule
 
@@ -119,6 +121,12 @@ invalid UUID/request to `InvalidArgument`, missing/wrong run to `NotFound`, and
 unconfigured Temporal to `Unavailable`. Temporal statuses propagate. A test can
 return validation violations, an evaluation error, matched=false, or a call
 result; matched=false alone is a successful test with no run.
+
+## Wiring
+
+`Unavailable`: registry not synchronized. `InvalidArgument`: a rename without a
+definition. Validation violations (analysis, a refused rename) are response
+fields; nothing is saved.
 
 ## Operations
 

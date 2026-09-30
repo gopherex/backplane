@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -14,31 +15,56 @@ import (
 
 // BindingFromPB is the definition a message carries.
 func BindingFromPB(m *consolev1.BindingDefinition) Binding {
-	return Binding{Hook: m.GetHook(), Steps: stepsFromPB(m.GetSteps()), Result: valueFromPB(m.GetResult())}
+	return Binding{
+		Hook: m.GetHook(), Description: m.GetDescription(), Steps: stepsFromPB(m.GetSteps()),
+		Result: ValueOf(m.GetResult()), Editor: editorOf(m.GetEditor()),
+	}
 }
 
 // PB is the definition as a message.
 func (b Binding) PB() *consolev1.BindingDefinition {
-	return &consolev1.BindingDefinition{Hook: b.Hook, Steps: stepsPB(b.Steps), Result: b.Result.pb()}
+	return &consolev1.BindingDefinition{
+		Hook: b.Hook, Description: b.Description, Steps: stepsPB(b.Steps), Result: b.Result.PB(),
+		Editor: editorOf(b.Editor),
+	}
 }
 
 // RuleFromPB is the definition a message carries.
 func RuleFromPB(m *consolev1.RuleDefinition) Rule {
-	return Rule{Event: m.GetEvent(), When: m.GetWhen(), Steps: stepsFromPB(m.GetSteps())}
+	return Rule{
+		Event: m.GetEvent(), When: m.GetWhen(), Description: m.GetDescription(), Steps: stepsFromPB(m.GetSteps()),
+		Editor: editorOf(m.GetEditor()),
+	}
 }
 
 // PB is the definition as a message.
 func (r Rule) PB() *consolev1.RuleDefinition {
-	return &consolev1.RuleDefinition{Event: r.Event, When: r.When, Steps: stepsPB(r.Steps)}
+	return &consolev1.RuleDefinition{
+		Event: r.Event, When: r.When, Description: r.Description, Steps: stepsPB(r.Steps), Editor: editorOf(r.Editor),
+	}
 }
 
-func stepsFromPB(in []*consolev1.BindingStep) []Step {
+func editorOf(m *consolev1.EditorLayout) *consolev1.EditorLayout {
+	if m == nil {
+		return nil
+	}
+
+	c, _ := proto.Clone(m).(*consolev1.EditorLayout)
+
+	return c
+}
+
+func stepsFromPB(in map[string]*consolev1.Step) []Step {
+	if len(in) == 0 {
+		return nil
+	}
+
 	out := make([]Step, 0, len(in))
 
-	for _, s := range in {
+	for name, s := range in {
 		out = append(out, Step{
-			Name: s.GetName(), Activity: s.GetActivity(), Input: valueFromPB(s.GetInput()), When: s.GetWhen(),
-			After: append([]string(nil), s.GetAfter()...), Undo: s.GetUndo(), UndoInput: valueFromPB(s.GetUndoInput()),
+			Name: name, Activity: s.GetActivity(), Input: ValueOf(s.GetInput()), When: s.GetWhen(),
+			After: append([]string(nil), s.GetAfter()...), Undo: s.GetUndo(), UndoInput: ValueOf(s.GetUndoInput()),
 			Retry: Retry{
 				Attempts:        int(min(s.GetRetry().GetAttempts(), math.MaxInt32)),
 				InitialInterval: durationOf(s.GetRetry().GetInitialInterval()),
@@ -46,29 +72,30 @@ func stepsFromPB(in []*consolev1.BindingStep) []Step {
 				Backoff:         s.GetRetry().GetBackoff(),
 			},
 			StartToClose: durationOf(s.GetStartToClose()), Heartbeat: durationOf(s.GetHeartbeat()),
+			Description: s.GetDescription(),
 		})
 	}
 
-	if len(out) == 0 {
+	return sortSteps(out)
+}
+
+func stepsPB(in []Step) map[string]*consolev1.Step {
+	if len(in) == 0 {
 		return nil
 	}
 
-	return out
-}
-
-func stepsPB(in []Step) []*consolev1.BindingStep {
-	out := make([]*consolev1.BindingStep, 0, len(in))
+	out := make(map[string]*consolev1.Step, len(in))
 
 	for i := range in {
 		s := &in[i]
-		m := &consolev1.BindingStep{
-			Name: s.Name, Activity: s.Activity, Input: s.Input.pb(), When: s.When,
-			After: append([]string(nil), s.After...), Undo: s.Undo, UndoInput: s.UndoInput.pb(),
-			StartToClose: durationPB(s.StartToClose), Heartbeat: durationPB(s.Heartbeat),
+		m := &consolev1.Step{
+			Activity: s.Activity, Input: s.Input.PB(), When: s.When,
+			After: append([]string(nil), s.After...), Undo: s.Undo, UndoInput: s.UndoInput.PB(),
+			StartToClose: durationPB(s.StartToClose), Heartbeat: durationPB(s.Heartbeat), Description: s.Description,
 		}
 
 		if !s.Retry.IsZero() {
-			m.Retry = &consolev1.BindingRetry{
+			m.Retry = &consolev1.StepRetry{
 				Attempts:        uint32(min(max(s.Retry.Attempts, 0), math.MaxInt32)), //nolint:gosec // bounded
 				InitialInterval: durationPB(s.Retry.InitialInterval),
 				MaxInterval:     durationPB(s.Retry.MaxInterval),
@@ -76,33 +103,10 @@ func stepsPB(in []Step) []*consolev1.BindingStep {
 			}
 		}
 
-		out = append(out, m)
+		out[s.Name] = m
 	}
 
 	return out
-}
-
-func valueFromPB(m *consolev1.BindingValue) Value {
-	v := Value{Expr: m.GetExpr()}
-
-	for _, f := range m.GetFields() {
-		v.Fields = append(v.Fields, Field{Name: f.GetName(), Expr: f.GetExpr()})
-	}
-
-	return v
-}
-
-func (v Value) pb() *consolev1.BindingValue {
-	if v.IsZero() {
-		return nil
-	}
-
-	m := &consolev1.BindingValue{Expr: v.Expr}
-	for _, f := range v.Fields {
-		m.Fields = append(m.Fields, &consolev1.BindingField{Name: f.Name, Expr: f.Expr})
-	}
-
-	return m
 }
 
 func durationOf(d *durationpb.Duration) time.Duration {
@@ -156,13 +160,21 @@ func (r RuleEntry) PB() *consolev1.Rule {
 }
 
 // ViolationsPB are the violations as messages.
-func ViolationsPB(vs []Violation) []*consolev1.BindingViolation {
-	out := make([]*consolev1.BindingViolation, 0, len(vs))
+func ViolationsPB(vs []Violation) []*consolev1.Violation {
+	out := make([]*consolev1.Violation, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, &consolev1.BindingViolation{Path: v.Path, Code: v.Code, Message: v.Message})
+		out = append(out, &consolev1.Violation{Path: v.Path, Code: v.Code, Message: v.Message, Expr: rangePB(v.Expr)})
 	}
 
 	return out
+}
+
+func rangePB(r Range) *consolev1.Range {
+	if r.IsZero() {
+		return nil
+	}
+
+	return &consolev1.Range{Start: uint32(max(r.Start, 0)), End: uint32(max(r.End, 0))} //nolint:gosec // small
 }
 
 // encodeBinding is the stored form of a definition: protojson.

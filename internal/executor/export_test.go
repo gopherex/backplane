@@ -33,9 +33,9 @@ func (x *Executor) Required(hook, instance string) bool { return x.required(hook
 // Hooks is hooksOf as a plain map.
 func Hooks(cat registry.Catalog) map[string][]string { return hooksOf(cat) }
 
-// Timeline is timeline over a marshaled program.
-func Timeline(
+// TimelineOf is timeline over a marshaled program.
+func TimelineOf(
 	program []byte, events []*historypb.HistoryEvent, pending []*consolev1.PendingActivity,
-) []*consolev1.BindingStepRun {
+) []*consolev1.StepRun {
 	return timeline(programSteps(program), events, pending)
 }

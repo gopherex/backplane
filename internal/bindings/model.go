@@ -1,14 +1,14 @@
 // Package bindings is backplane's side of bindings (§7.1) and rules
-// (§8.1): the model, its text form, validation against the manifests,
-// versions in PostgreSQL and the console's BindingService and
-// RuleService.
+// (§8.1): the model, validation against the manifests, versions in
+// PostgreSQL and the console's BindingService, RuleService and
+// WiringService.
 //
 // A binding implements a hook ("<service>.<Hook>") with steps — calls of
 // activities of any service — and a result; a rule runs the same steps
-// on an event. Expressions are CEL over JSON values: `req` (the hook's
-// input) or `event` and `meta` (a rule's event and its CloudEvents
-// attributes), the output of every step by its name, and `steps.<name>
-// .skipped`.
+// on an event. Values are JSON trees whose strings are CEL expressions
+// over JSON values: `req` (the hook's input) or `event` and `meta` (a
+// rule's event and its CloudEvents attributes), the output of every step
+// by its name, and `steps.<name>.skipped`.
 //
 // For the executor and the rules engine the package offers:
 //
@@ -24,19 +24,27 @@ package bindings
 
 import (
 	"regexp"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
+
+	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 )
 
 // Binding is the definition of a hook's binding.
 type Binding struct {
 	// Hook is the full hook name "<service>.<Hook>".
-	Hook  string
+	Hook        string
+	Description string
+	// Steps are sorted by name: order is not significant, execution
+	// follows dependencies.
 	Steps []Step
 	// Result is the hook's output; zero: {}.
 	Result Value
+	// Editor is the graph editor's layout, kept as saved; compile and
+	// execution ignore it.
+	Editor *consolev1.EditorLayout
 }
 
 // Rule is the definition of a rule.
@@ -44,14 +52,17 @@ type Rule struct {
 	// Event is the full event name "<service>.<Event>".
 	Event string
 	// When is a CEL bool over `event` and `meta`; empty: always.
-	When  string
-	Steps []Step
+	When        string
+	Description string
+	// Steps are sorted by name, as Binding.Steps.
+	Steps  []Step
+	Editor *consolev1.EditorLayout
 }
 
 // Step is one call of an activity.
 type Step struct {
-	// Name is an identifier unique in the definition: the CEL variable of
-	// the step's output.
+	// Name is an identifier unique in the definition (its key): the CEL
+	// variable of the step's output.
 	Name string
 	// Activity is the full activity name "<service>.<Activity>".
 	Activity string
@@ -74,61 +85,28 @@ type Step struct {
 	StartToClose time.Duration
 	// Heartbeat: an attempt silent this long is lost; 0: the activity's
 	// default, else none.
-	Heartbeat time.Duration
+	Heartbeat   time.Duration
+	Description string
 }
 
 // Retry is a step's retry policy; zero fields are unset.
 type Retry struct {
 	// Attempts in total, the first included.
-	Attempts        int
-	InitialInterval time.Duration
-	MaxInterval     time.Duration
+	Attempts        int           `json:"attempts"`
+	InitialInterval time.Duration `json:"initial_interval"`
+	MaxInterval     time.Duration `json:"max_interval"`
 	// Backoff multiplies the interval after each attempt (>= 1).
-	Backoff float64
+	Backoff float64 `json:"backoff"`
 }
 
 // IsZero reports whether no field is set.
 func (r Retry) IsZero() bool { return r == Retry{} }
 
-// Value is a value built by CEL: named fields, each from an expression
-// (an object), or one expression for the whole value. Neither: the
-// default of its place.
-type Value struct {
-	Fields []Field
-	// Expr is exclusive with Fields.
-	Expr string
-}
-
-// IsZero reports whether the value is unset.
-func (v Value) IsZero() bool { return len(v.Fields) == 0 && v.Expr == "" }
-
-// Field is one field of an object built by CEL.
-type Field struct {
-	// Name is the JSON field name.
-	Name string
-	// Expr is the CEL expression of its value.
-	Expr string
-}
+// Equal reports whether two definitions say the same.
+func (b Binding) Equal(o Binding) bool { return proto.Equal(b.PB(), o.PB()) }
 
 // Equal reports whether two definitions say the same.
-func (b Binding) Equal(o Binding) bool {
-	return b.Hook == o.Hook && slices.EqualFunc(b.Steps, o.Steps, Step.Equal) && b.Result.Equal(o.Result)
-}
-
-// Equal reports whether two definitions say the same.
-func (r Rule) Equal(o Rule) bool {
-	return r.Event == o.Event && r.When == o.When && slices.EqualFunc(r.Steps, o.Steps, Step.Equal)
-}
-
-// Equal reports whether two steps say the same.
-func (s Step) Equal(o Step) bool {
-	return s.Name == o.Name && s.Activity == o.Activity && s.Input.Equal(o.Input) && s.When == o.When &&
-		slices.Equal(s.After, o.After) && s.Undo == o.Undo && s.UndoInput.Equal(o.UndoInput) &&
-		s.Retry == o.Retry && s.StartToClose == o.StartToClose && s.Heartbeat == o.Heartbeat
-}
-
-// Equal reports whether two values say the same.
-func (v Value) Equal(o Value) bool { return v.Expr == o.Expr && slices.Equal(v.Fields, o.Fields) }
+func (r Rule) Equal(o Rule) bool { return proto.Equal(r.PB(), o.PB()) }
 
 // BindingVersion is one saved version of a hook's binding.
 type BindingVersion struct {
@@ -174,12 +152,25 @@ func (r RuleEntry) Active() bool { return !r.Current.Deleted && !r.Paused }
 
 // Violation is one reason a definition is rejected.
 type Violation struct {
-	// Path is the place in the definition ("steps[1].input.to"); empty for
-	// the whole definition.
+	// Path is the JSON Pointer of the place in the definition
+	// ("/steps/send/input/to"); empty for the whole definition.
 	Path    string
 	Code    string
 	Message string
+	// Expr is where in the expression at Path the problem is; zero when
+	// it is the place itself.
+	Expr Range
 }
+
+// Range is a span of an expression's text in Unicode code points; End is
+// exclusive.
+type Range struct {
+	Start int
+	End   int
+}
+
+// IsZero reports whether the range is unset.
+func (r Range) IsZero() bool { return r == Range{} }
 
 func (v Violation) String() string {
 	if v.Path == "" {
@@ -193,7 +184,6 @@ func (v Violation) String() string {
 const (
 	CodeInvalidName     = "INVALID_NAME"
 	CodeReservedName    = "RESERVED_NAME"
-	CodeDuplicateStep   = "DUPLICATE_STEP"
 	CodeUnknownHook     = "UNKNOWN_HOOK"
 	CodeUnknownEvent    = "UNKNOWN_EVENT"
 	CodeUnknownActivity = "UNKNOWN_ACTIVITY"
@@ -201,10 +191,10 @@ const (
 	CodeCycle           = "CYCLE"
 	CodeUndoReference   = "UNDO_REFERENCE"
 	CodeCEL             = "CEL_ERROR"
+	CodeCost            = "COST"
 	CodeTypeMismatch    = "TYPE_MISMATCH"
 	CodeMissingField    = "MISSING_FIELD"
 	CodeUnknownField    = "UNKNOWN_FIELD"
-	CodeDuplicateField  = "DUPLICATE_FIELD"
 	CodeInvalidValue    = "INVALID_VALUE"
 	CodeInvalidOption   = "INVALID_OPTION"
 )

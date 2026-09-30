@@ -3,7 +3,9 @@ package bindings
 import (
 	"errors"
 	"fmt"
+	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,31 +45,83 @@ func (e *InvalidError) Error() string {
 	return msg
 }
 
+// Analysis is a definition as the compiler sees it: its violations, the
+// order of its steps, the type of every value and what every expression
+// reads. Parts that do not compile are left out.
+type Analysis struct {
+	Violations []Violation
+	// Steps by name.
+	Steps []StepAnalysis
+	// Types by path.
+	Types []ValueType
+	// References by path, then position.
+	References []Reference
+}
+
+// StepAnalysis is where a step stands in the order of execution.
+type StepAnalysis struct {
+	Name string
+	// Level is 0 for a step that depends on nothing, else one above its
+	// highest dependency; -1 in a cycle or with an invalid name.
+	Level int
+	// Data, After and When are the steps its input, `after` and `when`
+	// make it depend on; Undo the steps its undo input reads.
+	Data, After, When, Undo []string
+}
+
+// ValueType is the CEL type of a value node.
+type ValueType struct {
+	Path string
+	Type string
+}
+
+// Reference is one read of a variable by the expression at Path.
+type Reference struct {
+	Path     string
+	Variable string
+	Fields   []string
+	Expr     Range
+}
+
 // ValidateBinding checks b against the catalog: every violation, empty
 // when valid. The error is a failure to validate, not a violation.
 func ValidateBinding(b Binding, cat Catalog) ([]Violation, error) {
-	_, vs, err := compileBinding(b, cat)
+	_, a, err := compileBinding(b, cat)
 
-	return vs, err
+	return a.Violations, err
 }
 
 // ValidateRule checks r against the catalog, as ValidateBinding.
 func ValidateRule(r Rule, cat Catalog) ([]Violation, error) {
-	_, vs, err := compileRule(r, cat)
+	_, a, err := compileRule(r, cat)
 
-	return vs, err
+	return a.Violations, err
+}
+
+// AnalyzeBinding checks b against the catalog and describes it.
+func AnalyzeBinding(b Binding, cat Catalog) (Analysis, error) {
+	_, a, err := compileBinding(b, cat)
+
+	return a, err
+}
+
+// AnalyzeRule checks r against the catalog and describes it.
+func AnalyzeRule(r Rule, cat Catalog) (Analysis, error) {
+	_, a, err := compileRule(r, cat)
+
+	return a, err
 }
 
 // CompileBinding checks b against the catalog and compiles it; an invalid
 // definition is an *InvalidError.
 func CompileBinding(b Binding, cat Catalog) (*Program, error) {
-	p, vs, err := compileBinding(b, cat)
+	p, a, err := compileBinding(b, cat)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(vs) > 0 {
-		return nil, &InvalidError{Violations: vs}
+	if len(a.Violations) > 0 {
+		return nil, &InvalidError{Violations: a.Violations}
 	}
 
 	return p, nil
@@ -76,28 +130,36 @@ func CompileBinding(b Binding, cat Catalog) (*Program, error) {
 // CompileRule checks r against the catalog and compiles it; an invalid
 // definition is an *InvalidError.
 func CompileRule(r Rule, cat Catalog) (*Program, error) {
-	p, vs, err := compileRule(r, cat)
+	p, a, err := compileRule(r, cat)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(vs) > 0 {
-		return nil, &InvalidError{Violations: vs}
+	if len(a.Violations) > 0 {
+		return nil, &InvalidError{Violations: a.Violations}
 	}
 
 	return p, nil
 }
 
-func compileBinding(b Binding, cat Catalog) (*Program, []Violation, error) {
+// Paths of the definition's own places.
+const (
+	pathHook   = "/hook"
+	pathEvent  = "/event"
+	pathWhen   = "/when"
+	pathResult = "/result"
+)
+
+func compileBinding(b Binding, cat Catalog) (*Program, Analysis, error) {
 	c := newCompiler(KindBinding, cat)
 
 	var in, out *sp.Schema
 
 	switch hook, ok := cat.Hook(b.Hook); {
 	case !IsFullName(b.Hook):
-		c.violate("hook", CodeInvalidName, fmt.Sprintf("%q is not a hook name <service>.<Hook>", b.Hook))
+		c.violate(pathHook, CodeInvalidName, fmt.Sprintf("%q is not a hook name <service>.<Hook>", b.Hook))
 	case !ok:
-		c.violate("hook", CodeUnknownHook, "no manifest declares hook "+b.Hook)
+		c.violate(pathHook, CodeUnknownHook, "no manifest declares hook "+b.Hook)
 	default:
 		in, out = hook.GetInput(), hook.GetOutput()
 	}
@@ -105,35 +167,44 @@ func compileBinding(b Binding, cat Catalog) (*Program, []Violation, error) {
 	c.input = c.shapes.of(in, "bp.req")
 	resultShape := c.shapes.of(out, "bp.result")
 
-	return c.compile(spec{Kind: KindBinding, Source: b.Hook, Result: b.Result}, b.Steps, in, resultShape)
+	return c.compile(source{kind: KindBinding, name: b.Hook, result: b.Result}, b.Steps, in, resultShape)
 }
 
-func compileRule(r Rule, cat Catalog) (*Program, []Violation, error) {
+func compileRule(r Rule, cat Catalog) (*Program, Analysis, error) {
 	c := newCompiler(KindRule, cat)
 
 	var in *sp.Schema
 
 	switch event, ok := cat.Event(r.Event); {
 	case !IsFullName(r.Event):
-		c.violate("event", CodeInvalidName, fmt.Sprintf("%q is not an event name <service>.<Event>", r.Event))
+		c.violate(pathEvent, CodeInvalidName, fmt.Sprintf("%q is not an event name <service>.<Event>", r.Event))
 	case !ok:
-		c.violate("event", CodeUnknownEvent, "no manifest declares event "+r.Event)
+		c.violate(pathEvent, CodeUnknownEvent, "no manifest declares event "+r.Event)
 	default:
 		in = event.GetSchema()
 	}
 
 	c.input = c.shapes.of(in, "bp.event")
 
-	return c.compile(spec{Kind: KindRule, Source: r.Event, When: r.When}, r.Steps, in, nil)
+	return c.compile(source{kind: KindRule, name: r.Event, when: r.When}, r.Steps, in, nil)
+}
+
+// source is what a definition runs on: a hook with its result, or an
+// event with its filter.
+type source struct {
+	kind   Kind
+	name   string
+	when   string
+	result Value
 }
 
 type compiler struct {
-	kind   Kind
-	cat    Catalog
-	shapes *shapes
-	input  *shape
-	vs     []Violation
-	env    *cel.Env
+	kind     Kind
+	cat      Catalog
+	shapes   *shapes
+	input    *shape
+	env      *cel.Env
+	analysis Analysis
 }
 
 func newCompiler(kind Kind, cat Catalog) *compiler {
@@ -141,7 +212,11 @@ func newCompiler(kind Kind, cat Catalog) *compiler {
 }
 
 func (c *compiler) violate(path, code, msg string) {
-	c.vs = append(c.vs, Violation{Path: path, Code: code, Message: msg})
+	c.violateAt(path, code, msg, Range{})
+}
+
+func (c *compiler) violateAt(path, code, msg string, at Range) {
+	c.analysis.Violations = append(c.analysis.Violations, Violation{Path: path, Code: code, Message: msg, Expr: at})
 }
 
 // draft is a step while it compiles.
@@ -149,21 +224,25 @@ type draft struct {
 	Step
 
 	path     string
-	ok       bool // name valid and unique: a CEL variable
+	ok       bool // name valid: a CEL variable
 	act      *backplanev1.Activity
 	undo     *backplanev1.Activity
 	out      *sp.Schema
 	outShape *shape
-	deps     []string
+	data     []string
+	after    []string
+	when     []string
 	undoRefs []string
+	deps     []string
+	level    int
 }
 
-func (c *compiler) compile(s spec, steps []Step, in *sp.Schema, result *shape) (*Program, []Violation, error) {
+func (c *compiler) compile(src source, steps []Step, in *sp.Schema, result *shape) (*Program, Analysis, error) {
 	drafts := c.steps(steps)
 
 	env, err := c.typedEnv(drafts)
 	if err != nil {
-		return nil, nil, err
+		return nil, Analysis{}, err
 	}
 
 	c.env = env
@@ -179,80 +258,84 @@ func (c *compiler) compile(s spec, steps []Step, in *sp.Schema, result *shape) (
 		c.expressions(d, names)
 	}
 
-	if s.Kind == KindRule && s.When != "" {
-		if t, rs, ok := c.expr("when", s.When); ok {
-			c.boolean("when", t)
-
-			for _, r := range rs {
-				if names[strings.TrimPrefix(r, VarSteps+".")] || r == VarSteps {
-					c.violate("when", CodeUnknownStep, "a rule's when sees only event and meta, not steps")
-
-					break
-				}
-			}
-		}
+	if src.kind == KindRule && src.when != "" {
+		c.ruleWhen(src.when, names)
 	}
 
-	if s.Kind == KindBinding {
-		c.value("result", s.Result, result)
+	if src.kind == KindBinding {
+		c.value(pathResult, src.result, result)
 	}
 
 	groups := c.order(drafts)
 	c.undoRefs(drafts)
+	c.describe(drafts)
 
-	if len(c.vs) > 0 {
-		return nil, c.vs, nil
+	if len(c.analysis.Violations) > 0 {
+		return nil, c.analysis, nil
 	}
 
-	s.Input = schemaBytes(in)
+	s := spec{Kind: src.kind, Source: src.name, When: src.when, Result: src.result.JSON(), Input: schemaBytes(in)}
 
 	for _, d := range drafts {
 		s.Steps = append(s.Steps, specStep{
-			StepPlan: c.plan(d, groups), When: d.When, Input: d.Input, UndoInput: d.UndoInput,
+			StepPlan: c.plan(d, groups), When: d.When, Input: d.Input.JSON(), UndoInput: d.UndoInput.JSON(),
 			Output: schemaBytes(d.out),
 		})
 	}
 
 	p, err := newProgram(s)
 	if err != nil {
-		return nil, nil, err
+		return nil, Analysis{}, err
 	}
 
-	return p, nil, nil
+	return p, c.analysis, nil
+}
+
+// ruleWhen compiles a rule's filter: a bool over event and meta only.
+func (c *compiler) ruleWhen(src string, names map[string]bool) {
+	t, rs, ok := c.expr(pathWhen, src)
+	if ok {
+		c.boolean(pathWhen, t)
+	}
+
+	for _, r := range rs {
+		if r.variable == VarSteps || names[r.variable] {
+			c.violateAt(pathWhen, CodeUnknownStep, "a rule's when sees only event and meta, not steps", r.whole)
+
+			return
+		}
+	}
 }
 
 // steps checks what does not need CEL: names, activities, options.
 func (c *compiler) steps(steps []Step) []*draft {
-	seen := map[string]bool{}
-	out := make([]*draft, 0, len(steps))
+	sorted := sortSteps(slices.Clone(steps))
+	out := make([]*draft, 0, len(sorted))
 
-	for i := range steps {
-		s := &steps[i]
-		d := &draft{Step: *s, path: fmt.Sprintf("steps[%d]", i)}
+	for i := range sorted {
+		s := &sorted[i]
+		d := &draft{Step: *s, path: Pointer("steps", s.Name), level: -1}
 		out = append(out, d)
 
 		switch {
 		case !IsIdent(s.Name):
-			c.violate(d.path+".name", CodeInvalidName, fmt.Sprintf("%q is not an identifier [A-Za-z_][A-Za-z0-9_]*", s.Name))
+			c.violate(d.path, CodeInvalidName, fmt.Sprintf("%q is not an identifier [A-Za-z_][A-Za-z0-9_]*", s.Name))
 		case reserved[s.Name]:
-			c.violate(d.path+".name", CodeReservedName, fmt.Sprintf("%q is reserved", s.Name))
-		case seen[s.Name]:
-			c.violate(d.path+".name", CodeDuplicateStep, fmt.Sprintf("step %s is declared twice", s.Name))
+			c.violate(d.path, CodeReservedName, fmt.Sprintf("%q is reserved", s.Name))
 		default:
 			d.ok = true
 		}
 
-		seen[s.Name] = true
-		d.act = c.activity(d.path+".activity", s.Activity)
+		d.act = c.activity(d.path+"/activity", s.Activity)
 
 		if d.act != nil {
 			d.out = d.act.GetOutput()
 		}
 
 		if s.Undo != "" {
-			d.undo = c.activity(d.path+".undo", s.Undo)
+			d.undo = c.activity(d.path+"/undo", s.Undo)
 		} else if !s.UndoInput.IsZero() {
-			c.violate(d.path+".undo_input", CodeInvalidOption, "undo input without an undo activity")
+			c.violate(d.path+"/undoInput", CodeInvalidOption, "undo input without an undo activity")
 		}
 
 		c.options(d)
@@ -282,31 +365,31 @@ func (c *compiler) options(d *draft) {
 	r := d.Retry
 
 	if r.Attempts < 0 {
-		c.violate(d.path+".retry.attempts", CodeInvalidOption, "attempts must not be negative")
+		c.violate(d.path+"/retry/attempts", CodeInvalidOption, "attempts must not be negative")
 	}
 
 	if r.InitialInterval < 0 {
-		c.violate(d.path+".retry.initial_interval", CodeInvalidOption, "must not be negative")
+		c.violate(d.path+"/retry/initialInterval", CodeInvalidOption, "must not be negative")
 	}
 
 	if r.MaxInterval < 0 {
-		c.violate(d.path+".retry.max_interval", CodeInvalidOption, "must not be negative")
+		c.violate(d.path+"/retry/maxInterval", CodeInvalidOption, "must not be negative")
 	}
 
 	if r.MaxInterval > 0 && r.InitialInterval > r.MaxInterval {
-		c.violate(d.path+".retry.max_interval", CodeInvalidOption, "must not be below the initial interval")
+		c.violate(d.path+"/retry/maxInterval", CodeInvalidOption, "must not be below the initial interval")
 	}
 
 	if r.Backoff != 0 && r.Backoff < 1 {
-		c.violate(d.path+".retry.backoff", CodeInvalidOption, "must be at least 1")
+		c.violate(d.path+"/retry/backoff", CodeInvalidOption, "must be at least 1")
 	}
 
 	if d.StartToClose < 0 {
-		c.violate(d.path+".start_to_close", CodeInvalidOption, "must not be negative")
+		c.violate(d.path+"/startToClose", CodeInvalidOption, "must not be negative")
 	}
 
 	if d.Heartbeat < 0 {
-		c.violate(d.path+".heartbeat", CodeInvalidOption, "must not be negative")
+		c.violate(d.path+"/heartbeat", CodeInvalidOption, "must not be negative")
 	}
 }
 
@@ -349,14 +432,13 @@ func (c *compiler) typedEnv(drafts []*draft) (*cel.Env, error) {
 // expressions compiles and type-checks the step's expressions and derives
 // its dependencies.
 func (c *compiler) expressions(d *draft, names map[string]bool) {
-	var reads []string
-
 	if d.When != "" {
-		if t, rs, ok := c.expr(d.path+".when", d.When); ok {
-			c.boolean(d.path+".when", t)
-
-			reads = append(reads, rs...)
+		t, rs, ok := c.expr(d.path+"/when", d.When)
+		if ok {
+			c.boolean(d.path+"/when", t)
 		}
+
+		d.when = c.stepReads(d, rs, names)
 	}
 
 	var in *shape
@@ -364,7 +446,7 @@ func (c *compiler) expressions(d *draft, names map[string]bool) {
 		in = c.shapes.of(d.act.GetInput(), "bp.in."+d.Name)
 	}
 
-	reads = append(reads, c.value(d.path+".input", d.Input, in)...)
+	d.data = c.stepReads(d, c.value(d.path+"/input", d.Input, in), names)
 
 	if d.Undo != "" && !d.UndoInput.IsZero() {
 		var undoIn *shape
@@ -372,38 +454,73 @@ func (c *compiler) expressions(d *draft, names map[string]bool) {
 			undoIn = c.shapes.of(d.undo.GetInput(), "bp.undo."+d.Name)
 		}
 
-		d.undoRefs = stepRefs(c.value(d.path+".undo_input", d.UndoInput, undoIn), names)
+		d.undoRefs = stepNames(c.value(d.path+"/undoInput", d.UndoInput, undoIn), names)
 	}
 
 	for i, a := range d.After {
+		path := d.path + "/after/" + strconv.Itoa(i)
+
 		switch {
 		case a == d.Name:
-			c.violate(fmt.Sprintf("%s.after[%d]", d.path, i), CodeCycle, fmt.Sprintf("step %s runs after itself", a))
+			c.violate(path, CodeCycle, fmt.Sprintf("step %s runs after itself", a))
 		case !names[a]:
-			c.violate(fmt.Sprintf("%s.after[%d]", d.path, i), CodeUnknownStep, "no step "+a)
+			c.violate(path, CodeUnknownStep, "no step "+a)
 		default:
-			d.deps = appendNew(d.deps, a)
+			d.after = appendNew(d.after, a)
 		}
 	}
 
-	for _, r := range stepRefs(reads, names) {
-		if r == d.Name {
-			c.violate(d.path, CodeCycle, fmt.Sprintf("step %s reads its own output", r))
+	for _, list := range [][]string{d.after, d.data, d.when} {
+		for _, dep := range list {
+			d.deps = appendNew(d.deps, dep)
+		}
+	}
+}
+
+// stepReads are the steps among reads, a read of the step's own output
+// reported.
+func (c *compiler) stepReads(d *draft, rs []read, names map[string]bool) []string {
+	var out []string
+
+	for _, r := range rs {
+		name, ok := stepOf(r, names)
+		if !ok {
+			continue
+		}
+
+		if name == d.Name {
+			c.violateAt(r.path, CodeCycle, fmt.Sprintf("step %s reads its own output", name), r.whole)
 
 			continue
 		}
 
-		d.deps = appendNew(d.deps, r)
+		out = appendNew(out, name)
 	}
+
+	return out
 }
 
-// stepRefs are the step names among what expressions read.
-func stepRefs(reads []string, names map[string]bool) []string {
+// stepOf is the step a read is of: its variable, or the field selected on
+// `steps`.
+func stepOf(r read, names map[string]bool) (string, bool) {
+	name := r.variable
+	if name == VarSteps {
+		if len(r.fields) == 0 {
+			return "", false
+		}
+
+		name = r.fields[0]
+	}
+
+	return name, names[name]
+}
+
+// stepNames are the steps among reads.
+func stepNames(rs []read, names map[string]bool) []string {
 	var out []string
 
-	for _, r := range reads {
-		name := strings.TrimPrefix(r, VarSteps+".")
-		if names[name] {
+	for _, r := range rs {
+		if name, ok := stepOf(r, names); ok {
 			out = appendNew(out, name)
 		}
 	}
@@ -419,132 +536,263 @@ func appendNew(list []string, s string) []string {
 	return append(list, s)
 }
 
-// value compiles a Value and checks it against the shape it must have
-// (nil: unknown, no check). It returns what the expressions read.
-func (c *compiler) value(path string, v Value, want *shape) []string {
-	if v.Expr != "" && len(v.Fields) > 0 {
-		c.violate(path, CodeInvalidValue, "either fields or an expression, not both")
+// value compiles a Value against the shape it must have (nil: unknown, no
+// check) and returns what its expressions read. Unset is {} of want.
+func (c *compiler) value(path string, v Value, want *shape) []read {
+	switch v.Kind() {
+	case ValueUnset:
+		c.required(path, want, nil)
+
+		return nil
+	case ValueExpr:
+		t, reads, ok := c.expr(path, v.Expr())
+		if ok && want != nil {
+			if msg := c.assignable(want, t); msg != "" {
+				c.violate(path, CodeTypeMismatch, msg)
+			}
+		}
+
+		return reads
+	case ValueObject:
+		return c.object(path, v, want)
+	case ValueList:
+		return c.list(path, v, want)
+	default:
+		c.literal(path, v.Literal(), want)
 
 		return nil
 	}
+}
 
-	if v.Expr != "" {
-		return c.exprValue(path, v.Expr, want)
+func (c *compiler) object(path string, v Value, want *shape) []read {
+	c.typed(path, "object")
+
+	fields := v.Fields()
+	reads := make([]read, 0, len(fields))
+	set := map[string]bool{}
+
+	for _, f := range fields {
+		set[f.Name] = true
 	}
 
-	reads, seen := c.fields(path, v.Fields, want)
+	for _, f := range fields {
+		fpath := path + "/" + escapePointer(f.Name)
 
-	if want != nil && want.kind == kindObject {
-		for _, r := range want.required {
-			if !seen[r] {
-				c.violate(path, CodeMissingField, fmt.Sprintf("required field %s is not set", r))
+		var fieldWant *shape
+
+		switch {
+		case want == nil:
+		case want.kind == kindObject:
+			if fieldWant = want.fields[f.Name]; fieldWant == nil {
+				c.violate(fpath, CodeUnknownField, "the schema declares no field "+f.Name)
 			}
+		case want.kind == kindMap:
+			fieldWant = want.elem
+		default:
 		}
+
+		reads = append(reads, c.value(fpath, f.Value, fieldWant)...)
 	}
 
 	if want != nil && want.kind != kindObject && want.kind != kindMap && want.kind != kindDyn {
 		c.violate(path, CodeTypeMismatch, fmt.Sprintf("expected %s, got an object", want))
 	}
 
-	return reads
-}
-
-// exprValue compiles a Value given as one expression and checks its type
-// against want (nil: no check). It returns what the expression reads.
-func (c *compiler) exprValue(path, src string, want *shape) []string {
-	t, reads, ok := c.expr(path, src)
-	if ok && want != nil {
-		if msg := c.assignable(want, t); msg != "" {
-			c.violate(path, CodeTypeMismatch, msg)
-		}
-	}
+	c.required(path, want, set)
 
 	return reads
 }
 
-// fields compiles the fields of a Value given field by field, each
-// against its shape in want. It returns what the expressions read and
-// the names set.
-func (c *compiler) fields(path string, fields []Field, want *shape) ([]string, map[string]bool) {
-	var reads []string
-
-	seen := map[string]bool{}
-
-	for i, f := range fields {
-		fpath := path + "." + f.Name
-		if f.Name == "" {
-			c.violate(fmt.Sprintf("%s.fields[%d]", path, i), CodeInvalidName, "field without a name")
-
-			continue
-		}
-
-		if seen[f.Name] {
-			c.violate(fpath, CodeDuplicateField, fmt.Sprintf("field %s is set twice", f.Name))
-
-			continue
-		}
-
-		seen[f.Name] = true
-
-		t, fieldReads, ok := c.expr(fpath, f.Expr)
-		reads = append(reads, fieldReads...)
-
-		if ok {
-			c.field(fpath, f.Name, t, want)
-		}
+// required reports the required fields of an object shape not in set.
+func (c *compiler) required(path string, want *shape, set map[string]bool) {
+	if want == nil || want.kind != kindObject {
+		return
 	}
 
-	return reads, seen
+	for _, r := range want.required {
+		if !set[r] {
+			c.violate(path, CodeMissingField, fmt.Sprintf("required field %s is not set", r))
+		}
+	}
 }
 
-func (c *compiler) field(path, name string, t *types.Type, want *shape) {
-	var fieldShape *shape
+func (c *compiler) list(path string, v Value, want *shape) []read {
+	c.typed(path, "list")
+
+	var elem *shape
 
 	switch {
-	case want == nil:
-		return
-	case want.kind == kindObject:
-		fieldShape = want.fields[name]
-		if fieldShape == nil {
-			c.violate(path, CodeUnknownField, "the schema declares no field "+name)
-
-			return
-		}
-	case want.kind == kindMap:
-		fieldShape = want.elem
+	case want == nil, want.kind == kindDyn:
+	case want.kind == kindList:
+		elem = want.elem
 	default:
+		c.violate(path, CodeTypeMismatch, fmt.Sprintf("expected %s, got a list", want))
+	}
+
+	items := v.Items()
+	reads := make([]read, 0, len(items))
+
+	for i, item := range items {
+		reads = append(reads, c.value(path+"/"+strconv.Itoa(i), item, elem)...)
+	}
+
+	return reads
+}
+
+// Literal kinds as the analysis names them.
+const (
+	typeInt    = "int"
+	typeDouble = "double"
+	typeBool   = "bool"
+	typeNull   = "null"
+)
+
+// literal checks a number, bool or null against want. A string is an
+// expression, never a literal: a literal string is written as CEL
+// ("'text'").
+func (c *compiler) literal(path string, v any, want *shape) {
+	got := literalType(v)
+	c.typed(path, got)
+
+	if got == typeNull || want == nil {
 		return
 	}
 
-	if msg := c.assignable(fieldShape, t); msg != "" {
-		c.violate(path, CodeTypeMismatch, msg)
+	if want.kind == kindString {
+		c.violate(path, CodeTypeMismatch, fmt.Sprintf("expected string, got %s (a string is an expression: "+
+			"write a literal as '%v' in quotes)", got, v))
+
+		return
 	}
+
+	if !literalFits(want.kind, got, v) {
+		c.violate(path, CodeTypeMismatch, fmt.Sprintf("expected %s, got %s", want, got))
+	}
+}
+
+func literalType(v any) string {
+	switch x := v.(type) {
+	case float64:
+		if x == math.Trunc(x) && math.Abs(x) < 1<<53 {
+			return typeInt
+		}
+
+		return typeDouble
+	case bool:
+		return typeBool
+	default:
+		return typeNull
+	}
+}
+
+func literalFits(want kind, got string, v any) bool {
+	switch want {
+	case kindDyn:
+		return true
+	case kindDouble:
+		return got != typeBool
+	case kindInt:
+		return got == typeInt
+	case kindUint:
+		n, isNum := v.(float64)
+
+		return got == typeInt && isNum && n >= 0
+	case kindBool:
+		return got == typeBool
+	default:
+		return false
+	}
+}
+
+func (c *compiler) typed(path, t string) {
+	c.analysis.Types = append(c.analysis.Types, ValueType{Path: path, Type: t})
 }
 
 // expr compiles src in the typed environment: its output type and what it
-// reads; a failure is a violation.
-func (c *compiler) expr(path, src string) (*types.Type, []string, bool) {
+// reads (also when it does not type-check); a failure is a violation.
+func (c *compiler) expr(path, src string) (*types.Type, []read, bool) {
 	if strings.TrimSpace(src) == "" {
 		c.violate(path, CodeCEL, "empty expression")
 
 		return nil, nil, false
 	}
 
-	checked, iss := c.env.Compile(src)
+	parsed, iss := c.env.Parse(src)
 	if iss.Err() != nil {
-		c.violate(path, CodeCEL, iss.Err().Error())
+		for _, e := range iss.Errors() {
+			c.violateAt(path, CodeCEL, e.Message, issueRange(src, nil, e))
+		}
 
 		return nil, nil, false
 	}
 
-	return checked.OutputType(), refs(checked.NativeRep().Expr()), true
+	native := parsed.NativeRep()
+	reads := readsOf(src, native)
+
+	for i := range reads {
+		reads[i].path = path
+	}
+
+	for _, r := range reads {
+		c.analysis.References = append(c.analysis.References, Reference{
+			Path: path, Variable: r.variable, Fields: slices.Clone(r.fields), Expr: r.whole,
+		})
+	}
+
+	checked, iss := c.env.Check(parsed)
+	if iss.Err() != nil {
+		for _, e := range iss.Errors() {
+			c.violateAt(path, CodeCEL, e.Message, issueRange(src, native, e))
+		}
+
+		return nil, reads, false
+	}
+
+	if est, err := c.env.EstimateCost(checked, sizeEstimator{}); err == nil && est.Max > costLimit {
+		c.violate(path, CodeCost, fmt.Sprintf("may cost up to %s evaluation units, over the limit of %d "+
+			"(assuming collections of up to %d items)", costText(est.Max), costLimit, maxCollection))
+	}
+
+	c.typed(path, typeName(checked.OutputType()))
+
+	return checked.OutputType(), reads, true
+}
+
+func costText(n uint64) string {
+	if n == math.MaxUint64 {
+		return "unbounded"
+	}
+
+	return strconv.FormatUint(n, 10)
+}
+
+// typeName is a CEL type as the editor shows it: objects of the schemas
+// are "object".
+func typeName(t *types.Type) string {
+	switch t.Kind() {
+	case types.StructKind:
+		return "object"
+	case types.ListKind:
+		return "list(" + typeName(t.Parameters()[0]) + ")"
+	case types.MapKind:
+		return "map(" + typeName(t.Parameters()[0]) + ", " + typeName(t.Parameters()[1]) + ")"
+	case types.NullTypeKind:
+		return typeNull
+	case types.OpaqueKind:
+		if t.TypeName() == "optional_type" && len(t.Parameters()) == 1 {
+			return "optional(" + typeName(t.Parameters()[0]) + ")"
+		}
+	default:
+	}
+
+	return t.String()
 }
 
 func (c *compiler) boolean(path string, t *types.Type) {
 	switch t.Kind() {
 	case types.BoolKind, types.DynKind, types.AnyKind, types.TypeParamKind:
 	default:
-		c.violate(path, CodeTypeMismatch, "expected bool, got "+t.String())
+		c.violate(path, CodeTypeMismatch, "expected bool, got "+typeName(t))
 	}
 }
 
@@ -567,7 +815,7 @@ func (c *compiler) assignable(want *shape, t *types.Type) string {
 	default:
 	}
 
-	mismatch := fmt.Sprintf("expected %s, got %s", want, t)
+	mismatch := fmt.Sprintf("expected %s, got %s", want, typeName(t))
 
 	switch want.kind {
 	case kindDyn:
@@ -605,15 +853,15 @@ func (c *compiler) assignable(want *shape, t *types.Type) string {
 			return ""
 		}
 	case kindObject:
-		return c.object(want, t, mismatch)
+		return c.objectType(want, t, mismatch)
 	}
 
 	return mismatch
 }
 
-// object checks a value against an object shape field by field when both
-// are known objects.
-func (c *compiler) object(want *shape, t *types.Type, mismatch string) string {
+// objectType checks a value against an object shape field by field when
+// both are known objects.
+func (c *compiler) objectType(want *shape, t *types.Type, mismatch string) string {
 	switch t.Kind() {
 	case types.MapKind:
 		return ""
@@ -637,14 +885,15 @@ func (c *compiler) object(want *shape, t *types.Type, mismatch string) string {
 	}
 }
 
-// order derives the groups from the dependencies (Kahn's algorithm by
-// levels, declaration order within a level) and reports cycles.
+// order sets the steps' levels from their dependencies (Kahn's algorithm,
+// by name within a level) and reports a cycle; the groups are the steps
+// by level.
 func (c *compiler) order(drafts []*draft) [][]string {
-	index := map[string]int{}
+	pending := 0
 
-	for i, d := range drafts {
+	for _, d := range drafts {
 		if d.ok {
-			index[d.Name] = i
+			pending++
 		}
 	}
 
@@ -652,8 +901,8 @@ func (c *compiler) order(drafts []*draft) [][]string {
 
 	var groups [][]string
 
-	for len(level) < len(index) {
-		var ready []string
+	for len(level) < pending {
+		var ready []*draft
 
 		for _, d := range drafts {
 			if _, done := level[d.Name]; done || !d.ok {
@@ -661,21 +910,25 @@ func (c *compiler) order(drafts []*draft) [][]string {
 			}
 
 			if allIn(d.deps, level) {
-				ready = append(ready, d.Name)
+				ready = append(ready, d)
 			}
 		}
 
 		if len(ready) == 0 {
 			c.cycle(drafts, level)
 
-			return nil
+			return groups
 		}
 
-		for _, name := range ready {
-			level[name] = len(groups)
+		var names []string
+
+		for _, d := range ready {
+			level[d.Name] = len(groups)
+			d.level = len(groups)
+			names = append(names, d.Name)
 		}
 
-		groups = append(groups, ready)
+		groups = append(groups, names)
 	}
 
 	return groups
@@ -695,20 +948,14 @@ func allIn(deps []string, level map[string]int) bool {
 func (c *compiler) cycle(drafts []*draft, level map[string]int) {
 	byName := map[string]*draft{}
 
-	for _, d := range drafts {
-		if _, done := level[d.Name]; !done && d.ok {
-			byName[d.Name] = d
-		}
-	}
-
-	// Every step left has a dependency left: walking them must return.
 	var start *draft
 
 	for _, d := range drafts {
-		if byName[d.Name] == d {
-			start = d
-
-			break
+		if _, done := level[d.Name]; !done && d.ok {
+			byName[d.Name] = d
+			if start == nil {
+				start = d
+			}
 		}
 	}
 
@@ -716,6 +963,7 @@ func (c *compiler) cycle(drafts []*draft, level map[string]int) {
 
 	seen := map[string]int{}
 
+	// Every step left has a dependency left: walking them must return.
 	for cur := start; cur != nil; {
 		if at, ok := seen[cur.Name]; ok {
 			loop := append(path[at:], cur.Name) //nolint:gocritic // a new slice for the message
@@ -761,7 +1009,7 @@ func (c *compiler) undoRefs(drafts []*draft) {
 
 		for _, r := range d.undoRefs {
 			if r != d.Name && !before[r] {
-				c.violate(d.path+".undo_input", CodeUndoReference,
+				c.violate(d.path+"/undoInput", CodeUndoReference,
 					fmt.Sprintf("step %s may not have run when %s is undone: add it to after", r, d.Name))
 			}
 		}
@@ -786,6 +1034,24 @@ func ancestors(d *draft, byName map[string]*draft) map[string]bool {
 	}
 
 	return out
+}
+
+// describe fills the analysis' steps and orders its lists.
+func (c *compiler) describe(drafts []*draft) {
+	for _, d := range drafts {
+		c.analysis.Steps = append(c.analysis.Steps, StepAnalysis{
+			Name: d.Name, Level: d.level, Data: d.data, After: d.after, When: d.when, Undo: d.undoRefs,
+		})
+	}
+
+	slices.SortStableFunc(c.analysis.Types, func(a, b ValueType) int { return strings.Compare(a.Path, b.Path) })
+	slices.SortStableFunc(c.analysis.References, func(a, b Reference) int {
+		if n := strings.Compare(a.Path, b.Path); n != 0 {
+			return n
+		}
+
+		return a.Expr.Start - b.Expr.Start
+	})
 }
 
 // plan resolves the step's options: the binding's, else the activity's

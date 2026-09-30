@@ -34,8 +34,9 @@ func registerWorkflow(r worker.Registry, m metrics) {
 // bindingWorkflow is wire.BindingWorkflow: it runs a compiled binding or
 // rule; m records runs and steps.
 //
-// Groups run in order, the steps of a group in parallel; a step whose when
-// is false is skipped. A step is its activity executed by name on the
+// A step starts as soon as every step it depends on is done (ready steps
+// by name); a step whose when is false is skipped. A step is its activity
+// executed by name on the
 // owning service's queue with the ActivityCall envelope (or, for an
 // activity of kind WORKFLOW, a child workflow by name there), with the
 // step's retry policy and timeouts; its output is ActivityResult.payload.
@@ -104,10 +105,8 @@ func (r *runner) run() (*backplanev1.HookResult, error) {
 
 	r.trace = workflowTrace(r.ctx, r.in.Trace)
 
-	for _, group := range r.prog.Groups() {
-		if err := r.group(group); err != nil {
-			return nil, r.fail(err)
-		}
+	if err := r.steps(); err != nil {
+		return nil, r.fail(err)
 	}
 
 	if r.prog.Kind() == bindings.KindRule {
@@ -170,75 +169,111 @@ type launched struct {
 	start time.Time
 }
 
-// group runs the steps of one group: each not skipped starts at once, then
-// all are awaited — even after one failed, so every step that did its
-// work is known to undo. The error is the first in completion order (an
-// expression's before any launch).
-func (r *runner) group(names []string) error {
-	var (
-		flight []launched
-		first  error
-	)
-
-	for _, name := range names {
-		plan, ok := r.prog.Step(name)
-		if !ok {
-			first = failure("transform failed at program: no step "+name, wire.TransformFailedType)
-
-			break
-		}
-
-		run, err := r.prog.When(name, r.scope)
-		if err != nil {
-			first = transform(err)
-
-			break
-		}
-
-		if !run {
-			if r.scope, err = r.prog.Skip(r.scope, name); err != nil {
-				first = transform(err)
-
-				break
-			}
-
-			continue
-		}
-
-		input, err := r.prog.Input(name, r.scope)
-		if err != nil {
-			first = transform(err)
-
-			break
-		}
-
-		flight = append(flight, launched{
-			plan: plan, fut: r.call(r.ctx, plan, plan.Activity, plan.Service, plan.Kind, input, false),
-			start: workflow.Now(r.ctx),
-		})
-	}
-
-	if len(flight) == 0 {
-		return first
-	}
-
+// steps runs every step once its dependencies are settled: the ready ones
+// start at once, by name (a skip settles a step at once and may make
+// others ready), then the run waits for any call in flight. After a
+// failure nothing new starts and the calls in flight are awaited, so every
+// step that did its work is known to undo. The error is the first in
+// completion order (an expression's before the calls it prevents).
+func (r *runner) steps() error {
+	plans := r.prog.Steps()
+	settled := make(map[string]bool, len(plans))
+	started := make(map[string]bool, len(plans))
 	sel := workflow.NewSelector(r.ctx)
 
-	for i := range flight {
-		l := flight[i]
+	var (
+		first    error
+		inFlight int
+	)
 
-		sel.AddFuture(l.fut, func(f workflow.Future) {
-			if err := r.settle(l, f); err != nil && first == nil {
-				first = err
+	for {
+		for ready := first == nil; ready; {
+			ready = false
+
+			for i := range plans {
+				plan := plans[i]
+				if started[plan.Name] || !allSettled(plan.Deps, settled) {
+					continue
+				}
+
+				started[plan.Name] = true
+
+				l, err := r.launch(plan)
+				if err != nil {
+					first = err
+
+					break
+				}
+
+				if l == nil {
+					settled[plan.Name], ready = true, true
+
+					continue
+				}
+
+				inFlight++
+
+				sel.AddFuture(l.fut, func(f workflow.Future) {
+					inFlight--
+					settled[l.plan.Name] = true
+
+					if err := r.settle(*l, f); err != nil && first == nil {
+						first = err
+					}
+				})
 			}
-		})
-	}
 
-	for range flight {
+			ready = ready && first == nil
+		}
+
+		if inFlight == 0 {
+			break
+		}
+
 		sel.Select(r.ctx)
 	}
 
+	if first == nil && len(settled) < len(plans) {
+		return failure("transform failed at program: steps wait for each other", wire.TransformFailedType)
+	}
+
 	return first
+}
+
+func allSettled(deps []string, settled map[string]bool) bool {
+	for _, dep := range deps {
+		if !settled[dep] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// launch starts a step's call; nil when its when skips it.
+func (r *runner) launch(plan bindings.StepPlan) (*launched, error) {
+	run, err := r.prog.When(plan.Name, r.scope)
+	if err != nil {
+		return nil, transform(err)
+	}
+
+	if !run {
+		if r.scope, err = r.prog.Skip(r.scope, plan.Name); err != nil {
+			return nil, transform(err)
+		}
+
+		return nil, nil //nolint:nilnil // skipped: nothing to await
+	}
+
+	input, err := r.prog.Input(plan.Name, r.scope)
+	if err != nil {
+		return nil, transform(err)
+	}
+
+	return &launched{
+		plan: plan, fut: r.call(r.ctx, plan, plan.Activity, plan.Service, plan.Kind, input, false),
+		start: workflow.Now(r.ctx),
+	}, nil
 }
 
 // settle takes a finished step's output into the scope.

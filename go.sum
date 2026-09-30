@@ -160,10 +160,8 @@ github.com/google/pprof v0.0.0-20210407192527-94a9f03dee38/go.mod h1:kpwsk12EmLe
 github.com/google/renameio v0.1.0/go.mod h1:KWCgfxg9yswjAJkECMjeO8J8rahYeXnNhOm40UhjYkI=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/gopherex/pgtx v1.1.0 h1:4LkVNLneDzG+0s0Ha+gvEAoXk9JSVD8AS0lLzqsxF88=
-github.com/gopherex/pgtx v1.1.0/go.mod h1:NeOgY1yYN1BhQBqGPViLPoWBAufmkAWopDbSDkenXK8=
-github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5 h1:CGMXZQzz4YKaoBhdG7vIbCyR0LrBWybgznt6IXjeB6g=
-github.com/gopherex/schemapb/go v0.0.0-20260928135944-4f0aa1af98e5/go.mod h1:g9W8TC7ZZyPXKp+eQuPv612T2d0ZGs/Y+AIR2RA8KYw=
+github.com/gopherex/pgtx v1.1.1 h1:ebKDNIEzCa+JBt6LSET98qawZgxw7QB8AKNRRqZNqIA=
+github.com/gopherex/pgtx v1.1.1/go.mod h1:NeOgY1yYN1BhQBqGPViLPoWBAufmkAWopDbSDkenXK8=
 github.com/gopherex/schemapb/go v1.7.0 h1:BVYXv0aYBlc0c2R1wyFQ9lFFKDma/ZIRr11+T388TAY=
 github.com/gopherex/schemapb/go v1.7.0/go.mod h1:g9W8TC7ZZyPXKp+eQuPv612T2d0ZGs/Y+AIR2RA8KYw=
 github.com/gopherex/sqld v1.1.3 h1:5E3sFzPrv9Wk/gLQtHUZxatvED7dYQ8Vjk55S0eae68=

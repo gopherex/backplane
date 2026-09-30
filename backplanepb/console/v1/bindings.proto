@@ -4,7 +4,9 @@ package backplane.console.v1;
 
 import "backplanepb/console/v1/calls.proto";
 import "backplanepb/console/v1/workflows.proto";
+import "backplanepb/console/v1/step.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
@@ -14,7 +16,8 @@ option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consol
 // of other services, kept as versions in PostgreSQL. A save validates the
 // definition against the latest manifests (the hook, every activity, CEL
 // type-checked by the schemas); a delete is a tombstone version, so the
-// history stays.
+// history stays. A saved definition that stops compiling when a manifest
+// changes is BROKEN until fixed.
 //
 // Runs belong to the executor (internal/executor) and come as their own
 // RPCs next to these: TestBinding, ListBindingRuns, GetBindingRun,
@@ -43,11 +46,6 @@ service BindingService {
   // DeleteBinding saves a tombstone version: the hook becomes unbound, the
   // history stays.
   rpc DeleteBinding(DeleteBindingRequest) returns (DeleteBindingResponse);
-  // ParseBinding reads the text form of a binding (§7.1).
-  rpc ParseBinding(ParseBindingRequest) returns (ParseBindingResponse);
-  // FormatBinding writes the text form of a definition; ParseBinding reads
-  // it back into the same definition.
-  rpc FormatBinding(FormatBindingRequest) returns (FormatBindingResponse);
   // WatchBindings streams ListBindings: now, then again whenever it
   // changes (a save on any replica, a manifest).
   rpc WatchBindings(WatchBindingsRequest) returns (stream WatchBindingsResponse);
@@ -69,70 +67,20 @@ service BindingService {
 }
 
 // BindingDefinition is what a binding says: the hook it implements, the
-// steps, and the hook's output.
+// steps, and the hook's output. Its protojson is the canonical form (the
+// console edits it as YAML).
 message BindingDefinition {
   // Full hook name "<service>.<Hook>".
   string hook = 1;
-  // In declaration order; the order of execution follows dependencies.
-  repeated BindingStep steps = 2;
-  // The hook's output, CEL over `req` and the steps; empty: {}.
-  BindingValue result = 3;
-}
-
-// BindingStep is one call of an activity.
-message BindingStep {
-  // Identifier, unique in the definition; the step's output is a CEL
-  // variable of this name.
-  string name = 1;
-  // Full activity name "<service>.<Activity>".
-  string activity = 2;
-  // The activity's input; empty: {}.
-  BindingValue input = 3;
-  // CEL bool: the step runs only when true; empty: always.
-  string when = 4;
-  // Steps this one runs after besides those its expressions reference.
-  repeated string after = 5;
-  // Compensation: full activity name run when a later step fails (saga);
-  // empty: none.
-  string undo = 6;
-  // The undo activity's input; empty: the step's output.
-  BindingValue undo_input = 7;
-  // Unset fields take the activity's manifest defaults, then the
-  // platform's.
-  BindingRetry retry = 8;
-  // One attempt (one run of a workflow activity); unset: the activity's
-  // default, then the platform's.
-  google.protobuf.Duration start_to_close = 9;
-  // An attempt without a heartbeat this long is lost; unset: the
-  // activity's default, else none.
-  google.protobuf.Duration heartbeat = 10;
-}
-
-// BindingValue is a value built by CEL: either named fields, each from an
-// expression (an object), or one expression for the whole value. Neither:
-// the default of its place.
-message BindingValue {
-  repeated BindingField fields = 1;
-  // CEL expression; exclusive with fields.
-  string expr = 2;
-}
-
-// BindingField is one field of an object built by CEL.
-message BindingField {
-  // JSON field name.
-  string name = 1;
-  // CEL expression of its value.
-  string expr = 2;
-}
-
-// BindingRetry is the retry policy of a step; zero fields are unset.
-message BindingRetry {
-  // Attempts in total, the first included.
-  uint32 attempts = 1;
-  google.protobuf.Duration initial_interval = 2;
-  google.protobuf.Duration max_interval = 3;
-  // Multiplier of the interval after each attempt (>= 1).
-  double backoff = 4;
+  // By name. Order is not significant: a step runs once the steps it
+  // depends on are done (ties by name).
+  map<string, Step> steps = 2;
+  // The hook's output, a value over `req` and the steps; absent: {}.
+  google.protobuf.Value result = 3;
+  // Free text for people; not executed.
+  string description = 4;
+  // The graph editor's layout; ignored by compile and execution.
+  EditorLayout editor = 15;
 }
 
 // BindingVersion is one saved version of a hook's binding.
@@ -160,6 +108,10 @@ enum BindingState {
   BINDING_STATE_UNBOUND = 2;
   // No binding and the hook is required: calls fail with "no binding".
   BINDING_STATE_REQUIRED_UNBOUND = 3;
+  // The current version is a definition that no longer compiles against
+  // the latest manifests (a service changed a contract it uses): calls
+  // fail until it is fixed. HookBinding.violations say why.
+  BINDING_STATE_BROKEN = 4;
 }
 
 // HookBinding is a hook and its binding, as ListBindings shows it.
@@ -175,28 +127,9 @@ message HookBinding {
   BindingState state = 6;
   // Current version; absent before the first save.
   BindingVersion current = 7;
-}
-
-// BindingViolation is one reason a definition is rejected.
-message BindingViolation {
-  // Place in the definition: "hook", "steps[1].input.to", "result",
-  // "steps[0].retry.attempts"; empty for the whole definition.
-  string path = 1;
-  // Machine code: INVALID_NAME, RESERVED_NAME, DUPLICATE_STEP,
-  // UNKNOWN_HOOK, UNKNOWN_EVENT, UNKNOWN_ACTIVITY, UNKNOWN_STEP, CYCLE,
-  // UNDO_REFERENCE, CEL_ERROR, TYPE_MISMATCH, MISSING_FIELD, UNKNOWN_FIELD,
-  // DUPLICATE_FIELD, INVALID_VALUE, INVALID_OPTION.
-  string code = 2;
-  string message = 3;
-}
-
-// BindingParseError is where the text form does not read.
-message BindingParseError {
-  // From 1; 0 when the error is not tied to a place.
-  uint32 line = 1;
-  // From 1, in characters.
-  uint32 column = 2;
-  string message = 3;
+  // Why the current definition does not compile against the latest
+  // manifests (state BROKEN); empty otherwise.
+  repeated Violation violations = 8;
 }
 
 message ListBindingsRequest {
@@ -217,6 +150,9 @@ message GetBindingRequest {
 
 message GetBindingResponse {
   BindingVersion version = 1;
+  // Why the version does not compile against the latest manifests; empty
+  // when it does (or is a tombstone).
+  repeated Violation violations = 2;
 }
 
 message ListBindingVersionsRequest {
@@ -239,19 +175,24 @@ message ValidateBindingRequest {
 
 message ValidateBindingResponse {
   // Empty: the definition is valid.
-  repeated BindingViolation violations = 1;
+  repeated Violation violations = 1;
 }
 
 message SaveBindingRequest {
   BindingDefinition definition = 1;
   string comment = 2;
+  // The current version the edit started from (0: the hook had no
+  // binding). Set: the save is refused with ABORTED when the current
+  // version is another one, so two editors never overwrite each other
+  // silently. Unset: no check.
+  optional uint64 base_version = 3;
 }
 
 message SaveBindingResponse {
   // The saved version; absent when the definition is rejected.
   BindingVersion version = 1;
   // Why the definition is rejected; empty when saved.
-  repeated BindingViolation violations = 2;
+  repeated Violation violations = 2;
 }
 
 message RollbackBindingRequest {
@@ -259,6 +200,8 @@ message RollbackBindingRequest {
   // The version whose definition becomes the new version.
   uint64 version = 2;
   string comment = 3;
+  // As SaveBindingRequest.base_version.
+  optional uint64 base_version = 4;
 }
 
 message RollbackBindingResponse {
@@ -266,35 +209,19 @@ message RollbackBindingResponse {
   BindingVersion version = 1;
   // Why the definition is rejected now (manifests may have changed since);
   // empty when saved.
-  repeated BindingViolation violations = 2;
+  repeated Violation violations = 2;
 }
 
 message DeleteBindingRequest {
   string hook = 1;
   string comment = 2;
+  // As SaveBindingRequest.base_version.
+  optional uint64 base_version = 3;
 }
 
 message DeleteBindingResponse {
   // The tombstone.
   BindingVersion version = 1;
-}
-
-message ParseBindingRequest {
-  string text = 1;
-}
-
-message ParseBindingResponse {
-  // Absent when the text does not read.
-  BindingDefinition definition = 1;
-  repeated BindingParseError errors = 2;
-}
-
-message FormatBindingRequest {
-  BindingDefinition definition = 1;
-}
-
-message FormatBindingResponse {
-  string text = 1;
 }
 
 message WatchBindingsRequest {
@@ -327,7 +254,7 @@ message TestBindingRequest {
 message TestBindingResponse {
   // Violations of the definition (or of the saved version against today's
   // manifests); when present nothing ran.
-  repeated BindingViolation violations = 1;
+  repeated Violation violations = 1;
   // The run's end: output (the hook's result) or the error ("step send:
   // smtp.Send: ...", "transform failed at ..."). Absent with violations.
   CallResult result = 2;
@@ -362,47 +289,6 @@ message GetBindingRunRequest {
   string run_id = 2;
 }
 
-// StepRunStatus is where a step's call is.
-enum StepRunStatus {
-  STEP_RUN_STATUS_UNSPECIFIED = 0;
-  // Never scheduled: skipped by its `when`, or not reached (an earlier
-  // step failed, the run is still before it, or was canceled).
-  STEP_RUN_STATUS_NOT_RUN = 1;
-  // Scheduled, not yet picked up by the target service.
-  STEP_RUN_STATUS_SCHEDULED = 2;
-  // An attempt is running.
-  STEP_RUN_STATUS_STARTED = 3;
-  STEP_RUN_STATUS_COMPLETED = 4;
-  STEP_RUN_STATUS_FAILED = 5;
-  STEP_RUN_STATUS_TIMED_OUT = 6;
-  STEP_RUN_STATUS_CANCELED = 7;
-}
-
-// BindingStepRun is one call of a run: a step, or the compensation (undo)
-// of one.
-message BindingStepRun {
-  string step = 1;
-  // Full activity name: the step's activity, or its undo activity.
-  string activity = 2;
-  // The call is the step's compensation.
-  bool undo = 3;
-  // The activity is a workflow (a child workflow of the run).
-  bool workflow = 4;
-  StepRunStatus status = 5;
-  // Of the last attempt that started; 0 before the first.
-  int32 attempt = 6;
-  google.protobuf.Timestamp scheduled_time = 7;
-  google.protobuf.Timestamp started_time = 8;
-  google.protobuf.Timestamp close_time = 9;
-  // ActivityCall.payload, JSON text.
-  string input = 10;
-  // ActivityResult.payload, JSON text; empty until completed.
-  string output = 11;
-  // The failure's message and application error type.
-  string error = 12;
-  string error_type = 13;
-}
-
 message GetBindingRunResponse {
   // The run as WorkflowService.GetRun shows it.
   GetRunResponse run = 1;
@@ -411,9 +297,9 @@ message GetBindingRunResponse {
   string hook = 2;
   uint64 version = 3;
   bool test = 4;
-  // The program's steps in declaration order, then every compensation in
+  // The program's steps by name, then every compensation in
   // the order it was scheduled.
-  repeated BindingStepRun steps = 5;
+  repeated StepRun steps = 5;
 }
 
 message CancelBindingRunRequest {

@@ -125,6 +125,27 @@ type SavedRule struct {
 	Violations []Violation
 }
 
+// Base is the version an edit started from. The zero Base skips the
+// check; At(v) refuses the edit with ErrConflict when the current version
+// is another one (0: none yet).
+type Base struct {
+	version int64
+	set     bool
+}
+
+// At is the base version v.
+func At(v int64) Base { return Base{version: v, set: true} }
+
+// check is ErrConflict when the edit started from another version than
+// current.
+func (b Base) check(current int64) error {
+	if !b.set || b.version == current {
+		return nil
+	}
+
+	return fmt.Errorf("%w: the current version is %d, the edit started from %d", ErrConflict, current, b.version)
+}
+
 func rollbackOf(v int64) *int64 {
 	if v <= 0 {
 		return nil
@@ -255,38 +276,40 @@ func (m *Manager) Validate(b Binding) ([]Violation, error) {
 
 // Save validates b and saves it as the next version of its hook's
 // binding. Rejected: nothing is saved.
-func (m *Manager) Save(ctx context.Context, b Binding, comment string) (Saved, error) {
-	return m.save(ctx, b, comment, 0)
+func (m *Manager) Save(ctx context.Context, b Binding, comment string, base Base) (Saved, error) {
+	return m.save(ctx, b, comment, 0, base)
 }
 
 // Rollback saves the definition of an older version as the next one
 // (validated again: manifests may have changed); rolling back to a
 // tombstone deletes.
-func (m *Manager) Rollback(ctx context.Context, hook string, version int64, comment string) (Saved, error) {
+func (m *Manager) Rollback(
+	ctx context.Context, hook string, version int64, comment string, base Base,
+) (Saved, error) {
 	old, err := m.Version(ctx, hook, version)
 	if err != nil {
 		return Saved{}, err
 	}
 
 	if old.Deleted {
-		v, err := m.insertBinding(ctx, hook, nil, m.author(ctx), comment, version)
+		v, err := m.insertBinding(ctx, hook, nil, m.author(ctx), comment, version, base)
 
 		return Saved{Version: v}, err
 	}
 
-	return m.save(ctx, old.Binding, comment, version)
+	return m.save(ctx, old.Binding, comment, version, base)
 }
 
 // Delete saves a tombstone: the hook becomes unbound. ErrNoBinding when it
 // has no binding in force.
-func (m *Manager) Delete(ctx context.Context, hook, comment string) (BindingVersion, error) {
+func (m *Manager) Delete(ctx context.Context, hook, comment string, base Base) (BindingVersion, error) {
 	if _, _, err := m.Active(ctx, hook); err != nil {
 		return BindingVersion{}, err
 	}
 
 	author := m.author(ctx)
 
-	v, err := m.insertBinding(ctx, hook, nil, author, comment, 0)
+	v, err := m.insertBinding(ctx, hook, nil, author, comment, 0, base)
 	if err != nil {
 		return BindingVersion{}, err
 	}
@@ -297,7 +320,7 @@ func (m *Manager) Delete(ctx context.Context, hook, comment string) (BindingVers
 	return v, nil
 }
 
-func (m *Manager) save(ctx context.Context, b Binding, comment string, rollback int64) (Saved, error) {
+func (m *Manager) save(ctx context.Context, b Binding, comment string, rollback int64, base Base) (Saved, error) {
 	violations, err := m.Validate(b)
 	if err != nil {
 		return Saved{}, err
@@ -317,7 +340,7 @@ func (m *Manager) save(ctx context.Context, b Binding, comment string, rollback 
 		return Saved{}, err
 	}
 
-	v, err := m.insertBinding(ctx, b.Hook, def, author, comment, rollback)
+	v, err := m.insertBinding(ctx, b.Hook, def, author, comment, rollback, base)
 	if err != nil {
 		return Saved{}, err
 	}
@@ -331,7 +354,7 @@ func (m *Manager) save(ctx context.Context, b Binding, comment string, rollback 
 // insertBinding stores the next version (definition nil: a tombstone) and
 // makes it current, in one serializable transaction.
 func (m *Manager) insertBinding(
-	ctx context.Context, hook string, def json.RawMessage, author, comment string, rollback int64,
+	ctx context.Context, hook string, def json.RawMessage, author, comment string, rollback int64, base Base,
 ) (BindingVersion, error) {
 	st := m.store.Get()
 
@@ -341,6 +364,10 @@ func (m *Manager) insertBinding(
 		next, err := st.Q.NextBindingVersion(ctx, hook)
 		if err != nil {
 			return fmt.Errorf("next version: %w", err)
+		}
+
+		if err := base.check(next.Version - 1); err != nil {
+			return err
 		}
 
 		saved, err = st.Q.InsertBindingVersion(ctx, db.InsertBindingVersionParams{
@@ -485,7 +512,7 @@ func (m *Manager) ValidateRule(name string, r Rule) ([]Violation, error) {
 	}
 
 	if strings.TrimSpace(name) == "" {
-		vs = append([]Violation{{Path: "name", Code: CodeInvalidName, Message: "a rule needs a name"}}, vs...)
+		vs = append([]Violation{{Path: "/name", Code: CodeInvalidName, Message: "a rule needs a name"}}, vs...)
 	}
 
 	return vs, nil
@@ -493,30 +520,34 @@ func (m *Manager) ValidateRule(name string, r Rule) ([]Violation, error) {
 
 // SaveRule validates r and saves it as the next version of the rule;
 // uuid.Nil creates a rule. Rejected: nothing is saved.
-func (m *Manager) SaveRule(ctx context.Context, id uuid.UUID, name string, r Rule, comment string) (SavedRule, error) {
-	return m.saveRule(ctx, id, name, r, comment, 0)
+func (m *Manager) SaveRule(
+	ctx context.Context, id uuid.UUID, name string, r Rule, comment string, base Base,
+) (SavedRule, error) {
+	return m.saveRule(ctx, id, name, r, comment, 0, base)
 }
 
 // RollbackRule saves the name and definition of an older version as the
 // next one; rolling back to a tombstone deletes.
-func (m *Manager) RollbackRule(ctx context.Context, id uuid.UUID, version int64, comment string) (SavedRule, error) {
+func (m *Manager) RollbackRule(
+	ctx context.Context, id uuid.UUID, version int64, comment string, base Base,
+) (SavedRule, error) {
 	old, err := m.RuleVersion(ctx, id, version)
 	if err != nil {
 		return SavedRule{}, err
 	}
 
 	if old.Deleted {
-		v, err := m.insertRule(ctx, id, old.Name, nil, m.author(ctx), comment, version)
+		v, err := m.insertRule(ctx, id, old.Name, nil, m.author(ctx), comment, version, base)
 
 		return SavedRule{Version: v}, err
 	}
 
-	return m.saveRule(ctx, id, old.Name, old.Rule, comment, version)
+	return m.saveRule(ctx, id, old.Name, old.Rule, comment, version, base)
 }
 
 // DeleteRule saves a tombstone: the rule stops. ErrDeleted when it is
 // deleted already.
-func (m *Manager) DeleteRule(ctx context.Context, id uuid.UUID, comment string) (RuleVersion, error) {
+func (m *Manager) DeleteRule(ctx context.Context, id uuid.UUID, comment string, base Base) (RuleVersion, error) {
 	e, err := m.Rule(ctx, id)
 	if err != nil {
 		return RuleVersion{}, err
@@ -528,7 +559,7 @@ func (m *Manager) DeleteRule(ctx context.Context, id uuid.UUID, comment string) 
 
 	author := m.author(ctx)
 
-	v, err := m.insertRule(ctx, id, e.Current.Name, nil, author, comment, 0)
+	v, err := m.insertRule(ctx, id, e.Current.Name, nil, author, comment, 0, base)
 	if err != nil {
 		return RuleVersion{}, err
 	}
@@ -540,10 +571,25 @@ func (m *Manager) DeleteRule(ctx context.Context, id uuid.UUID, comment string) 
 }
 
 // PauseRule sets the rule's pause: paused rules start no runs.
-func (m *Manager) PauseRule(ctx context.Context, id uuid.UUID, paused bool) (RuleEntry, error) {
+func (m *Manager) PauseRule(ctx context.Context, id uuid.UUID, paused bool, base Base) (RuleEntry, error) {
 	st := m.store.Get()
 
 	err := st.InTx(ctx, func(ctx context.Context) error {
+		if base.set {
+			current, err := st.Q.GetCurrentRule(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("%w: %s", ErrNoRule, id)
+			}
+
+			if err != nil {
+				return fmt.Errorf("bindings: rule %s: %w", id, err)
+			}
+
+			if err := base.check(current.Version); err != nil {
+				return err
+			}
+		}
+
 		if _, updateErr := st.Q.SetRulePaused(ctx, db.SetRulePausedParams{Paused: paused, ID: id}); updateErr != nil {
 			if errors.Is(updateErr, pgx.ErrNoRows) {
 				return fmt.Errorf("%w: %s", ErrNoRule, id)
@@ -571,7 +617,7 @@ func (m *Manager) PauseRule(ctx context.Context, id uuid.UUID, paused bool) (Rul
 }
 
 func (m *Manager) saveRule(
-	ctx context.Context, id uuid.UUID, name string, r Rule, comment string, rollback int64,
+	ctx context.Context, id uuid.UUID, name string, r Rule, comment string, rollback int64, base Base,
 ) (SavedRule, error) {
 	if id != uuid.Nil {
 		if _, err := m.Rule(ctx, id); err != nil {
@@ -598,7 +644,7 @@ func (m *Manager) saveRule(
 		return SavedRule{}, err
 	}
 
-	v, err := m.insertRule(ctx, id, strings.TrimSpace(name), def, author, comment, rollback)
+	v, err := m.insertRule(ctx, id, strings.TrimSpace(name), def, author, comment, rollback, base)
 	if err != nil {
 		return SavedRule{}, err
 	}
@@ -613,6 +659,7 @@ func (m *Manager) saveRule(
 // uuid.Nil; definition nil: a tombstone) and makes it current.
 func (m *Manager) insertRule(
 	ctx context.Context, id uuid.UUID, name string, def json.RawMessage, author, comment string, rollback int64,
+	base Base,
 ) (RuleVersion, error) {
 	st := m.store.Get()
 
@@ -635,6 +682,12 @@ func (m *Manager) insertRule(
 		next, err := st.Q.NextRuleVersion(ctx, ruleID)
 		if err != nil {
 			return fmt.Errorf("next version: %w", err)
+		}
+
+		if id != uuid.Nil {
+			if err := base.check(next.Version - 1); err != nil {
+				return err
+			}
 		}
 
 		saved, err = st.Q.InsertRuleVersion(ctx, db.InsertRuleVersionParams{

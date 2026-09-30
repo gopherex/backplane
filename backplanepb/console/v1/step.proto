@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// The parts bindings and rules share: steps, violations, the editor's
+// layout and the timeline of a run.
+//
+// Values (a step's input, a binding's result) are JSON trees
+// (google.protobuf.Value): a string is a CEL expression, an object is an
+// object built field by field (recursively), a list is a list, numbers,
+// booleans and null are literals. A literal string is a CEL string literal
+// ("'hello'"). Expressions see `req` (a binding's hook input) or `event`
+// and `meta` (a rule's event and its CloudEvents attributes), the output
+// of every step by its name, and `steps.<name>.skipped`.
+
+// Step is one call of an activity. Its name is its key in the definition's
+// steps: an identifier, the CEL variable of its output.
+message Step {
+  // Full activity name "<service>.<Activity>".
+  string activity = 1;
+  // The activity's input; absent: {}.
+  google.protobuf.Value input = 2;
+  // CEL bool: the step runs only when true; empty: always.
+  string when = 3;
+  // Steps this one runs after besides those its expressions reference.
+  repeated string after = 4;
+  // Compensation: full activity name run when a later step fails (saga);
+  // empty: none.
+  string undo = 5;
+  // The undo activity's input; absent: the step's output.
+  google.protobuf.Value undo_input = 6;
+  // Unset fields take the activity's manifest defaults, then the
+  // platform's.
+  StepRetry retry = 7;
+  // One attempt (one run of a workflow activity); unset: the activity's
+  // default, then the platform's.
+  google.protobuf.Duration start_to_close = 8;
+  // An attempt without a heartbeat this long is lost; unset: the
+  // activity's default, else none.
+  google.protobuf.Duration heartbeat = 9;
+  // Free text for people; not executed.
+  string description = 10;
+}
+
+// StepRetry is the retry policy of a step; zero fields are unset.
+message StepRetry {
+  // Attempts in total, the first included.
+  uint32 attempts = 1;
+  google.protobuf.Duration initial_interval = 2;
+  google.protobuf.Duration max_interval = 3;
+  // Multiplier of the interval after each attempt (>= 1).
+  double backoff = 4;
+}
+
+// Violation is one reason a definition is rejected, or why a saved one no
+// longer compiles against today's manifests.
+message Violation {
+  // JSON Pointer (RFC 6901) of the place in the definition, by key:
+  // "/hook", "/steps/send/input/subject", "/steps/send/retry/attempts",
+  // "/result"; empty for the whole definition.
+  string path = 1;
+  // Machine code: INVALID_NAME, RESERVED_NAME, UNKNOWN_HOOK,
+  // UNKNOWN_EVENT, UNKNOWN_ACTIVITY, UNKNOWN_STEP, CYCLE, UNDO_REFERENCE,
+  // CEL_ERROR, COST, TYPE_MISMATCH, MISSING_FIELD, UNKNOWN_FIELD,
+  // INVALID_VALUE, INVALID_OPTION.
+  string code = 2;
+  string message = 3;
+  // Where in the expression at path the problem is; absent when it is the
+  // place itself (a missing field, an unknown activity).
+  Range expr = 4;
+}
+
+// Range is a span of an expression's text, in Unicode code points from 0;
+// end is exclusive.
+message Range {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+// EditorLayout is how the graph editor draws a definition. Compile and
+// execution ignore it; it is saved with the definition so every editor
+// sees the same picture.
+message EditorLayout {
+  // Node positions by node: a step name, "$trigger" (the hook's input or
+  // the event) or "$result" (a binding's output).
+  map<string, EditorPoint> nodes = 1;
+  repeated EditorNote notes = 2;
+}
+
+// EditorPoint is a position on the editor's canvas.
+message EditorPoint {
+  double x = 1;
+  double y = 2;
+}
+
+// EditorNote is a sticky note on the canvas.
+message EditorNote {
+  string text = 1;
+  EditorPoint at = 2;
+  // Width on the canvas; 0: the editor's default.
+  double width = 3;
+}
+
+// StepRunStatus is where a step's call is.
+enum StepRunStatus {
+  STEP_RUN_STATUS_UNSPECIFIED = 0;
+  // Never scheduled: skipped by its `when`, or not reached (an earlier
+  // step failed, the run is still before it, or was canceled).
+  STEP_RUN_STATUS_NOT_RUN = 1;
+  // Scheduled, not yet picked up by the target service.
+  STEP_RUN_STATUS_SCHEDULED = 2;
+  // An attempt is running.
+  STEP_RUN_STATUS_STARTED = 3;
+  STEP_RUN_STATUS_COMPLETED = 4;
+  STEP_RUN_STATUS_FAILED = 5;
+  STEP_RUN_STATUS_TIMED_OUT = 6;
+  STEP_RUN_STATUS_CANCELED = 7;
+}
+
+// StepRun is one call of a binding's or rule's run: a step, or the
+// compensation (undo) of one.
+message StepRun {
+  string step = 1;
+  // Full activity name: the step's activity, or its undo activity.
+  string activity = 2;
+  // The call is the step's compensation.
+  bool undo = 3;
+  // The activity is a workflow (a child workflow of the run).
+  bool workflow = 4;
+  StepRunStatus status = 5;
+  // Of the last attempt that started; 0 before the first.
+  int32 attempt = 6;
+  google.protobuf.Timestamp scheduled_time = 7;
+  google.protobuf.Timestamp started_time = 8;
+  google.protobuf.Timestamp close_time = 9;
+  // ActivityCall.payload, JSON text.
+  string input = 10;
+  // ActivityResult.payload, JSON text; empty until completed.
+  string output = 11;
+  // The failure's message and application error type.
+  string error = 12;
+  string error_type = 13;
+}

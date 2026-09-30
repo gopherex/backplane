@@ -26,8 +26,6 @@ const (
 	BindingService_SaveBinding_FullMethodName         = "/backplane.console.v1.BindingService/SaveBinding"
 	BindingService_RollbackBinding_FullMethodName     = "/backplane.console.v1.BindingService/RollbackBinding"
 	BindingService_DeleteBinding_FullMethodName       = "/backplane.console.v1.BindingService/DeleteBinding"
-	BindingService_ParseBinding_FullMethodName        = "/backplane.console.v1.BindingService/ParseBinding"
-	BindingService_FormatBinding_FullMethodName       = "/backplane.console.v1.BindingService/FormatBinding"
 	BindingService_WatchBindings_FullMethodName       = "/backplane.console.v1.BindingService/WatchBindings"
 	BindingService_TestBinding_FullMethodName         = "/backplane.console.v1.BindingService/TestBinding"
 	BindingService_ListBindingRuns_FullMethodName     = "/backplane.console.v1.BindingService/ListBindingRuns"
@@ -44,7 +42,8 @@ const (
 // of other services, kept as versions in PostgreSQL. A save validates the
 // definition against the latest manifests (the hook, every activity, CEL
 // type-checked by the schemas); a delete is a tombstone version, so the
-// history stays.
+// history stays. A saved definition that stops compiling when a manifest
+// changes is BROKEN until fixed.
 //
 // Runs belong to the executor (internal/executor) and come as their own
 // RPCs next to these: TestBinding, ListBindingRuns, GetBindingRun,
@@ -73,11 +72,6 @@ type BindingServiceClient interface {
 	// DeleteBinding saves a tombstone version: the hook becomes unbound, the
 	// history stays.
 	DeleteBinding(ctx context.Context, in *DeleteBindingRequest, opts ...grpc.CallOption) (*DeleteBindingResponse, error)
-	// ParseBinding reads the text form of a binding (§7.1).
-	ParseBinding(ctx context.Context, in *ParseBindingRequest, opts ...grpc.CallOption) (*ParseBindingResponse, error)
-	// FormatBinding writes the text form of a definition; ParseBinding reads
-	// it back into the same definition.
-	FormatBinding(ctx context.Context, in *FormatBindingRequest, opts ...grpc.CallOption) (*FormatBindingResponse, error)
 	// WatchBindings streams ListBindings: now, then again whenever it
 	// changes (a save on any replica, a manifest).
 	WatchBindings(ctx context.Context, in *WatchBindingsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchBindingsResponse], error)
@@ -175,26 +169,6 @@ func (c *bindingServiceClient) DeleteBinding(ctx context.Context, in *DeleteBind
 	return out, nil
 }
 
-func (c *bindingServiceClient) ParseBinding(ctx context.Context, in *ParseBindingRequest, opts ...grpc.CallOption) (*ParseBindingResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ParseBindingResponse)
-	err := c.cc.Invoke(ctx, BindingService_ParseBinding_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *bindingServiceClient) FormatBinding(ctx context.Context, in *FormatBindingRequest, opts ...grpc.CallOption) (*FormatBindingResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(FormatBindingResponse)
-	err := c.cc.Invoke(ctx, BindingService_FormatBinding_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *bindingServiceClient) WatchBindings(ctx context.Context, in *WatchBindingsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchBindingsResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &BindingService_ServiceDesc.Streams[0], BindingService_WatchBindings_FullMethodName, cOpts...)
@@ -263,7 +237,8 @@ func (c *bindingServiceClient) CancelBindingRun(ctx context.Context, in *CancelB
 // of other services, kept as versions in PostgreSQL. A save validates the
 // definition against the latest manifests (the hook, every activity, CEL
 // type-checked by the schemas); a delete is a tombstone version, so the
-// history stays.
+// history stays. A saved definition that stops compiling when a manifest
+// changes is BROKEN until fixed.
 //
 // Runs belong to the executor (internal/executor) and come as their own
 // RPCs next to these: TestBinding, ListBindingRuns, GetBindingRun,
@@ -292,11 +267,6 @@ type BindingServiceServer interface {
 	// DeleteBinding saves a tombstone version: the hook becomes unbound, the
 	// history stays.
 	DeleteBinding(context.Context, *DeleteBindingRequest) (*DeleteBindingResponse, error)
-	// ParseBinding reads the text form of a binding (§7.1).
-	ParseBinding(context.Context, *ParseBindingRequest) (*ParseBindingResponse, error)
-	// FormatBinding writes the text form of a definition; ParseBinding reads
-	// it back into the same definition.
-	FormatBinding(context.Context, *FormatBindingRequest) (*FormatBindingResponse, error)
 	// WatchBindings streams ListBindings: now, then again whenever it
 	// changes (a save on any replica, a manifest).
 	WatchBindings(*WatchBindingsRequest, grpc.ServerStreamingServer[WatchBindingsResponse]) error
@@ -344,12 +314,6 @@ func (UnimplementedBindingServiceServer) RollbackBinding(context.Context, *Rollb
 }
 func (UnimplementedBindingServiceServer) DeleteBinding(context.Context, *DeleteBindingRequest) (*DeleteBindingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteBinding not implemented")
-}
-func (UnimplementedBindingServiceServer) ParseBinding(context.Context, *ParseBindingRequest) (*ParseBindingResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ParseBinding not implemented")
-}
-func (UnimplementedBindingServiceServer) FormatBinding(context.Context, *FormatBindingRequest) (*FormatBindingResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method FormatBinding not implemented")
 }
 func (UnimplementedBindingServiceServer) WatchBindings(*WatchBindingsRequest, grpc.ServerStreamingServer[WatchBindingsResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchBindings not implemented")
@@ -513,42 +477,6 @@ func _BindingService_DeleteBinding_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
-func _BindingService_ParseBinding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ParseBindingRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BindingServiceServer).ParseBinding(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BindingService_ParseBinding_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BindingServiceServer).ParseBinding(ctx, req.(*ParseBindingRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _BindingService_FormatBinding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(FormatBindingRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(BindingServiceServer).FormatBinding(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BindingService_FormatBinding_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BindingServiceServer).FormatBinding(ctx, req.(*FormatBindingRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _BindingService_WatchBindings_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchBindingsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -666,14 +594,6 @@ var BindingService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteBinding",
 			Handler:    _BindingService_DeleteBinding_Handler,
-		},
-		{
-			MethodName: "ParseBinding",
-			Handler:    _BindingService_ParseBinding_Handler,
-		},
-		{
-			MethodName: "FormatBinding",
-			Handler:    _BindingService_FormatBinding_Handler,
 		},
 		{
 			MethodName: "TestBinding",

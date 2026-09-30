@@ -11,14 +11,27 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
+	"github.com/gopherex/backplane/internal/bindings"
 )
 
+// The example's definitions, as the console's YAML editor shows them.
 const (
-	Binding = `hello.Greet :=
-  formatted = formatter.Format(name: req.name)
-  return {text: formatted.text}`
-	Rule = `on hello.Greeted when event.name != "skip" :=
-  recorded = formatter.Record(name: event.name, text: event.text)`
+	Binding = `hook: hello.Greet
+description: Greets through the formatter service.
+steps:
+  formatted:
+    activity: formatter.Format
+    input: {name: req.name}
+result: {text: formatted.text}
+`
+	Rule = `event: hello.Greeted
+description: Records every greeting except "skip".
+when: event.name != "skip"
+steps:
+  recorded:
+    activity: formatter.Record
+    input: {name: event.name, text: event.text}
+`
 	RuleName = "hello-to-formatter"
 )
 
@@ -30,19 +43,14 @@ type Call func(context.Context, string, proto.Message, proto.Message) error
 // Install saves the example binding and creates or updates its named rule.
 // Re-running records new versions but never adds another active example rule.
 func Install(ctx context.Context, call Call) (string, error) {
-	var binding consolev1.ParseBindingResponse
-	if err := call(ctx, "/backplane.console.v1.BindingService/ParseBinding",
-		&consolev1.ParseBindingRequest{Text: Binding}, &binding); err != nil {
-		return "", fmt.Errorf("parse binding: %w", err)
-	}
-
-	if len(binding.GetErrors()) > 0 || binding.GetDefinition() == nil {
-		return "", fmt.Errorf("%w: parse binding: %v", ErrDefinition, binding.GetErrors())
+	binding, err := bindings.BindingYAML(Binding)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrDefinition, err)
 	}
 
 	var saved consolev1.SaveBindingResponse
 	if err := call(ctx, "/backplane.console.v1.BindingService/SaveBinding",
-		&consolev1.SaveBindingRequest{Definition: binding.GetDefinition(), Comment: "hello + formatter example"},
+		&consolev1.SaveBindingRequest{Definition: binding.PB(), Comment: "hello + formatter example"},
 		&saved); err != nil {
 		return "", fmt.Errorf("save binding: %w", err)
 	}
@@ -55,14 +63,9 @@ func Install(ctx context.Context, call Call) (string, error) {
 }
 
 func installRule(ctx context.Context, call Call) (string, error) {
-	var parsed consolev1.ParseRuleResponse
-	if err := call(ctx, "/backplane.console.v1.RuleService/ParseRule",
-		&consolev1.ParseRuleRequest{Text: Rule}, &parsed); err != nil {
-		return "", fmt.Errorf("parse rule: %w", err)
-	}
-
-	if len(parsed.GetErrors()) > 0 || parsed.GetDefinition() == nil {
-		return "", fmt.Errorf("%w: parse rule: %v", ErrDefinition, parsed.GetErrors())
+	rule, err := bindings.RuleYAML(Rule)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrDefinition, err)
 	}
 
 	var listed consolev1.ListRulesResponse
@@ -82,7 +85,7 @@ func installRule(ctx context.Context, call Call) (string, error) {
 
 	var saved consolev1.SaveRuleResponse
 	if err := call(ctx, "/backplane.console.v1.RuleService/SaveRule", &consolev1.SaveRuleRequest{
-		Id: id, Name: RuleName, Definition: parsed.GetDefinition(), Comment: "hello + formatter example",
+		Id: id, Name: RuleName, Definition: rule.PB(), Comment: "hello + formatter example",
 	}, &saved); err != nil {
 		return "", fmt.Errorf("save rule: %w", err)
 	}

@@ -19,7 +19,7 @@ PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
 GOLANGCI_LINT_VERSION      := v2.11.3
 SQLD_VERSION               := v1.1.3
 
-# Scratch database `make db-migration` realizes schemas in: sqld drops every
+# Scratch database `make db-init` realizes schemas in: sqld drops every
 # non-system schema in it, so never point it at a real database.
 DB_DEV_URL ?= postgres://backplane:backplane@localhost:5433/backplane_scratch?sslmode=disable
 
@@ -66,11 +66,17 @@ db: ## Generate the store's typed queries (internal/store/db) from schema and qu
 	"$(BIN)/sqld" generate -c sqld.yaml
 	"$(BIN)/sqld" migrate validate -c sqld.yaml
 
-.PHONY: db-migration
-db-migration: ## Write the next migration from the schema.sql diff: make db-migration name=<what>
-	@[ -n "$(name)" ] || { echo "usage: make db-migration name=<what>"; exit 2; }
-	docker compose exec -T postgres createdb -U backplane backplane_scratch 2>/dev/null || true
-	"$(BIN)/sqld" migrate generate "$(name)" -c sqld.yaml --dev-url "$(DB_DEV_URL)"
+.PHONY: db-init
+db-init: ## Regenerate the single init migration from schema.sql (pre-release: no history), then reset the local database
+	docker compose exec -T postgres dropdb -U backplane --if-exists backplane_scratch
+	docker compose exec -T postgres createdb -U backplane backplane_scratch
+	rm -f internal/store/migrations/*.sql
+	"$(BIN)/sqld" migrate generate init -c sqld.yaml --dev-url "$(DB_DEV_URL)"
+	@# The store creates the schema before migrating (sqld_migrations lives in it).
+	sed -i -e 's|^CREATE SCHEMA "backplane";|CREATE SCHEMA IF NOT EXISTS "backplane";|' \
+		-e '/^DROP SCHEMA "backplane";$$/d' internal/store/migrations/*_init.sql
+	"$(BIN)/sqld" migrate validate -c sqld.yaml
+	docker compose exec -T postgres psql -U backplane -d backplane -qc 'DROP SCHEMA IF EXISTS backplane CASCADE'
 
 .PHONY: lint
 lint: ## Lint proto files and Go code

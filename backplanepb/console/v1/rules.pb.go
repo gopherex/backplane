@@ -23,15 +23,82 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// RuleState is whether a rule runs.
+type RuleState int32
+
+const (
+	RuleState_RULE_STATE_UNSPECIFIED RuleState = 0
+	// Runs on every matching event.
+	RuleState_RULE_STATE_ACTIVE RuleState = 1
+	// Paused: no runs start.
+	RuleState_RULE_STATE_PAUSED RuleState = 2
+	// The current version is a tombstone.
+	RuleState_RULE_STATE_DELETED RuleState = 3
+	// The current definition no longer compiles against the latest
+	// manifests: no runs start until it is fixed. Rule.violations say why.
+	RuleState_RULE_STATE_BROKEN RuleState = 4
+)
+
+// Enum value maps for RuleState.
+var (
+	RuleState_name = map[int32]string{
+		0: "RULE_STATE_UNSPECIFIED",
+		1: "RULE_STATE_ACTIVE",
+		2: "RULE_STATE_PAUSED",
+		3: "RULE_STATE_DELETED",
+		4: "RULE_STATE_BROKEN",
+	}
+	RuleState_value = map[string]int32{
+		"RULE_STATE_UNSPECIFIED": 0,
+		"RULE_STATE_ACTIVE":      1,
+		"RULE_STATE_PAUSED":      2,
+		"RULE_STATE_DELETED":     3,
+		"RULE_STATE_BROKEN":      4,
+	}
+)
+
+func (x RuleState) Enum() *RuleState {
+	p := new(RuleState)
+	*p = x
+	return p
+}
+
+func (x RuleState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RuleState) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_console_v1_rules_proto_enumTypes[0].Descriptor()
+}
+
+func (RuleState) Type() protoreflect.EnumType {
+	return &file_backplanepb_console_v1_rules_proto_enumTypes[0]
+}
+
+func (x RuleState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RuleState.Descriptor instead.
+func (RuleState) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{0}
+}
+
 // RuleDefinition is what a rule says: the event, the filter and the steps.
+// Its protojson is the canonical form (the console edits it as YAML).
 type RuleDefinition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Full event name "<service>.<Event>".
 	Event string `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
 	// CEL bool over `event` and `meta`: the rule runs only when true;
 	// empty: always.
-	When          string         `protobuf:"bytes,2,opt,name=when,proto3" json:"when,omitempty"`
-	Steps         []*BindingStep `protobuf:"bytes,3,rep,name=steps,proto3" json:"steps,omitempty"`
+	When string `protobuf:"bytes,2,opt,name=when,proto3" json:"when,omitempty"`
+	// By name; order as in BindingDefinition.steps.
+	Steps map[string]*Step `protobuf:"bytes,3,rep,name=steps,proto3" json:"steps,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Free text for people; not executed.
+	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	// The graph editor's layout; ignored by compile and execution.
+	Editor        *EditorLayout `protobuf:"bytes,15,opt,name=editor,proto3" json:"editor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -80,9 +147,23 @@ func (x *RuleDefinition) GetWhen() string {
 	return ""
 }
 
-func (x *RuleDefinition) GetSteps() []*BindingStep {
+func (x *RuleDefinition) GetSteps() map[string]*Step {
 	if x != nil {
 		return x.Steps
+	}
+	return nil
+}
+
+func (x *RuleDefinition) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *RuleDefinition) GetEditor() *EditorLayout {
+	if x != nil {
+		return x.Editor
 	}
 	return nil
 }
@@ -207,9 +288,15 @@ type Rule struct {
 	// uuid.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// No runs start while paused.
-	Paused        bool                   `protobuf:"varint,2,opt,name=paused,proto3" json:"paused,omitempty"`
-	Current       *RuleVersion           `protobuf:"bytes,3,opt,name=current,proto3" json:"current,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Paused    bool                   `protobuf:"varint,2,opt,name=paused,proto3" json:"paused,omitempty"`
+	Current   *RuleVersion           `protobuf:"bytes,3,opt,name=current,proto3" json:"current,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// BROKEN wins over PAUSED: a paused rule that no longer compiles is
+	// broken.
+	State RuleState `protobuf:"varint,5,opt,name=state,proto3,enum=backplane.console.v1.RuleState" json:"state,omitempty"`
+	// Why the current definition does not compile against the latest
+	// manifests (state BROKEN); empty otherwise.
+	Violations    []*Violation `protobuf:"bytes,6,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -268,6 +355,20 @@ func (x *Rule) GetCurrent() *RuleVersion {
 func (x *Rule) GetCreatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *Rule) GetState() RuleState {
+	if x != nil {
+		return x.State
+	}
+	return RuleState_RULE_STATE_UNSPECIFIED
+}
+
+func (x *Rule) GetViolations() []*Violation {
+	if x != nil {
+		return x.Violations
 	}
 	return nil
 }
@@ -419,7 +520,10 @@ type GetRuleResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Rule  *Rule                  `protobuf:"bytes,1,opt,name=rule,proto3" json:"rule,omitempty"`
 	// The version asked for.
-	Version       *RuleVersion `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	Version *RuleVersion `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	// Why that version does not compile against the latest manifests;
+	// empty when it does (or is a tombstone).
+	Violations    []*Violation `protobuf:"bytes,3,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -464,6 +568,13 @@ func (x *GetRuleResponse) GetRule() *Rule {
 func (x *GetRuleResponse) GetVersion() *RuleVersion {
 	if x != nil {
 		return x.Version
+	}
+	return nil
+}
+
+func (x *GetRuleResponse) GetViolations() []*Violation {
+	if x != nil {
+		return x.Violations
 	}
 	return nil
 }
@@ -630,7 +741,7 @@ func (x *ValidateRuleRequest) GetDefinition() *RuleDefinition {
 type ValidateRuleResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty: the definition is valid.
-	Violations    []*BindingViolation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*Violation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -665,7 +776,7 @@ func (*ValidateRuleResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ValidateRuleResponse) GetViolations() []*BindingViolation {
+func (x *ValidateRuleResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -675,10 +786,14 @@ func (x *ValidateRuleResponse) GetViolations() []*BindingViolation {
 type SaveRuleRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty: a new rule.
-	Id            string          `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string          `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Definition    *RuleDefinition `protobuf:"bytes,3,opt,name=definition,proto3" json:"definition,omitempty"`
-	Comment       string          `protobuf:"bytes,4,opt,name=comment,proto3" json:"comment,omitempty"`
+	Id         string          `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name       string          `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Definition *RuleDefinition `protobuf:"bytes,3,opt,name=definition,proto3" json:"definition,omitempty"`
+	Comment    string          `protobuf:"bytes,4,opt,name=comment,proto3" json:"comment,omitempty"`
+	// The current version the edit started from. Set: the save is refused
+	// with ABORTED when the rule's current version is another one. Unset
+	// (and for a new rule): no check.
+	BaseVersion   *uint64 `protobuf:"varint,5,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -741,11 +856,18 @@ func (x *SaveRuleRequest) GetComment() string {
 	return ""
 }
 
+func (x *SaveRuleRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type SaveRuleResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The saved version; absent when the definition is rejected.
-	Version       *RuleVersion        `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Violations    []*BindingViolation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Version       *RuleVersion `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	Violations    []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -787,7 +909,7 @@ func (x *SaveRuleResponse) GetVersion() *RuleVersion {
 	return nil
 }
 
-func (x *SaveRuleResponse) GetViolations() []*BindingViolation {
+func (x *SaveRuleResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -798,8 +920,10 @@ type RollbackRuleRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The version whose name and definition become the new version.
-	Version       uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	Comment       string `protobuf:"bytes,3,opt,name=comment,proto3" json:"comment,omitempty"`
+	Version uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Comment string `protobuf:"bytes,3,opt,name=comment,proto3" json:"comment,omitempty"`
+	// As SaveRuleRequest.base_version.
+	BaseVersion   *uint64 `protobuf:"varint,4,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -855,10 +979,17 @@ func (x *RollbackRuleRequest) GetComment() string {
 	return ""
 }
 
+func (x *RollbackRuleRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type RollbackRuleResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       *RuleVersion           `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
-	Violations    []*BindingViolation    `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*Violation           `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -900,7 +1031,7 @@ func (x *RollbackRuleResponse) GetVersion() *RuleVersion {
 	return nil
 }
 
-func (x *RollbackRuleResponse) GetViolations() []*BindingViolation {
+func (x *RollbackRuleResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -908,9 +1039,11 @@ func (x *RollbackRuleResponse) GetViolations() []*BindingViolation {
 }
 
 type DeleteRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Comment       string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Comment string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	// As SaveRuleRequest.base_version.
+	BaseVersion   *uint64 `protobuf:"varint,3,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -959,6 +1092,13 @@ func (x *DeleteRuleRequest) GetComment() string {
 	return ""
 }
 
+func (x *DeleteRuleRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type DeleteRuleResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The tombstone.
@@ -1005,8 +1145,11 @@ func (x *DeleteRuleResponse) GetVersion() *RuleVersion {
 }
 
 type PauseRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// As SaveRuleRequest.base_version: the pause applies to the version the
+	// operator saw.
+	BaseVersion   *uint64 `protobuf:"varint,2,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1046,6 +1189,13 @@ func (x *PauseRuleRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *PauseRuleRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
 }
 
 type PauseRuleResponse struct {
@@ -1093,8 +1243,10 @@ func (x *PauseRuleResponse) GetRule() *Rule {
 }
 
 type ResumeRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// As PauseRuleRequest.base_version.
+	BaseVersion   *uint64 `protobuf:"varint,2,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1134,6 +1286,13 @@ func (x *ResumeRuleRequest) GetId() string {
 		return x.Id
 	}
 	return ""
+}
+
+func (x *ResumeRuleRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
 }
 
 type ResumeRuleResponse struct {
@@ -1180,191 +1339,6 @@ func (x *ResumeRuleResponse) GetRule() *Rule {
 	return nil
 }
 
-type ParseRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ParseRuleRequest) Reset() {
-	*x = ParseRuleRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[21]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ParseRuleRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ParseRuleRequest) ProtoMessage() {}
-
-func (x *ParseRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[21]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ParseRuleRequest.ProtoReflect.Descriptor instead.
-func (*ParseRuleRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{21}
-}
-
-func (x *ParseRuleRequest) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-type ParseRuleResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Absent when the text does not read.
-	Definition    *RuleDefinition      `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
-	Errors        []*BindingParseError `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ParseRuleResponse) Reset() {
-	*x = ParseRuleResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[22]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ParseRuleResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ParseRuleResponse) ProtoMessage() {}
-
-func (x *ParseRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[22]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ParseRuleResponse.ProtoReflect.Descriptor instead.
-func (*ParseRuleResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{22}
-}
-
-func (x *ParseRuleResponse) GetDefinition() *RuleDefinition {
-	if x != nil {
-		return x.Definition
-	}
-	return nil
-}
-
-func (x *ParseRuleResponse) GetErrors() []*BindingParseError {
-	if x != nil {
-		return x.Errors
-	}
-	return nil
-}
-
-type FormatRuleRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Definition    *RuleDefinition        `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FormatRuleRequest) Reset() {
-	*x = FormatRuleRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FormatRuleRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FormatRuleRequest) ProtoMessage() {}
-
-func (x *FormatRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FormatRuleRequest.ProtoReflect.Descriptor instead.
-func (*FormatRuleRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{23}
-}
-
-func (x *FormatRuleRequest) GetDefinition() *RuleDefinition {
-	if x != nil {
-		return x.Definition
-	}
-	return nil
-}
-
-type FormatRuleResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FormatRuleResponse) Reset() {
-	*x = FormatRuleResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[24]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FormatRuleResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FormatRuleResponse) ProtoMessage() {}
-
-func (x *FormatRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[24]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FormatRuleResponse.ProtoReflect.Descriptor instead.
-func (*FormatRuleResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{24}
-}
-
-func (x *FormatRuleResponse) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
 type WatchRulesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Only rules of this event; empty: all.
@@ -1375,7 +1349,7 @@ type WatchRulesRequest struct {
 
 func (x *WatchRulesRequest) Reset() {
 	*x = WatchRulesRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[25]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1387,7 +1361,7 @@ func (x *WatchRulesRequest) String() string {
 func (*WatchRulesRequest) ProtoMessage() {}
 
 func (x *WatchRulesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[25]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1400,7 +1374,7 @@ func (x *WatchRulesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchRulesRequest.ProtoReflect.Descriptor instead.
 func (*WatchRulesRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{25}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *WatchRulesRequest) GetEvent() string {
@@ -1419,7 +1393,7 @@ type WatchRulesResponse struct {
 
 func (x *WatchRulesResponse) Reset() {
 	*x = WatchRulesResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[26]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1405,7 @@ func (x *WatchRulesResponse) String() string {
 func (*WatchRulesResponse) ProtoMessage() {}
 
 func (x *WatchRulesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[26]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1444,7 +1418,7 @@ func (x *WatchRulesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchRulesResponse.ProtoReflect.Descriptor instead.
 func (*WatchRulesResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{26}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *WatchRulesResponse) GetRules() []*Rule {
@@ -1474,7 +1448,7 @@ type RuleEventMeta struct {
 
 func (x *RuleEventMeta) Reset() {
 	*x = RuleEventMeta{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[27]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1486,7 +1460,7 @@ func (x *RuleEventMeta) String() string {
 func (*RuleEventMeta) ProtoMessage() {}
 
 func (x *RuleEventMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[27]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1499,7 +1473,7 @@ func (x *RuleEventMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleEventMeta.ProtoReflect.Descriptor instead.
 func (*RuleEventMeta) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{27}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RuleEventMeta) GetId() string {
@@ -1558,7 +1532,7 @@ type TestRuleRequest struct {
 
 func (x *TestRuleRequest) Reset() {
 	*x = TestRuleRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[28]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1544,7 @@ func (x *TestRuleRequest) String() string {
 func (*TestRuleRequest) ProtoMessage() {}
 
 func (x *TestRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[28]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1557,7 @@ func (x *TestRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRuleRequest.ProtoReflect.Descriptor instead.
 func (*TestRuleRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{28}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *TestRuleRequest) GetId() string {
@@ -1638,7 +1612,7 @@ func (x *TestRuleRequest) GetTimeout() *durationpb.Duration {
 type TestRuleResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Violations of the definition; when present nothing was evaluated.
-	Violations []*BindingViolation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations []*Violation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
 	// The event matched `when` (a rule without when always matches).
 	Matched bool `protobuf:"varint,2,opt,name=matched,proto3" json:"matched,omitempty"`
 	// The event or `when` failed to evaluate ("transform failed at when:
@@ -1654,7 +1628,7 @@ type TestRuleResponse struct {
 
 func (x *TestRuleResponse) Reset() {
 	*x = TestRuleResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[29]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1666,7 +1640,7 @@ func (x *TestRuleResponse) String() string {
 func (*TestRuleResponse) ProtoMessage() {}
 
 func (x *TestRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[29]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1679,10 +1653,10 @@ func (x *TestRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRuleResponse.ProtoReflect.Descriptor instead.
 func (*TestRuleResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{29}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{25}
 }
 
-func (x *TestRuleResponse) GetViolations() []*BindingViolation {
+func (x *TestRuleResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -1734,7 +1708,7 @@ type ListRuleRunsRequest struct {
 
 func (x *ListRuleRunsRequest) Reset() {
 	*x = ListRuleRunsRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[30]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1746,7 +1720,7 @@ func (x *ListRuleRunsRequest) String() string {
 func (*ListRuleRunsRequest) ProtoMessage() {}
 
 func (x *ListRuleRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[30]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1759,7 +1733,7 @@ func (x *ListRuleRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListRuleRunsRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{30}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ListRuleRunsRequest) GetId() string {
@@ -1810,7 +1784,7 @@ type ListRuleRunsResponse struct {
 
 func (x *ListRuleRunsResponse) Reset() {
 	*x = ListRuleRunsResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[31]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1822,7 +1796,7 @@ func (x *ListRuleRunsResponse) String() string {
 func (*ListRuleRunsResponse) ProtoMessage() {}
 
 func (x *ListRuleRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[31]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1835,7 +1809,7 @@ func (x *ListRuleRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListRuleRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListRuleRunsResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{31}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ListRuleRunsResponse) GetRuns() []*Run {
@@ -1861,7 +1835,9 @@ func (x *ListRuleRunsResponse) GetQuery() string {
 
 type GetRuleRunRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The rule; empty for a test run of an unsaved definition
+	// (test/rule/draft/...).
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// A run of the rule: rule/<id>/... or test/rule/<id>/...
 	WorkflowId string `protobuf:"bytes,2,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
 	// Empty: the latest run.
@@ -1872,7 +1848,7 @@ type GetRuleRunRequest struct {
 
 func (x *GetRuleRunRequest) Reset() {
 	*x = GetRuleRunRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[32]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1884,7 +1860,7 @@ func (x *GetRuleRunRequest) String() string {
 func (*GetRuleRunRequest) ProtoMessage() {}
 
 func (x *GetRuleRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[32]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1897,7 +1873,7 @@ func (x *GetRuleRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuleRunRequest.ProtoReflect.Descriptor instead.
 func (*GetRuleRunRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{32}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GetRuleRunRequest) GetId() string {
@@ -1922,15 +1898,22 @@ func (x *GetRuleRunRequest) GetRunId() string {
 }
 
 type GetRuleRunResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Run           *GetRunResponse        `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Run   *GetRunResponse        `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	// The version that ran (0: an unsaved definition) and whether it is a
+	// test run.
+	Version uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Test    bool   `protobuf:"varint,3,opt,name=test,proto3" json:"test,omitempty"`
+	// The program's steps by name, then every compensation in
+	// the order it was scheduled.
+	Steps         []*StepRun `protobuf:"bytes,4,rep,name=steps,proto3" json:"steps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetRuleRunResponse) Reset() {
 	*x = GetRuleRunResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[33]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1942,7 +1925,7 @@ func (x *GetRuleRunResponse) String() string {
 func (*GetRuleRunResponse) ProtoMessage() {}
 
 func (x *GetRuleRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[33]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1955,7 +1938,7 @@ func (x *GetRuleRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRuleRunResponse.ProtoReflect.Descriptor instead.
 func (*GetRuleRunResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{33}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *GetRuleRunResponse) GetRun() *GetRunResponse {
@@ -1965,9 +1948,31 @@ func (x *GetRuleRunResponse) GetRun() *GetRunResponse {
 	return nil
 }
 
+func (x *GetRuleRunResponse) GetVersion() uint64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *GetRuleRunResponse) GetTest() bool {
+	if x != nil {
+		return x.Test
+	}
+	return false
+}
+
+func (x *GetRuleRunResponse) GetSteps() []*StepRun {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
 type CancelRuleRunRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// As GetRuleRunRequest.id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// A run of the rule: rule/<id>/... or test/rule/<id>/...
 	WorkflowId    string `protobuf:"bytes,2,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
 	RunId         string `protobuf:"bytes,3,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -1977,7 +1982,7 @@ type CancelRuleRunRequest struct {
 
 func (x *CancelRuleRunRequest) Reset() {
 	*x = CancelRuleRunRequest{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[34]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1989,7 +1994,7 @@ func (x *CancelRuleRunRequest) String() string {
 func (*CancelRuleRunRequest) ProtoMessage() {}
 
 func (x *CancelRuleRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[34]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2002,7 +2007,7 @@ func (x *CancelRuleRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRuleRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelRuleRunRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{34}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CancelRuleRunRequest) GetId() string {
@@ -2034,7 +2039,7 @@ type CancelRuleRunResponse struct {
 
 func (x *CancelRuleRunResponse) Reset() {
 	*x = CancelRuleRunResponse{}
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[35]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2046,7 +2051,7 @@ func (x *CancelRuleRunResponse) String() string {
 func (*CancelRuleRunResponse) ProtoMessage() {}
 
 func (x *CancelRuleRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[35]
+	mi := &file_backplanepb_console_v1_rules_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2059,18 +2064,24 @@ func (x *CancelRuleRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRuleRunResponse.ProtoReflect.Descriptor instead.
 func (*CancelRuleRunResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{35}
+	return file_backplanepb_console_v1_rules_proto_rawDescGZIP(), []int{31}
 }
 
 var File_backplanepb_console_v1_rules_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"\n" +
-	"\"backplanepb/console/v1/rules.proto\x12\x14backplane.console.v1\x1a%backplanepb/console/v1/bindings.proto\x1a\"backplanepb/console/v1/calls.proto\x1a&backplanepb/console/v1/workflows.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"s\n" +
+	"\"backplanepb/console/v1/rules.proto\x12\x14backplane.console.v1\x1a\"backplanepb/console/v1/calls.proto\x1a!backplanepb/console/v1/step.proto\x1a&backplanepb/console/v1/workflows.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb5\x02\n" +
 	"\x0eRuleDefinition\x12\x14\n" +
 	"\x05event\x18\x01 \x01(\tR\x05event\x12\x12\n" +
-	"\x04when\x18\x02 \x01(\tR\x04when\x127\n" +
-	"\x05steps\x18\x03 \x03(\v2!.backplane.console.v1.BindingStepR\x05steps\"\xc2\x02\n" +
+	"\x04when\x18\x02 \x01(\tR\x04when\x12E\n" +
+	"\x05steps\x18\x03 \x03(\v2/.backplane.console.v1.RuleDefinition.StepsEntryR\x05steps\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12:\n" +
+	"\x06editor\x18\x0f \x01(\v2\".backplane.console.v1.EditorLayoutR\x06editor\x1aT\n" +
+	"\n" +
+	"StepsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.backplane.console.v1.StepR\x05value:\x028\x01\"\xc2\x02\n" +
 	"\vRuleVersion\x12\x17\n" +
 	"\arule_id\x18\x01 \x01(\tR\x06ruleId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12\x12\n" +
@@ -2084,23 +2095,30 @@ const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1f\n" +
 	"\vrollback_of\x18\t \x01(\x04R\n" +
-	"rollbackOf\"\xa6\x01\n" +
+	"rollbackOf\"\x9e\x02\n" +
 	"\x04Rule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06paused\x18\x02 \x01(\bR\x06paused\x12;\n" +
 	"\acurrent\x18\x03 \x01(\v2!.backplane.console.v1.RuleVersionR\acurrent\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"(\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x125\n" +
+	"\x05state\x18\x05 \x01(\x0e2\x1f.backplane.console.v1.RuleStateR\x05state\x12?\n" +
+	"\n" +
+	"violations\x18\x06 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"(\n" +
 	"\x10ListRulesRequest\x12\x14\n" +
 	"\x05event\x18\x01 \x01(\tR\x05event\"E\n" +
 	"\x11ListRulesResponse\x120\n" +
 	"\x05rules\x18\x01 \x03(\v2\x1a.backplane.console.v1.RuleR\x05rules\":\n" +
 	"\x0eGetRuleRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x04R\aversion\"~\n" +
+	"\aversion\x18\x02 \x01(\x04R\aversion\"\xbf\x01\n" +
 	"\x0fGetRuleResponse\x12.\n" +
 	"\x04rule\x18\x01 \x01(\v2\x1a.backplane.console.v1.RuleR\x04rule\x12;\n" +
-	"\aversion\x18\x02 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\"^\n" +
+	"\aversion\x18\x02 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\x12?\n" +
+	"\n" +
+	"violations\x18\x03 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"^\n" +
 	"\x17ListRuleVersionsRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
 	"\x06before\x18\x02 \x01(\x04R\x06before\x12\x1b\n" +
@@ -2112,58 +2130,55 @@ const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"\x13ValidateRuleRequest\x12D\n" +
 	"\n" +
 	"definition\x18\x01 \x01(\v2$.backplane.console.v1.RuleDefinitionR\n" +
-	"definition\"^\n" +
-	"\x14ValidateRuleResponse\x12F\n" +
+	"definition\"W\n" +
+	"\x14ValidateRuleResponse\x12?\n" +
 	"\n" +
-	"violations\x18\x01 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"\x95\x01\n" +
+	"violations\x18\x01 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"\xce\x01\n" +
 	"\x0fSaveRuleRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12D\n" +
 	"\n" +
 	"definition\x18\x03 \x01(\v2$.backplane.console.v1.RuleDefinitionR\n" +
 	"definition\x12\x18\n" +
-	"\acomment\x18\x04 \x01(\tR\acomment\"\x97\x01\n" +
+	"\acomment\x18\x04 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x05 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"\x90\x01\n" +
 	"\x10SaveRuleResponse\x12;\n" +
-	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\x12F\n" +
+	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\x12?\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"Y\n" +
+	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"\x92\x01\n" +
 	"\x13RollbackRuleRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12\x18\n" +
-	"\acomment\x18\x03 \x01(\tR\acomment\"\x9b\x01\n" +
+	"\acomment\x18\x03 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x04 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"\x94\x01\n" +
 	"\x14RollbackRuleResponse\x12;\n" +
-	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\x12F\n" +
+	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\x12?\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"=\n" +
+	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"v\n" +
 	"\x11DeleteRuleRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\acomment\x18\x02 \x01(\tR\acomment\"Q\n" +
+	"\acomment\x18\x02 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x03 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"Q\n" +
 	"\x12DeleteRuleResponse\x12;\n" +
-	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\"\"\n" +
+	"\aversion\x18\x01 \x01(\v2!.backplane.console.v1.RuleVersionR\aversion\"[\n" +
 	"\x10PauseRuleRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"C\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12&\n" +
+	"\fbase_version\x18\x02 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"C\n" +
 	"\x11PauseRuleResponse\x12.\n" +
-	"\x04rule\x18\x01 \x01(\v2\x1a.backplane.console.v1.RuleR\x04rule\"#\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.backplane.console.v1.RuleR\x04rule\"\\\n" +
 	"\x11ResumeRuleRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"D\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12&\n" +
+	"\fbase_version\x18\x02 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"D\n" +
 	"\x12ResumeRuleResponse\x12.\n" +
-	"\x04rule\x18\x01 \x01(\v2\x1a.backplane.console.v1.RuleR\x04rule\"&\n" +
-	"\x10ParseRuleRequest\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\"\x9a\x01\n" +
-	"\x11ParseRuleResponse\x12D\n" +
-	"\n" +
-	"definition\x18\x01 \x01(\v2$.backplane.console.v1.RuleDefinitionR\n" +
-	"definition\x12?\n" +
-	"\x06errors\x18\x02 \x03(\v2'.backplane.console.v1.BindingParseErrorR\x06errors\"Y\n" +
-	"\x11FormatRuleRequest\x12D\n" +
-	"\n" +
-	"definition\x18\x01 \x01(\v2$.backplane.console.v1.RuleDefinitionR\n" +
-	"definition\"(\n" +
-	"\x12FormatRuleResponse\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\")\n" +
+	"\x04rule\x18\x01 \x01(\v2\x1a.backplane.console.v1.RuleR\x04rule\")\n" +
 	"\x11WatchRulesRequest\x12\x14\n" +
 	"\x05event\x18\x01 \x01(\tR\x05event\"F\n" +
 	"\x12WatchRulesResponse\x120\n" +
@@ -2183,10 +2198,10 @@ const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"\x05event\x18\x04 \x01(\tR\x05event\x127\n" +
 	"\x04meta\x18\x05 \x01(\v2#.backplane.console.v1.RuleEventMetaR\x04meta\x12\x17\n" +
 	"\adry_run\x18\x06 \x01(\bR\x06dryRun\x123\n" +
-	"\atimeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xfd\x01\n" +
-	"\x10TestRuleResponse\x12F\n" +
+	"\atimeout\x18\a \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xf6\x01\n" +
+	"\x10TestRuleResponse\x12?\n" +
 	"\n" +
-	"violations\x18\x01 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
+	"violations\x18\x01 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
 	"violations\x12\x18\n" +
 	"\amatched\x18\x02 \x01(\bR\amatched\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05error\x127\n" +
@@ -2207,15 +2222,25 @@ const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vworkflow_id\x18\x02 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
-	"\x06run_id\x18\x03 \x01(\tR\x05runId\"L\n" +
+	"\x06run_id\x18\x03 \x01(\tR\x05runId\"\xaf\x01\n" +
 	"\x12GetRuleRunResponse\x126\n" +
-	"\x03run\x18\x01 \x01(\v2$.backplane.console.v1.GetRunResponseR\x03run\"^\n" +
+	"\x03run\x18\x01 \x01(\v2$.backplane.console.v1.GetRunResponseR\x03run\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\x04R\aversion\x12\x12\n" +
+	"\x04test\x18\x03 \x01(\bR\x04test\x123\n" +
+	"\x05steps\x18\x04 \x03(\v2\x1d.backplane.console.v1.StepRunR\x05steps\"^\n" +
 	"\x14CancelRuleRunRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
 	"\vworkflow_id\x18\x02 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
 	"\x06run_id\x18\x03 \x01(\tR\x05runId\"\x17\n" +
-	"\x15CancelRuleRunResponse2\xae\f\n" +
+	"\x15CancelRuleRunResponse*\x84\x01\n" +
+	"\tRuleState\x12\x1a\n" +
+	"\x16RULE_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11RULE_STATE_ACTIVE\x10\x01\x12\x15\n" +
+	"\x11RULE_STATE_PAUSED\x10\x02\x12\x16\n" +
+	"\x12RULE_STATE_DELETED\x10\x03\x12\x15\n" +
+	"\x11RULE_STATE_BROKEN\x10\x042\xef\n" +
+	"\n" +
 	"\vRuleService\x12\\\n" +
 	"\tListRules\x12&.backplane.console.v1.ListRulesRequest\x1a'.backplane.console.v1.ListRulesResponse\x12V\n" +
 	"\aGetRule\x12$.backplane.console.v1.GetRuleRequest\x1a%.backplane.console.v1.GetRuleResponse\x12q\n" +
@@ -2227,10 +2252,7 @@ const file_backplanepb_console_v1_rules_proto_rawDesc = "" +
 	"DeleteRule\x12'.backplane.console.v1.DeleteRuleRequest\x1a(.backplane.console.v1.DeleteRuleResponse\x12\\\n" +
 	"\tPauseRule\x12&.backplane.console.v1.PauseRuleRequest\x1a'.backplane.console.v1.PauseRuleResponse\x12_\n" +
 	"\n" +
-	"ResumeRule\x12'.backplane.console.v1.ResumeRuleRequest\x1a(.backplane.console.v1.ResumeRuleResponse\x12\\\n" +
-	"\tParseRule\x12&.backplane.console.v1.ParseRuleRequest\x1a'.backplane.console.v1.ParseRuleResponse\x12_\n" +
-	"\n" +
-	"FormatRule\x12'.backplane.console.v1.FormatRuleRequest\x1a(.backplane.console.v1.FormatRuleResponse\x12a\n" +
+	"ResumeRule\x12'.backplane.console.v1.ResumeRuleRequest\x1a(.backplane.console.v1.ResumeRuleResponse\x12a\n" +
 	"\n" +
 	"WatchRules\x12'.backplane.console.v1.WatchRulesRequest\x1a(.backplane.console.v1.WatchRulesResponse0\x01\x12Y\n" +
 	"\bTestRule\x12%.backplane.console.v1.TestRuleRequest\x1a&.backplane.console.v1.TestRuleResponse\x12e\n" +
@@ -2251,125 +2273,124 @@ func file_backplanepb_console_v1_rules_proto_rawDescGZIP() []byte {
 	return file_backplanepb_console_v1_rules_proto_rawDescData
 }
 
-var file_backplanepb_console_v1_rules_proto_msgTypes = make([]protoimpl.MessageInfo, 36)
+var file_backplanepb_console_v1_rules_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_backplanepb_console_v1_rules_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_backplanepb_console_v1_rules_proto_goTypes = []any{
-	(*RuleDefinition)(nil),           // 0: backplane.console.v1.RuleDefinition
-	(*RuleVersion)(nil),              // 1: backplane.console.v1.RuleVersion
-	(*Rule)(nil),                     // 2: backplane.console.v1.Rule
-	(*ListRulesRequest)(nil),         // 3: backplane.console.v1.ListRulesRequest
-	(*ListRulesResponse)(nil),        // 4: backplane.console.v1.ListRulesResponse
-	(*GetRuleRequest)(nil),           // 5: backplane.console.v1.GetRuleRequest
-	(*GetRuleResponse)(nil),          // 6: backplane.console.v1.GetRuleResponse
-	(*ListRuleVersionsRequest)(nil),  // 7: backplane.console.v1.ListRuleVersionsRequest
-	(*ListRuleVersionsResponse)(nil), // 8: backplane.console.v1.ListRuleVersionsResponse
-	(*ValidateRuleRequest)(nil),      // 9: backplane.console.v1.ValidateRuleRequest
-	(*ValidateRuleResponse)(nil),     // 10: backplane.console.v1.ValidateRuleResponse
-	(*SaveRuleRequest)(nil),          // 11: backplane.console.v1.SaveRuleRequest
-	(*SaveRuleResponse)(nil),         // 12: backplane.console.v1.SaveRuleResponse
-	(*RollbackRuleRequest)(nil),      // 13: backplane.console.v1.RollbackRuleRequest
-	(*RollbackRuleResponse)(nil),     // 14: backplane.console.v1.RollbackRuleResponse
-	(*DeleteRuleRequest)(nil),        // 15: backplane.console.v1.DeleteRuleRequest
-	(*DeleteRuleResponse)(nil),       // 16: backplane.console.v1.DeleteRuleResponse
-	(*PauseRuleRequest)(nil),         // 17: backplane.console.v1.PauseRuleRequest
-	(*PauseRuleResponse)(nil),        // 18: backplane.console.v1.PauseRuleResponse
-	(*ResumeRuleRequest)(nil),        // 19: backplane.console.v1.ResumeRuleRequest
-	(*ResumeRuleResponse)(nil),       // 20: backplane.console.v1.ResumeRuleResponse
-	(*ParseRuleRequest)(nil),         // 21: backplane.console.v1.ParseRuleRequest
-	(*ParseRuleResponse)(nil),        // 22: backplane.console.v1.ParseRuleResponse
-	(*FormatRuleRequest)(nil),        // 23: backplane.console.v1.FormatRuleRequest
-	(*FormatRuleResponse)(nil),       // 24: backplane.console.v1.FormatRuleResponse
-	(*WatchRulesRequest)(nil),        // 25: backplane.console.v1.WatchRulesRequest
-	(*WatchRulesResponse)(nil),       // 26: backplane.console.v1.WatchRulesResponse
-	(*RuleEventMeta)(nil),            // 27: backplane.console.v1.RuleEventMeta
-	(*TestRuleRequest)(nil),          // 28: backplane.console.v1.TestRuleRequest
-	(*TestRuleResponse)(nil),         // 29: backplane.console.v1.TestRuleResponse
-	(*ListRuleRunsRequest)(nil),      // 30: backplane.console.v1.ListRuleRunsRequest
-	(*ListRuleRunsResponse)(nil),     // 31: backplane.console.v1.ListRuleRunsResponse
-	(*GetRuleRunRequest)(nil),        // 32: backplane.console.v1.GetRuleRunRequest
-	(*GetRuleRunResponse)(nil),       // 33: backplane.console.v1.GetRuleRunResponse
-	(*CancelRuleRunRequest)(nil),     // 34: backplane.console.v1.CancelRuleRunRequest
-	(*CancelRuleRunResponse)(nil),    // 35: backplane.console.v1.CancelRuleRunResponse
-	(*BindingStep)(nil),              // 36: backplane.console.v1.BindingStep
-	(*timestamppb.Timestamp)(nil),    // 37: google.protobuf.Timestamp
-	(*BindingViolation)(nil),         // 38: backplane.console.v1.BindingViolation
-	(*BindingParseError)(nil),        // 39: backplane.console.v1.BindingParseError
-	(*durationpb.Duration)(nil),      // 40: google.protobuf.Duration
-	(*CallResult)(nil),               // 41: backplane.console.v1.CallResult
-	(RunStatus)(0),                   // 42: backplane.console.v1.RunStatus
-	(*Run)(nil),                      // 43: backplane.console.v1.Run
-	(*GetRunResponse)(nil),           // 44: backplane.console.v1.GetRunResponse
+	(RuleState)(0),                   // 0: backplane.console.v1.RuleState
+	(*RuleDefinition)(nil),           // 1: backplane.console.v1.RuleDefinition
+	(*RuleVersion)(nil),              // 2: backplane.console.v1.RuleVersion
+	(*Rule)(nil),                     // 3: backplane.console.v1.Rule
+	(*ListRulesRequest)(nil),         // 4: backplane.console.v1.ListRulesRequest
+	(*ListRulesResponse)(nil),        // 5: backplane.console.v1.ListRulesResponse
+	(*GetRuleRequest)(nil),           // 6: backplane.console.v1.GetRuleRequest
+	(*GetRuleResponse)(nil),          // 7: backplane.console.v1.GetRuleResponse
+	(*ListRuleVersionsRequest)(nil),  // 8: backplane.console.v1.ListRuleVersionsRequest
+	(*ListRuleVersionsResponse)(nil), // 9: backplane.console.v1.ListRuleVersionsResponse
+	(*ValidateRuleRequest)(nil),      // 10: backplane.console.v1.ValidateRuleRequest
+	(*ValidateRuleResponse)(nil),     // 11: backplane.console.v1.ValidateRuleResponse
+	(*SaveRuleRequest)(nil),          // 12: backplane.console.v1.SaveRuleRequest
+	(*SaveRuleResponse)(nil),         // 13: backplane.console.v1.SaveRuleResponse
+	(*RollbackRuleRequest)(nil),      // 14: backplane.console.v1.RollbackRuleRequest
+	(*RollbackRuleResponse)(nil),     // 15: backplane.console.v1.RollbackRuleResponse
+	(*DeleteRuleRequest)(nil),        // 16: backplane.console.v1.DeleteRuleRequest
+	(*DeleteRuleResponse)(nil),       // 17: backplane.console.v1.DeleteRuleResponse
+	(*PauseRuleRequest)(nil),         // 18: backplane.console.v1.PauseRuleRequest
+	(*PauseRuleResponse)(nil),        // 19: backplane.console.v1.PauseRuleResponse
+	(*ResumeRuleRequest)(nil),        // 20: backplane.console.v1.ResumeRuleRequest
+	(*ResumeRuleResponse)(nil),       // 21: backplane.console.v1.ResumeRuleResponse
+	(*WatchRulesRequest)(nil),        // 22: backplane.console.v1.WatchRulesRequest
+	(*WatchRulesResponse)(nil),       // 23: backplane.console.v1.WatchRulesResponse
+	(*RuleEventMeta)(nil),            // 24: backplane.console.v1.RuleEventMeta
+	(*TestRuleRequest)(nil),          // 25: backplane.console.v1.TestRuleRequest
+	(*TestRuleResponse)(nil),         // 26: backplane.console.v1.TestRuleResponse
+	(*ListRuleRunsRequest)(nil),      // 27: backplane.console.v1.ListRuleRunsRequest
+	(*ListRuleRunsResponse)(nil),     // 28: backplane.console.v1.ListRuleRunsResponse
+	(*GetRuleRunRequest)(nil),        // 29: backplane.console.v1.GetRuleRunRequest
+	(*GetRuleRunResponse)(nil),       // 30: backplane.console.v1.GetRuleRunResponse
+	(*CancelRuleRunRequest)(nil),     // 31: backplane.console.v1.CancelRuleRunRequest
+	(*CancelRuleRunResponse)(nil),    // 32: backplane.console.v1.CancelRuleRunResponse
+	nil,                              // 33: backplane.console.v1.RuleDefinition.StepsEntry
+	(*EditorLayout)(nil),             // 34: backplane.console.v1.EditorLayout
+	(*timestamppb.Timestamp)(nil),    // 35: google.protobuf.Timestamp
+	(*Violation)(nil),                // 36: backplane.console.v1.Violation
+	(*durationpb.Duration)(nil),      // 37: google.protobuf.Duration
+	(*CallResult)(nil),               // 38: backplane.console.v1.CallResult
+	(RunStatus)(0),                   // 39: backplane.console.v1.RunStatus
+	(*Run)(nil),                      // 40: backplane.console.v1.Run
+	(*GetRunResponse)(nil),           // 41: backplane.console.v1.GetRunResponse
+	(*StepRun)(nil),                  // 42: backplane.console.v1.StepRun
+	(*Step)(nil),                     // 43: backplane.console.v1.Step
 }
 var file_backplanepb_console_v1_rules_proto_depIdxs = []int32{
-	36, // 0: backplane.console.v1.RuleDefinition.steps:type_name -> backplane.console.v1.BindingStep
-	0,  // 1: backplane.console.v1.RuleVersion.definition:type_name -> backplane.console.v1.RuleDefinition
-	37, // 2: backplane.console.v1.RuleVersion.created_at:type_name -> google.protobuf.Timestamp
-	1,  // 3: backplane.console.v1.Rule.current:type_name -> backplane.console.v1.RuleVersion
-	37, // 4: backplane.console.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 5: backplane.console.v1.ListRulesResponse.rules:type_name -> backplane.console.v1.Rule
-	2,  // 6: backplane.console.v1.GetRuleResponse.rule:type_name -> backplane.console.v1.Rule
-	1,  // 7: backplane.console.v1.GetRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
-	1,  // 8: backplane.console.v1.ListRuleVersionsResponse.versions:type_name -> backplane.console.v1.RuleVersion
-	0,  // 9: backplane.console.v1.ValidateRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
-	38, // 10: backplane.console.v1.ValidateRuleResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	0,  // 11: backplane.console.v1.SaveRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
-	1,  // 12: backplane.console.v1.SaveRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
-	38, // 13: backplane.console.v1.SaveRuleResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	1,  // 14: backplane.console.v1.RollbackRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
-	38, // 15: backplane.console.v1.RollbackRuleResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	1,  // 16: backplane.console.v1.DeleteRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
-	2,  // 17: backplane.console.v1.PauseRuleResponse.rule:type_name -> backplane.console.v1.Rule
-	2,  // 18: backplane.console.v1.ResumeRuleResponse.rule:type_name -> backplane.console.v1.Rule
-	0,  // 19: backplane.console.v1.ParseRuleResponse.definition:type_name -> backplane.console.v1.RuleDefinition
-	39, // 20: backplane.console.v1.ParseRuleResponse.errors:type_name -> backplane.console.v1.BindingParseError
-	0,  // 21: backplane.console.v1.FormatRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
-	2,  // 22: backplane.console.v1.WatchRulesResponse.rules:type_name -> backplane.console.v1.Rule
-	37, // 23: backplane.console.v1.RuleEventMeta.time:type_name -> google.protobuf.Timestamp
-	0,  // 24: backplane.console.v1.TestRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
-	27, // 25: backplane.console.v1.TestRuleRequest.meta:type_name -> backplane.console.v1.RuleEventMeta
-	40, // 26: backplane.console.v1.TestRuleRequest.timeout:type_name -> google.protobuf.Duration
-	38, // 27: backplane.console.v1.TestRuleResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	27, // 28: backplane.console.v1.TestRuleResponse.meta:type_name -> backplane.console.v1.RuleEventMeta
-	41, // 29: backplane.console.v1.TestRuleResponse.result:type_name -> backplane.console.v1.CallResult
-	42, // 30: backplane.console.v1.ListRuleRunsRequest.status:type_name -> backplane.console.v1.RunStatus
-	43, // 31: backplane.console.v1.ListRuleRunsResponse.runs:type_name -> backplane.console.v1.Run
-	44, // 32: backplane.console.v1.GetRuleRunResponse.run:type_name -> backplane.console.v1.GetRunResponse
-	3,  // 33: backplane.console.v1.RuleService.ListRules:input_type -> backplane.console.v1.ListRulesRequest
-	5,  // 34: backplane.console.v1.RuleService.GetRule:input_type -> backplane.console.v1.GetRuleRequest
-	7,  // 35: backplane.console.v1.RuleService.ListRuleVersions:input_type -> backplane.console.v1.ListRuleVersionsRequest
-	9,  // 36: backplane.console.v1.RuleService.ValidateRule:input_type -> backplane.console.v1.ValidateRuleRequest
-	11, // 37: backplane.console.v1.RuleService.SaveRule:input_type -> backplane.console.v1.SaveRuleRequest
-	13, // 38: backplane.console.v1.RuleService.RollbackRule:input_type -> backplane.console.v1.RollbackRuleRequest
-	15, // 39: backplane.console.v1.RuleService.DeleteRule:input_type -> backplane.console.v1.DeleteRuleRequest
-	17, // 40: backplane.console.v1.RuleService.PauseRule:input_type -> backplane.console.v1.PauseRuleRequest
-	19, // 41: backplane.console.v1.RuleService.ResumeRule:input_type -> backplane.console.v1.ResumeRuleRequest
-	21, // 42: backplane.console.v1.RuleService.ParseRule:input_type -> backplane.console.v1.ParseRuleRequest
-	23, // 43: backplane.console.v1.RuleService.FormatRule:input_type -> backplane.console.v1.FormatRuleRequest
-	25, // 44: backplane.console.v1.RuleService.WatchRules:input_type -> backplane.console.v1.WatchRulesRequest
-	28, // 45: backplane.console.v1.RuleService.TestRule:input_type -> backplane.console.v1.TestRuleRequest
-	30, // 46: backplane.console.v1.RuleService.ListRuleRuns:input_type -> backplane.console.v1.ListRuleRunsRequest
-	32, // 47: backplane.console.v1.RuleService.GetRuleRun:input_type -> backplane.console.v1.GetRuleRunRequest
-	34, // 48: backplane.console.v1.RuleService.CancelRuleRun:input_type -> backplane.console.v1.CancelRuleRunRequest
-	4,  // 49: backplane.console.v1.RuleService.ListRules:output_type -> backplane.console.v1.ListRulesResponse
-	6,  // 50: backplane.console.v1.RuleService.GetRule:output_type -> backplane.console.v1.GetRuleResponse
-	8,  // 51: backplane.console.v1.RuleService.ListRuleVersions:output_type -> backplane.console.v1.ListRuleVersionsResponse
-	10, // 52: backplane.console.v1.RuleService.ValidateRule:output_type -> backplane.console.v1.ValidateRuleResponse
-	12, // 53: backplane.console.v1.RuleService.SaveRule:output_type -> backplane.console.v1.SaveRuleResponse
-	14, // 54: backplane.console.v1.RuleService.RollbackRule:output_type -> backplane.console.v1.RollbackRuleResponse
-	16, // 55: backplane.console.v1.RuleService.DeleteRule:output_type -> backplane.console.v1.DeleteRuleResponse
-	18, // 56: backplane.console.v1.RuleService.PauseRule:output_type -> backplane.console.v1.PauseRuleResponse
-	20, // 57: backplane.console.v1.RuleService.ResumeRule:output_type -> backplane.console.v1.ResumeRuleResponse
-	22, // 58: backplane.console.v1.RuleService.ParseRule:output_type -> backplane.console.v1.ParseRuleResponse
-	24, // 59: backplane.console.v1.RuleService.FormatRule:output_type -> backplane.console.v1.FormatRuleResponse
-	26, // 60: backplane.console.v1.RuleService.WatchRules:output_type -> backplane.console.v1.WatchRulesResponse
-	29, // 61: backplane.console.v1.RuleService.TestRule:output_type -> backplane.console.v1.TestRuleResponse
-	31, // 62: backplane.console.v1.RuleService.ListRuleRuns:output_type -> backplane.console.v1.ListRuleRunsResponse
-	33, // 63: backplane.console.v1.RuleService.GetRuleRun:output_type -> backplane.console.v1.GetRuleRunResponse
-	35, // 64: backplane.console.v1.RuleService.CancelRuleRun:output_type -> backplane.console.v1.CancelRuleRunResponse
-	49, // [49:65] is the sub-list for method output_type
-	33, // [33:49] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	33, // 0: backplane.console.v1.RuleDefinition.steps:type_name -> backplane.console.v1.RuleDefinition.StepsEntry
+	34, // 1: backplane.console.v1.RuleDefinition.editor:type_name -> backplane.console.v1.EditorLayout
+	1,  // 2: backplane.console.v1.RuleVersion.definition:type_name -> backplane.console.v1.RuleDefinition
+	35, // 3: backplane.console.v1.RuleVersion.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 4: backplane.console.v1.Rule.current:type_name -> backplane.console.v1.RuleVersion
+	35, // 5: backplane.console.v1.Rule.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 6: backplane.console.v1.Rule.state:type_name -> backplane.console.v1.RuleState
+	36, // 7: backplane.console.v1.Rule.violations:type_name -> backplane.console.v1.Violation
+	3,  // 8: backplane.console.v1.ListRulesResponse.rules:type_name -> backplane.console.v1.Rule
+	3,  // 9: backplane.console.v1.GetRuleResponse.rule:type_name -> backplane.console.v1.Rule
+	2,  // 10: backplane.console.v1.GetRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
+	36, // 11: backplane.console.v1.GetRuleResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 12: backplane.console.v1.ListRuleVersionsResponse.versions:type_name -> backplane.console.v1.RuleVersion
+	1,  // 13: backplane.console.v1.ValidateRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
+	36, // 14: backplane.console.v1.ValidateRuleResponse.violations:type_name -> backplane.console.v1.Violation
+	1,  // 15: backplane.console.v1.SaveRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
+	2,  // 16: backplane.console.v1.SaveRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
+	36, // 17: backplane.console.v1.SaveRuleResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 18: backplane.console.v1.RollbackRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
+	36, // 19: backplane.console.v1.RollbackRuleResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 20: backplane.console.v1.DeleteRuleResponse.version:type_name -> backplane.console.v1.RuleVersion
+	3,  // 21: backplane.console.v1.PauseRuleResponse.rule:type_name -> backplane.console.v1.Rule
+	3,  // 22: backplane.console.v1.ResumeRuleResponse.rule:type_name -> backplane.console.v1.Rule
+	3,  // 23: backplane.console.v1.WatchRulesResponse.rules:type_name -> backplane.console.v1.Rule
+	35, // 24: backplane.console.v1.RuleEventMeta.time:type_name -> google.protobuf.Timestamp
+	1,  // 25: backplane.console.v1.TestRuleRequest.definition:type_name -> backplane.console.v1.RuleDefinition
+	24, // 26: backplane.console.v1.TestRuleRequest.meta:type_name -> backplane.console.v1.RuleEventMeta
+	37, // 27: backplane.console.v1.TestRuleRequest.timeout:type_name -> google.protobuf.Duration
+	36, // 28: backplane.console.v1.TestRuleResponse.violations:type_name -> backplane.console.v1.Violation
+	24, // 29: backplane.console.v1.TestRuleResponse.meta:type_name -> backplane.console.v1.RuleEventMeta
+	38, // 30: backplane.console.v1.TestRuleResponse.result:type_name -> backplane.console.v1.CallResult
+	39, // 31: backplane.console.v1.ListRuleRunsRequest.status:type_name -> backplane.console.v1.RunStatus
+	40, // 32: backplane.console.v1.ListRuleRunsResponse.runs:type_name -> backplane.console.v1.Run
+	41, // 33: backplane.console.v1.GetRuleRunResponse.run:type_name -> backplane.console.v1.GetRunResponse
+	42, // 34: backplane.console.v1.GetRuleRunResponse.steps:type_name -> backplane.console.v1.StepRun
+	43, // 35: backplane.console.v1.RuleDefinition.StepsEntry.value:type_name -> backplane.console.v1.Step
+	4,  // 36: backplane.console.v1.RuleService.ListRules:input_type -> backplane.console.v1.ListRulesRequest
+	6,  // 37: backplane.console.v1.RuleService.GetRule:input_type -> backplane.console.v1.GetRuleRequest
+	8,  // 38: backplane.console.v1.RuleService.ListRuleVersions:input_type -> backplane.console.v1.ListRuleVersionsRequest
+	10, // 39: backplane.console.v1.RuleService.ValidateRule:input_type -> backplane.console.v1.ValidateRuleRequest
+	12, // 40: backplane.console.v1.RuleService.SaveRule:input_type -> backplane.console.v1.SaveRuleRequest
+	14, // 41: backplane.console.v1.RuleService.RollbackRule:input_type -> backplane.console.v1.RollbackRuleRequest
+	16, // 42: backplane.console.v1.RuleService.DeleteRule:input_type -> backplane.console.v1.DeleteRuleRequest
+	18, // 43: backplane.console.v1.RuleService.PauseRule:input_type -> backplane.console.v1.PauseRuleRequest
+	20, // 44: backplane.console.v1.RuleService.ResumeRule:input_type -> backplane.console.v1.ResumeRuleRequest
+	22, // 45: backplane.console.v1.RuleService.WatchRules:input_type -> backplane.console.v1.WatchRulesRequest
+	25, // 46: backplane.console.v1.RuleService.TestRule:input_type -> backplane.console.v1.TestRuleRequest
+	27, // 47: backplane.console.v1.RuleService.ListRuleRuns:input_type -> backplane.console.v1.ListRuleRunsRequest
+	29, // 48: backplane.console.v1.RuleService.GetRuleRun:input_type -> backplane.console.v1.GetRuleRunRequest
+	31, // 49: backplane.console.v1.RuleService.CancelRuleRun:input_type -> backplane.console.v1.CancelRuleRunRequest
+	5,  // 50: backplane.console.v1.RuleService.ListRules:output_type -> backplane.console.v1.ListRulesResponse
+	7,  // 51: backplane.console.v1.RuleService.GetRule:output_type -> backplane.console.v1.GetRuleResponse
+	9,  // 52: backplane.console.v1.RuleService.ListRuleVersions:output_type -> backplane.console.v1.ListRuleVersionsResponse
+	11, // 53: backplane.console.v1.RuleService.ValidateRule:output_type -> backplane.console.v1.ValidateRuleResponse
+	13, // 54: backplane.console.v1.RuleService.SaveRule:output_type -> backplane.console.v1.SaveRuleResponse
+	15, // 55: backplane.console.v1.RuleService.RollbackRule:output_type -> backplane.console.v1.RollbackRuleResponse
+	17, // 56: backplane.console.v1.RuleService.DeleteRule:output_type -> backplane.console.v1.DeleteRuleResponse
+	19, // 57: backplane.console.v1.RuleService.PauseRule:output_type -> backplane.console.v1.PauseRuleResponse
+	21, // 58: backplane.console.v1.RuleService.ResumeRule:output_type -> backplane.console.v1.ResumeRuleResponse
+	23, // 59: backplane.console.v1.RuleService.WatchRules:output_type -> backplane.console.v1.WatchRulesResponse
+	26, // 60: backplane.console.v1.RuleService.TestRule:output_type -> backplane.console.v1.TestRuleResponse
+	28, // 61: backplane.console.v1.RuleService.ListRuleRuns:output_type -> backplane.console.v1.ListRuleRunsResponse
+	30, // 62: backplane.console.v1.RuleService.GetRuleRun:output_type -> backplane.console.v1.GetRuleRunResponse
+	32, // 63: backplane.console.v1.RuleService.CancelRuleRun:output_type -> backplane.console.v1.CancelRuleRunResponse
+	50, // [50:64] is the sub-list for method output_type
+	36, // [36:50] is the sub-list for method input_type
+	36, // [36:36] is the sub-list for extension type_name
+	36, // [36:36] is the sub-list for extension extendee
+	0,  // [0:36] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_console_v1_rules_proto_init() }
@@ -2377,21 +2398,27 @@ func file_backplanepb_console_v1_rules_proto_init() {
 	if File_backplanepb_console_v1_rules_proto != nil {
 		return
 	}
-	file_backplanepb_console_v1_bindings_proto_init()
 	file_backplanepb_console_v1_calls_proto_init()
+	file_backplanepb_console_v1_step_proto_init()
 	file_backplanepb_console_v1_workflows_proto_init()
+	file_backplanepb_console_v1_rules_proto_msgTypes[11].OneofWrappers = []any{}
+	file_backplanepb_console_v1_rules_proto_msgTypes[13].OneofWrappers = []any{}
+	file_backplanepb_console_v1_rules_proto_msgTypes[15].OneofWrappers = []any{}
+	file_backplanepb_console_v1_rules_proto_msgTypes[17].OneofWrappers = []any{}
+	file_backplanepb_console_v1_rules_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_console_v1_rules_proto_rawDesc), len(file_backplanepb_console_v1_rules_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   36,
+			NumEnums:      1,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_backplanepb_console_v1_rules_proto_goTypes,
 		DependencyIndexes: file_backplanepb_console_v1_rules_proto_depIdxs,
+		EnumInfos:         file_backplanepb_console_v1_rules_proto_enumTypes,
 		MessageInfos:      file_backplanepb_console_v1_rules_proto_msgTypes,
 	}.Build()
 	File_backplanepb_console_v1_rules_proto = out.File

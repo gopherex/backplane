@@ -1184,13 +1184,19 @@ gateway, не в v0.
 ### 7.1 Биндинг [backplane]
 
 Биндинг — **реализация хука («нужно»), собранная из активити («умею»)**.
-Живёт в backplane, редактируется в консоли, к коду сервисов не относится:
+Живёт в backplane, редактируется в консоли (раздел Wiring: YAML или
+граф), к коду сервисов не относится:
 
-```
-iam.SendEmail :=
-  render = template.Exec(name: req.template, data: req.data)
-  send   = smtp.Send(to: req.to, subject: render.subject, text: render.text)
-  return { message_id: send.id }
+```yaml
+hook: iam.SendEmail
+steps:
+  render:
+    activity: template.Exec
+    input: {name: req.template, data: req.data}
+  send:
+    activity: smtp.Send
+    input: {to: req.to, subject: render.subject, text: render.text}
+result: {message_id: send.id}
 ```
 
 IAM знает только свою `SendEmail`; template и smtp — только свои `Exec` и
@@ -1203,21 +1209,27 @@ IAM знает только свою `SendEmail`; template и smtp — толь�
 iam.SendEmail` и красный слот в карточке, как только манифест появился;
 иначе — ответ по умолчанию (`{}`), сервис продолжает.
 
-**Модель** (proto `backplane.console.v1.BindingDefinition`, Go
-`internal/bindings.Binding`):
+**Модель** (proto `backplane.console.v1.BindingDefinition`, общие части —
+`step.proto`; Go `internal/bindings.Binding`). Каноничная форма —
+protojson определения (ключи camelCase); YAML — её запись, консоль
+редактирует именно её:
 
-- `hook` — полное имя хука `<service>.<Hook>`; `steps` — шаги; `result` —
-  выход хука (пусто — `{}`).
-- Шаг: `name` — идентификатор `[A-Za-z_][A-Za-z0-9_]*`, уникальный в
-  биндинге; не `req`, `event`, `meta`, `steps`, не слово CEL
-  (`in`, `true`, `null`, `int`, `map`, …), не `on`/`when`. `activity` —
-  полное имя активити. `input` — вход активити (пусто — `{}`). `when` — CEL
-  bool: false — шаг пропущен. `after` — явные зависимости. `undo` —
-  активити-компенсация, `undo_input` — её вход (пусто — выход шага).
-  `retry {attempts, initial_interval, max_interval, backoff}`,
-  `start_to_close`, `heartbeat`.
-- Значение (`input`, `undo_input`, `result`) — либо поля `имя: CEL`
-  (объект), либо одно CEL-выражение на всё значение.
+- `hook` — полное имя хука `<service>.<Hook>`; `steps` — шаги по имени
+  (map: имя — ключ); `result` — выход хука (нет — `{}`); `description` —
+  текст для людей; `editor` — раскладка графа (позиции узлов по имени шага,
+  `$trigger`, `$result`, заметки), компиляция и исполнение её не читают.
+- Шаг: имя (ключ) — идентификатор `[A-Za-z_][A-Za-z0-9_]*`; не `req`,
+  `event`, `meta`, `steps`, не слово CEL (`in`, `true`, `null`, `int`,
+  `map`, …), не `on`/`when`. `activity` — полное имя активити. `input` —
+  вход активити (нет — `{}`). `when` — CEL bool: false — шаг пропущен.
+  `after` — явные зависимости. `undo` — активити-компенсация, `undoInput` —
+  её вход (нет — выход шага). `retry {attempts, initialInterval,
+  maxInterval, backoff}`, `startToClose`, `heartbeat` (консоль принимает и
+  длительности Go: `500ms`, `1m30s`), `description`.
+- Значение (`input`, `undoInput`, `result`) — дерево JSON
+  (`google.protobuf.Value`): строка — выражение CEL, объект — объект по
+  полям (рекурсивно), список — список по элементам, число, bool, null —
+  литералы. Строковый литерал пишется как CEL: `"'hello'"`.
 
 **Выражения.** CEL над JSON. Переменные: `req` — вход хука; `<шаг>` —
 выход выполненного шага (у пропущенного — `{}`); `steps.<шаг>.skipped` —
@@ -1235,121 +1247,97 @@ JSON с отсортированными ключами. Поэтому оно �
   наносекунды, proto — `"1s"`); CEL-timestamp на выходе — строка RFC 3339,
   duration — `"1.5s"`.
 - Ошибка на значениях запуска читаема: `transform failed at step render
-  (input.to): no such key: to`, `transform failed at result: …`.
+  (input.to): no such key: to`, `transform failed at result: …`; место
+  вложенного значения — `input.to.items[2]`.
 
 **Порядок.** Зависимости шага — его `after` и каждый шаг, который читают
-его `input` и `when` (по имени или `steps.<имя>`); порядок записи шагов
-не важен, цикл — ошибка сохранения. Группы — уровни графа: в группе шаги,
-все зависимости которых в группах ниже, внутри — в порядке объявления;
-шаги группы идут параллельно, а исполнитель может запускать шаг, как
-только готовы его зависимости. Пропущенный шаг не останавливает
-зависящие от него. `undo` — сага: при ошибке следующего шага выполненные
-компенсируются; `undo_input` читает только сам шаг и его предков.
+его `input` и `when` (по имени или `steps.<имя>`); порядок шагов в
+определении не значит ничего, цикл — ошибка сохранения. Уровни графа —
+для анализа и раскладки; исполнитель запускает шаг, **как только
+завершены его зависимости** (готовые — по имени), не дожидаясь уровня.
+Пропущенный шаг не останавливает зависящие от него. `undo` — сага: при
+ошибке выполненные шаги компенсируются в обратном порядке завершения;
+`undoInput` читает только сам шаг и его предков.
 
 **Опции шага**: из биндинга, иначе умолчания активити из манифеста
 (`start_to_close`, `heartbeat`, `retry.attempts`), иначе платформа —
 `start_to_close` 30 s, 3 попытки, интервал 1 s, максимум 30 s, множитель
 2, heartbeat нет.
 
-**Текстовая форма** — `Parse`/`Format` (консоль: `ParseBinding`,
-`FormatBinding`). Оператор заканчивается переводом строки вне скобок и
-строк; `//` — комментарий; пустые строки не значат ничего:
+**Валидация** (`ValidateBinding`, `AnalyzeBinding` и каждое сохранение) —
+по последним манифестам (`registry.Service.Latest`: высшая версия живого
+инстанса): хук и активити (`undo` тоже) объявлены; имена шагов; `after`
+и ссылки — на существующие шаги, без циклов; `undoInput` — только на шаг и
+его предков; опции (попытки ≥ 0, интервалы ≥ 0, `initial ≤ max`,
+множитель ≥ 1); каждое выражение компилируется и **проверяется по типам
+схем**: schemapb-схема → тип CEL (объект — struct-тип с полями схемы,
+list, map, скаляры; остальное — `dyn`), так что `req.nope` и
+`render.nope` — ошибка сохранения. Узлы значения сверяются со схемой
+входа активити (`result` — с выходом хука) на любой глубине: незнакомое
+поле, пропущенное обязательное, тип выражения или литерала. Совместимость
+— как у JSON: int подходит к double, но не наоборот, map — к объекту,
+timestamp/duration — к строке, `dyn` — ко всему; `when` — bool. Без
+схемы проверки типов нет — ошибка придёт в рантайме читаемой. Стоимость
+выражения оценивается (коллекции неизвестного размера — до 1000
+элементов): выше лимита вычисления (10⁶ единиц CEL) — ошибка `COST`.
 
-```
-binding := <hook> ":=" { step } [ "return" value ]
-rule    := "on" <event> [ "when" <cel> ] ":=" { step }              (§8.1)
-step    := <name> "=" <activity> "(" args ")" [ "[" option { "," option } "]" ]
-args    := ""  |  field { "," field }  |  <cel>
-value   := "{" [ field { "," field } ] "}"  |  <cel>
-field   := ( <идентификатор> | <строка> ) ":" <cel>
-option  := "when" ":" <cel>
-         | "after" ":" ( <name> | "[" <name> { "," <name> } "]" )
-         | "undo" ":" <activity> [ "(" args ")" ]
-         | "retry" ":" <попыток>
-         | "retry_interval" ":" <duration> | "retry_max_interval" ":" <duration>
-         | "retry_backoff" ":" <число>
-         | "timeout" ":" <duration>        | "heartbeat" ":" <duration>
-```
-
-```
-iam.SendEmail :=
-  render = template.Exec(
-    name: req.template,
-    data: req.data,          // запятая в конце списка допустима
-  )
-  send = smtp.Send(to: req.to, subject: render.subject, text: render.text) [
-    retry: 5, timeout: 10s, undo: smtp.Recall(id: send.id),
-  ]
-  audit = billing.Log(req) [after: send, when: req.priority > 0]
-  return { message_id: send.id, "x-trace": audit.id }
-```
-
-`args` из полей — объект, одно выражение — значение целиком
-(`smtp.Send(req)`), пусто — `{}`. `return { k: e }` — объект из полей
-(`return {"k": e}` — то же самое). `undo: smtp.Recall` без скобок — вход —
-выход шага. Duration — формат Go (`500ms`, `1m30s`). `Format` пишет
-каноничный текст (выравнивание `=`, опции в одну строку), `Parse` его
-читает в то же определение; комментарии и разбивка строк не сохраняются.
-Ошибки разбора — со строкой и столбцом текста; синтаксис CEL проверяется
-при разборе, имена и типы — валидацией.
-
-**Валидация** (`ValidateBinding` и каждое сохранение) — по последним
-манифестам (`registry.Service.Latest`: высшая версия живого инстанса):
-хук и активити (`undo` тоже) объявлены; имена шагов; `after` и ссылки —
-на существующие шаги, без циклов; `undo_input` — только на шаг и его
-предков; опции (попытки ≥ 0, интервалы ≥ 0, `initial ≤ max`, множитель ≥
-1); каждое выражение компилируется и **проверяется по типам схем**:
-schemapb-схема → тип CEL (объект — struct-тип с полями схемы, list, map,
-скаляры; остальное — `dyn`), так что `req.nope` и `render.nope` — ошибка
-сохранения. Поля значения сверяются со схемой входа активити (`result` —
-с выходом хука): незнакомое поле, пропущенное обязательное, тип.
-Совместимость — как у JSON: int подходит к double, но не наоборот, map —
-к объекту, timestamp/duration — к строке, `dyn` — ко всему; `when` — bool.
-Без схемы проверки типов нет — ошибка придёт в рантайме читаемой. Обход
-объекта со схемой макросами не поддержан — только list и map.
-
-Нарушение — `{path, code, message}`: `path` — место в определении
-(`hook`, `steps[1].input.to`, `steps[0].after[0]`, `steps[2].retry.backoff`,
-`result.message_id`); `code` — `INVALID_NAME`, `RESERVED_NAME`,
-`DUPLICATE_STEP`, `UNKNOWN_HOOK`, `UNKNOWN_EVENT`, `UNKNOWN_ACTIVITY`,
-`UNKNOWN_STEP`, `CYCLE`, `UNDO_REFERENCE`, `CEL_ERROR`, `TYPE_MISMATCH`,
-`MISSING_FIELD`, `UNKNOWN_FIELD`, `DUPLICATE_FIELD`, `INVALID_VALUE`
-(поля и выражение вместе), `INVALID_OPTION`.
+Нарушение — `{path, code, message, expr}`: `path` — JSON Pointer места по
+ключам (`/hook`, `/steps/send/input/to`, `/steps/x/after/0`,
+`/steps/x/retry/backoff`, `/result/message_id`); `expr` — диапазон внутри
+выражения (кодовые точки, конец не включён), нет — если проблема в самом
+месте; `code` — `INVALID_NAME`, `RESERVED_NAME`, `UNKNOWN_HOOK`,
+`UNKNOWN_EVENT`, `UNKNOWN_ACTIVITY`, `UNKNOWN_STEP`, `CYCLE`,
+`UNDO_REFERENCE`, `CEL_ERROR`, `COST`, `TYPE_MISMATCH`, `MISSING_FIELD`,
+`UNKNOWN_FIELD`, `INVALID_OPTION`. Консоль сопоставляет путь с узлом YAML
+и добавляет диапазон — подсветка ровно под ошибкой.
 
 **Версии** — как ревизии конфигурации (§5.2), в PostgreSQL:
 `binding_version` (hook, version с 1, `definition` — protojson
 `BindingDefinition`, NULL — надгробие удаления, author, comment,
 created_at, rollback_of) и `binding_current` (hook → действующая версия).
 Сохранение — валидация, следующая версия и `current` в одной
-serializable-транзакции; отклонённое не пишется. Откат — новая версия с
-определением старой (валидируется заново: манифесты могли измениться;
-откат к надгробию удаляет). Удаление — надгробие, история остаётся.
-Автор — сессия консоли `console:<id>`, вне сессии — `admin`. Состояние
-хука: `BOUND` (действует определение), `UNBOUND`, `REQUIRED_UNBOUND`;
-биндинг хука, который манифест больше не объявляет, остаётся в списке с
-`declared: false`.
+serializable-транзакции; отклонённое не пишется. `base_version` в
+Save/Rollback/Delete — версия, с которой началась правка: другая текущая
+— отказ `ABORTED` (два редактора не перетирают друг друга молча); не
+задана — без проверки. Откат — новая версия с определением старой
+(валидируется заново: манифесты могли измениться; откат к надгробию
+удаляет). Удаление — надгробие, история остаётся. Автор — сессия консоли
+`console:<id>`, вне сессии — `admin`. Состояние хука: `BOUND` (действует
+определение), `UNBOUND`, `REQUIRED_UNBOUND`, `BROKEN` — текущее
+определение больше не компилируется по последним манифестам (сервис
+изменил контракт), `HookBinding.violations` говорят, где; вызовы падают,
+пока не исправят. Биндинг хука, который манифест больше не объявляет,
+остаётся в списке с `declared: false`.
 
 **Консоль** — `BindingService` (`/ws`): `ListBindings` (хуки всех или
-одного сервиса с состоянием и текущей версией), `GetBinding` (версия, 0 —
-текущая), `ListBindingVersions` (страницы, новые первыми),
-`ValidateBinding`, `SaveBinding`, `RollbackBinding`, `DeleteBinding`,
-`ParseBinding`, `FormatBinding`, `WatchBindings` (список сейчас и после
+одного сервиса с состоянием, текущей версией и нарушениями), `GetBinding`
+(версия, 0 — текущая, и её нарушения сейчас), `ListBindingVersions`
+(страницы, новые первыми), `ValidateBinding`, `SaveBinding`,
+`RollbackBinding`, `DeleteBinding`, `WatchBindings` (список сейчас и после
 каждого сохранения на любой реплике — опрос PostgreSQL раз в 2 s — и
 каждого манифеста). Запуски — RPC исполнителя рядом: `TestBinding`,
-`ListBindingRuns`, `GetBindingRun`, `CancelBindingRun`.
+`ListBindingRuns`, `GetBindingRun` (с таймлайном шагов),
+`CancelBindingRun`. Редактору — `WiringService`: `GetWiringCatalog` (хуки,
+активити и события всех сервисов со схемами — палитра и типы портов),
+`AnalyzeBinding`/`AnalyzeRule` (нарушения; уровни и зависимости шагов по
+видам — данные, `after`, `when`, `undo`; тип CEL каждого узла значения;
+каждое чтение переменной с местом — рёбра графа), `RenameStep` (по
+синтаксическим деревьям выражений: строка или поле с тем же именем не
+меняются).
 
 **Для исполнителя** (`internal/bindings`): `Manager.Active(ctx, hook)` —
 действующее определение и версия (`ErrNoBinding`); `Manager.Changes(ctx)`
 — сигнал после записей (свои сразу, чужих реплик — в пределах опроса);
 `Manager.Catalog()` — последние манифесты; `CompileBinding(b, catalog)` —
-`*Program`: шаги (`StepPlan`: активити, сервис = очередь, kind —
-activity или child workflow, зависимости, группа, `undo` с сервисом и
-kind, разрешённые опции), `Groups()`, выражения скомпилированы.
-`Program` сериализуется в JSON (вход workflow) и восстанавливается
-`json.Unmarshal` в тот же. Вычисление — чистые функции над `Scope`
-(значение; `Bind`/`Skip` возвращают новый): `Start(input)`,
+`*Program`: шаги по имени (`StepPlan`: активити, сервис = очередь, kind —
+activity или child workflow, зависимости, уровень, `undo` с сервисом и
+kind, разрешённые опции), выражения скомпилированы. `Program`
+сериализуется в JSON (вход workflow; значения — их JSON) и
+восстанавливается `json.Unmarshal` в тот же. Вычисление — чистые функции
+над `Scope` (значение; `Bind`/`Skip` возвращают новый): `Start(input)`,
 `When(step, s)`, `Input(step, s)`, `Bind(s, step, output)`,
 `Skip(s, step)`, `UndoInput(step, s)`, `Result(s)`, `Eval(expr, vars)`.
+`BindingYAML`/`RuleYAML` читают YAML определения (демо, тесты).
 
 ### 7.2 Исполнение — Temporal Nexus
 
@@ -1871,37 +1859,48 @@ NATS не сконфигурирован или сервис ещё не ста�
 
 ### 8.1 Правила: событие → активити [backplane]
 
-Правило — **биндинг, у которого источник — событие, а не хук**. Тот же
-DSL (§7.1), тот же исполнитель, та же консоль:
+Правило — **биндинг, у которого источник — событие, а не хук**. Та же
+модель (§7.1), тот же исполнитель, та же консоль (Wiring):
 
-```
-on iam.UserRegistered when event.email != "" :=
-  render = template.Exec(name: "welcome", data: {"name": event.name})
-  send   = smtp.Send(to: event.email, subject: render.subject, text: render.text)
+```yaml
+event: iam.UserRegistered
+when: event.email != ""
+steps:
+  render:
+    activity: template.Exec
+    input: {name: "'welcome'", data: {name: event.name}}
+  send:
+    activity: smtp.Send
+    input: {to: event.email, subject: render.subject, text: render.text}
 ```
 
 Отличия от биндинга хука: вход называется `event` (payload события), к
 нему `meta` — атрибуты CloudEvents (`id`, `source`, `subject`, `type`,
-`time` — строки, `time` в RFC 3339); `return` нет.
+`time` — строки, `time` в RFC 3339); `result` нет.
 
 **Модель** (proto `backplane.console.v1.RuleDefinition`, Go
 `internal/bindings.Rule`): `event` — полное имя `<service>.<Event>`;
 `when` — CEL bool над `event` и `meta` (шаги ему не видны), пусто —
-всегда; `steps` — шаги §7.1. Правило — uuid; его `name` версионируется
-вместе с определением, пауза (`paused`) — флаг вне версий.
+всегда; `steps` — шаги §7.1; `description`, `editor` — как у биндинга.
+Правило — uuid; его `name` версионируется вместе с определением, пауза
+(`paused`) — флаг вне версий.
 
 **Валидация** — как у биндинга (§7.1): событие объявлено в последнем
 манифесте сервиса, `event` типизирован его схемой; у правила обязательно
 непустое имя. **Версии** — `rule` (id, paused), `rule_version` (rule_id,
 version с 1, name, `definition` — protojson `RuleDefinition`, NULL —
 надгробие, author, comment, created_at, rollback_of), `rule_current`;
-сохранение, откат и удаление — как у биндинга. Действуют правила не
-удалённые и не на паузе.
+сохранение, откат, удаление и `base_version` — как у биндинга (у паузы и
+возобновления — тоже: пауза относится к версии, которую видел оператор).
+Состояние правила: `ACTIVE`, `PAUSED`, `DELETED`, `BROKEN` — текущее
+определение больше не компилируется по последним манифестам (важнее
+паузы), `Rule.violations` говорят, где. Действуют правила не удалённые, не
+на паузе и компилирующиеся.
 
 **Консоль** — `RuleService`: `ListRules` (все или одного события, по
 имени), `GetRule`, `ListRuleVersions`, `ValidateRule`, `SaveRule` (без
 id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
-`ResumeRule`, `ParseRule`, `FormatRule`, `WatchRules`; запуски — RPC
+`ResumeRule`, `WatchRules`; запуски — RPC
 движка правил в том же сервисе: `TestRule`, `ListRuleRuns`, `GetRuleRun`,
 `CancelRuleRun` (см. «Запуски в консоли»).
 
@@ -1986,9 +1985,10 @@ id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
 - `ListRuleRuns(id, status?, tests?)` — запуски по префиксу workflow id
   `rule/<id>/` (с `tests` — `test/rule/<id>/`) через visibility, как
   `WorkflowService.ListRuns` (без `ORDER BY`);
-- `GetRuleRun(id, workflow_id, run_id?)`, `CancelRuleRun` — детали и
-  отмена запуска, только запусков этого правила (`NOT_FOUND` для чужого
-  id), как `WorkflowService.GetRun`/`CancelRun`.
+- `GetRuleRun(id, workflow_id, run_id?)`, `CancelRuleRun` — детали
+  (с таймлайном шагов, как у биндинга) и отмена запуска, только запусков
+  этого правила (`NOT_FOUND` для чужого id); пустой `id` — тестовый запуск
+  несохранённого определения (`test/rule/draft/…`).
 - На карточке события — правила; на карточке правила — запуски и тест.
 
 ## 9. Workflows
@@ -2713,8 +2713,8 @@ Nexus напрямую, ключ идемпотентности), активит
 worker'а; события CloudEvents над JetStream, реакторы с опциями доставки,
 DLQ и `Redrive`. Сторона backplane: биндинги и правила — версии в
 PostgreSQL, валидация по последним манифестам с CEL над JSON-схемами,
-текстовая форма (`ParseBinding`/`FormatBinding`, `ParseRule`/`FormatRule`),
-`BindingService` и `RuleService` на `/ws` (§7.1, §8.1,
+определения как YAML/protojson (шаги по имени, значения — деревья CEL),
+`BindingService`, `RuleService` и `WiringService` на `/ws` (§7.1, §8.1,
 `internal/bindings`); исполнитель — Nexus endpoint на каждый сервис с
 хуками, Nexus-only worker `<service>.Hooks`, workflow
 `backplane.Binding.v1` с шагами и компенсациями, запуски в консоли
@@ -2727,9 +2727,9 @@ PostgreSQL, валидация по последним манифестам с C
 расписания, вызов хука и активити из консоли (§8, §9, `internal/ops`,
 контракт имён `internal/wire`). `hello` объявляет хук `Greet`
 (вызывается из HTTP-handler'а и из workflow), активити `Echo` и событие
-`Greeted`; биндинг `hello.Greet := hello.Echo` и правило `on
-hello.Greeted := hello.Echo` сохраняются в консоли. Нет: экраны консоли
-для биндингов, правил, событий и запусков. Доказательство —
+`Greeted`; биндинг `hello.Greet` → `hello.Echo` и правило на
+`hello.Greeted` → `hello.Echo` сохраняются в консоли (раздел Wiring: YAML и
+граф). Доказательство —
 `conformance/m2_test.go` (`make test-m2`, §16.3): развязка end-to-end и
 один trace через всё на настоящих бинарях `backplane` и `hello`.
 
@@ -2823,8 +2823,9 @@ case в SDK ради них — дефект модели.
   - до биндинга: `GET /hello/` через Envoy — локальный fallback `hello`;
     `CallHook` — `backplane.NoBinding`; `ListBindings` — `hello.Greet`
     обязательный и не привязан;
-  - биндинг `hello.Greet := hello.Echo` из текстовой формы: разбор и
-    обратная запись, `ValidateBinding` без нарушений, `SaveBinding` —
+  - биндинг `hello.Greet` → `hello.Echo` из YAML: `GetWiringCatalog`
+    видит `hello.Echo`, `AnalyzeBinding` — без нарушений, с чтением
+    `echo` в `/result/text`, `ValidateBinding` без нарушений, `SaveBinding` —
     версия 1; исполнитель отвечает на `CallHook`, `GET /hello/` через Envoy
     отдаёт текст биндинга; `ListBindingRuns`/`GetBindingRun` — запуск
     `binding/hello.Greet/...` с шагом `echo`, завершённым, со входом и
@@ -2838,7 +2839,7 @@ case в SDK ради них — дефект модели.
     версии, невалидного черновика — нарушения без запуска; тестовые
     запуски не попадают в список вызовов хука; удаление биндинга —
     tombstone, снова fallback;
-  - правило `on hello.Greeted when event.name != "skip" := hello.Echo`:
+  - правило на `hello.Greeted` с `when: event.name != "skip"` → `hello.Echo`:
     consumer правила создан и виден подписчиком в `ListEvents`; ровно
     один запуск `rule/<id>/<ce-id>` на подходящее событие (с trace
     HTTP-запроса в вызове `Echo`), ни одного на отфильтрованное; тот же
@@ -2922,10 +2923,12 @@ backplane/
     config/                  Live-конфигурация (§5.2, §5.3): ревизии override в PostgreSQL, валидация
                              на инстансах схемой, доставка в config/<service>/ (txn + CAS на _revision),
                              reconciler, ConfigService консоли (Manager.API)
-    bindings/                биндинги и правила (§7.1, §8.1): модель, текстовая форма (Parse, Format),
-                             валидация по манифестам с проверкой CEL по схемам, Compile → Program
-                             (группы, опции, детерминированное вычисление для workflow), версии в
-                             PostgreSQL, BindingService и RuleService консоли (Manager)
+    bindings/                биндинги и правила (§7.1, §8.1): модель (шаги по имени, значения —
+                             деревья CEL, YAML для демо и тестов), валидация по манифестам с
+                             проверкой CEL по схемам (пути JSON Pointer, диапазоны), анализ и
+                             переименование шагов, Compile → Program (зависимости, опции,
+                             детерминированное вычисление для workflow), версии в PostgreSQL с
+                             base_version, BindingService, RuleService и WiringService (Manager)
     executor/                исполнитель хуков (§7.2): Nexus endpoint'ы сервисов с хуками, Nexus-worker
                              <service>.Hooks на очереди backplane (пересобирается при изменении набора
                              хуков), workflow backplane.Binding.v1 (биндинги и правила), RPC запусков

@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package backplane.console.v1;
 
-import "backplanepb/console/v1/bindings.proto";
 import "backplanepb/console/v1/calls.proto";
+import "backplanepb/console/v1/step.proto";
 import "backplanepb/console/v1/workflows.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
@@ -44,11 +44,6 @@ service RuleService {
   rpc PauseRule(PauseRuleRequest) returns (PauseRuleResponse);
   // ResumeRule undoes PauseRule.
   rpc ResumeRule(ResumeRuleRequest) returns (ResumeRuleResponse);
-  // ParseRule reads the text form of a rule (§8.1).
-  rpc ParseRule(ParseRuleRequest) returns (ParseRuleResponse);
-  // FormatRule writes the text form of a definition; ParseRule reads it
-  // back into the same definition.
-  rpc FormatRule(FormatRuleRequest) returns (FormatRuleResponse);
   // WatchRules streams ListRules: now, then again whenever it changes.
   rpc WatchRules(WatchRulesRequest) returns (stream WatchRulesResponse);
 
@@ -62,20 +57,26 @@ service RuleService {
   // workflow id prefix rule/<id>/ or test/rule/<id>/).
   rpc ListRuleRuns(ListRuleRunsRequest) returns (ListRuleRunsResponse);
   // GetRuleRun is one run of the rule: status, input, result or failure,
-  // pending activities and history.
+  // pending activities, history and the steps' timeline.
   rpc GetRuleRun(GetRuleRunRequest) returns (GetRuleRunResponse);
   // CancelRuleRun requests cancellation of a run of the rule.
   rpc CancelRuleRun(CancelRuleRunRequest) returns (CancelRuleRunResponse);
 }
 
 // RuleDefinition is what a rule says: the event, the filter and the steps.
+// Its protojson is the canonical form (the console edits it as YAML).
 message RuleDefinition {
   // Full event name "<service>.<Event>".
   string event = 1;
   // CEL bool over `event` and `meta`: the rule runs only when true;
   // empty: always.
   string when = 2;
-  repeated BindingStep steps = 3;
+  // By name; order as in BindingDefinition.steps.
+  map<string, Step> steps = 3;
+  // Free text for people; not executed.
+  string description = 4;
+  // The graph editor's layout; ignored by compile and execution.
+  EditorLayout editor = 15;
 }
 
 // RuleVersion is one saved version of a rule.
@@ -96,6 +97,20 @@ message RuleVersion {
   uint64 rollback_of = 9;
 }
 
+// RuleState is whether a rule runs.
+enum RuleState {
+  RULE_STATE_UNSPECIFIED = 0;
+  // Runs on every matching event.
+  RULE_STATE_ACTIVE = 1;
+  // Paused: no runs start.
+  RULE_STATE_PAUSED = 2;
+  // The current version is a tombstone.
+  RULE_STATE_DELETED = 3;
+  // The current definition no longer compiles against the latest
+  // manifests: no runs start until it is fixed. Rule.violations say why.
+  RULE_STATE_BROKEN = 4;
+}
+
 // Rule is a rule as ListRules shows it.
 message Rule {
   // uuid.
@@ -104,6 +119,12 @@ message Rule {
   bool paused = 2;
   RuleVersion current = 3;
   google.protobuf.Timestamp created_at = 4;
+  // BROKEN wins over PAUSED: a paused rule that no longer compiles is
+  // broken.
+  RuleState state = 5;
+  // Why the current definition does not compile against the latest
+  // manifests (state BROKEN); empty otherwise.
+  repeated Violation violations = 6;
 }
 
 message ListRulesRequest {
@@ -126,6 +147,9 @@ message GetRuleResponse {
   Rule rule = 1;
   // The version asked for.
   RuleVersion version = 2;
+  // Why that version does not compile against the latest manifests;
+  // empty when it does (or is a tombstone).
+  repeated Violation violations = 3;
 }
 
 message ListRuleVersionsRequest {
@@ -148,7 +172,7 @@ message ValidateRuleRequest {
 
 message ValidateRuleResponse {
   // Empty: the definition is valid.
-  repeated BindingViolation violations = 1;
+  repeated Violation violations = 1;
 }
 
 message SaveRuleRequest {
@@ -157,12 +181,16 @@ message SaveRuleRequest {
   string name = 2;
   RuleDefinition definition = 3;
   string comment = 4;
+  // The current version the edit started from. Set: the save is refused
+  // with ABORTED when the rule's current version is another one. Unset
+  // (and for a new rule): no check.
+  optional uint64 base_version = 5;
 }
 
 message SaveRuleResponse {
   // The saved version; absent when the definition is rejected.
   RuleVersion version = 1;
-  repeated BindingViolation violations = 2;
+  repeated Violation violations = 2;
 }
 
 message RollbackRuleRequest {
@@ -170,16 +198,20 @@ message RollbackRuleRequest {
   // The version whose name and definition become the new version.
   uint64 version = 2;
   string comment = 3;
+  // As SaveRuleRequest.base_version.
+  optional uint64 base_version = 4;
 }
 
 message RollbackRuleResponse {
   RuleVersion version = 1;
-  repeated BindingViolation violations = 2;
+  repeated Violation violations = 2;
 }
 
 message DeleteRuleRequest {
   string id = 1;
   string comment = 2;
+  // As SaveRuleRequest.base_version.
+  optional uint64 base_version = 3;
 }
 
 message DeleteRuleResponse {
@@ -189,6 +221,9 @@ message DeleteRuleResponse {
 
 message PauseRuleRequest {
   string id = 1;
+  // As SaveRuleRequest.base_version: the pause applies to the version the
+  // operator saw.
+  optional uint64 base_version = 2;
 }
 
 message PauseRuleResponse {
@@ -197,28 +232,12 @@ message PauseRuleResponse {
 
 message ResumeRuleRequest {
   string id = 1;
+  // As PauseRuleRequest.base_version.
+  optional uint64 base_version = 2;
 }
 
 message ResumeRuleResponse {
   Rule rule = 1;
-}
-
-message ParseRuleRequest {
-  string text = 1;
-}
-
-message ParseRuleResponse {
-  // Absent when the text does not read.
-  RuleDefinition definition = 1;
-  repeated BindingParseError errors = 2;
-}
-
-message FormatRuleRequest {
-  RuleDefinition definition = 1;
-}
-
-message FormatRuleResponse {
-  string text = 1;
 }
 
 message WatchRulesRequest {
@@ -265,7 +284,7 @@ message TestRuleRequest {
 
 message TestRuleResponse {
   // Violations of the definition; when present nothing was evaluated.
-  repeated BindingViolation violations = 1;
+  repeated Violation violations = 1;
   // The event matched `when` (a rule without when always matches).
   bool matched = 2;
   // The event or `when` failed to evaluate ("transform failed at when:
@@ -298,6 +317,8 @@ message ListRuleRunsResponse {
 }
 
 message GetRuleRunRequest {
+  // The rule; empty for a test run of an unsaved definition
+  // (test/rule/draft/...).
   string id = 1;
   // A run of the rule: rule/<id>/... or test/rule/<id>/...
   string workflow_id = 2;
@@ -307,9 +328,17 @@ message GetRuleRunRequest {
 
 message GetRuleRunResponse {
   GetRunResponse run = 1;
+  // The version that ran (0: an unsaved definition) and whether it is a
+  // test run.
+  uint64 version = 2;
+  bool test = 3;
+  // The program's steps by name, then every compensation in
+  // the order it was scheduled.
+  repeated StepRun steps = 4;
 }
 
 message CancelRuleRunRequest {
+  // As GetRuleRunRequest.id.
   string id = 1;
   // A run of the rule: rule/<id>/... or test/rule/<id>/...
   string workflow_id = 2;

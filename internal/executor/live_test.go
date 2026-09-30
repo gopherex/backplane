@@ -267,12 +267,10 @@ func TestLiveHookThroughBinding(t *testing.T) {
 		Hook: greet,
 		Steps: []bindings.Step{{
 			Name: "echo", Activity: s.worker + ".Echo",
-			Input: bindings.Value{Fields: []bindings.Field{{Name: "text", Expr: `"Hello, " + req.name`}}},
+			Input: object(t, `{"text": "\"Hello, \" + req.name"}`),
 		}},
-		Result: bindings.Value{Fields: []bindings.Field{
-			{Name: "text", Expr: "echo.text"}, {Name: "step", Expr: "echo.step"}, {Name: "binding", Expr: "echo.binding"},
-		}},
-	}, "live")
+		Result: object(t, `{"text": "echo.text", "step": "echo.step", "binding": "echo.binding"}`),
+	}, "live", bindings.Base{})
 	if err != nil || len(saved.Violations) > 0 {
 		t.Fatalf("save: %v %v", saved.Violations, err)
 	}
@@ -341,9 +339,9 @@ func TestLiveHookThroughBinding(t *testing.T) {
 			Hook: greet,
 			Steps: []bindings.Step{{
 				Name: "shout", Activity: s.worker + ".Echo",
-				Input: bindings.Value{Fields: []bindings.Field{{Name: "text", Expr: "req.name.upperAscii()"}}},
+				Input: object(t, `{"text": "req.name.upperAscii()"}`),
 			}},
-			Result: bindings.Value{Expr: "shout.text"},
+			Result: bindings.Expr("shout.text"),
 		}.PB(),
 		Input: `{"name":"draft"}`,
 	})
@@ -421,4 +419,16 @@ func TestLiveRetiredHookServiceReturns(t *testing.T) {
 	if out, err := s.call(t, s.caller+".Ping", `{}`); err != nil || out != "{}" {
 		t.Fatalf("returned hook: %q %v", out, err)
 	}
+}
+
+// object is a Value from its JSON form.
+func object(t *testing.T, text string) bindings.Value {
+	t.Helper()
+
+	v, err := bindings.ParseValue([]byte(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return v
 }

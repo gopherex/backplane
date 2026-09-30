@@ -20,7 +20,7 @@ import (
 func TestEvalSendEmail(t *testing.T) {
 	t.Parallel()
 
-	p := mustCompile(t, mustParse(t, sendEmail))
+	p := mustCompile(t, mustBinding(t, sendEmail))
 
 	s, err := p.Start([]byte(`{"to":"a@b.c","template":"welcome","data":{"name":"Ann"}}`))
 	if err != nil {
@@ -58,9 +58,16 @@ func TestEvalSendEmail(t *testing.T) {
 func TestEvalDeterministic(t *testing.T) {
 	t.Parallel()
 
-	p := mustCompile(t, mustParse(t, `iam.SendEmail :=
-  send = smtp.Send(to: req.to, subject: req.data.map(k, k + "=" + req.data[k]).join(","), text: string(req.priority * 2))
-  return { message_id: send.id }
+	p := mustCompile(t, mustBinding(t, `
+hook: iam.SendEmail
+steps:
+  send:
+    activity: smtp.Send
+    input:
+      to: req.to
+      subject: 'req.data.map(k, k + "=" + req.data[k]).join(",")'
+      text: string(req.priority * 2)
+result: {message_id: send.id}
 `))
 
 	data := map[string]string{}
@@ -108,13 +115,15 @@ func TestEvalDeterministic(t *testing.T) {
 func TestEvalRule(t *testing.T) {
 	t.Parallel()
 
-	r, err := bindings.ParseRule(`on iam.UserRegistered when event.name != "" :=
-  a = billing.Charge(v: event.email) [when: event.email.endsWith("@x.io")]
-  b = billing.Charge(skipped: steps.a.skipped, got: a, at: meta.id + "@" + meta.time)
+	r := mustRule(t, `
+event: iam.UserRegistered
+when: event.name != ""
+steps:
+  a: {activity: billing.Charge, input: {v: event.email}, when: 'event.email.endsWith("@x.io")'}
+  b:
+    activity: billing.Charge
+    input: {skipped: steps.a.skipped, got: a, at: 'meta.id + "@" + meta.time'}
 `)
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	p, err := bindings.CompileRule(r, manifests(t))
 	if err != nil {
@@ -160,10 +169,16 @@ func TestEvalRule(t *testing.T) {
 func TestUndoInput(t *testing.T) {
 	t.Parallel()
 
-	p := mustCompile(t, mustParse(t, `iam.SendEmail :=
-  send = smtp.Send(to: req.to, subject: "s", text: "t") [undo: smtp.Recall]
-  again = smtp.Send(to: req.to, subject: "s", text: send.id) [undo: smtp.Recall(id: again.id + "/" + send.id)]
-  return { message_id: send.id }
+	p := mustCompile(t, mustBinding(t, `
+hook: iam.SendEmail
+steps:
+  send: {activity: smtp.Send, input: {to: req.to, subject: "'s'", text: "'t'"}, undo: smtp.Recall}
+  again:
+    activity: smtp.Send
+    input: {to: req.to, subject: "'s'", text: send.id}
+    undo: smtp.Recall
+    undoInput: {id: 'again.id + "/" + send.id'}
+result: {message_id: send.id}
 `))
 
 	s, err := p.Start([]byte(`{"to":"a","template":"t"}`))
@@ -191,9 +206,11 @@ func TestUndoInput(t *testing.T) {
 func TestEvalError(t *testing.T) {
 	t.Parallel()
 
-	p := mustCompile(t, mustParse(t, `iam.SendEmail :=
-  x = billing.Charge(v: req.data["missing"])
-  return { message_id: "m" }
+	p := mustCompile(t, mustBinding(t, `
+hook: iam.SendEmail
+steps:
+  x: {activity: billing.Charge, input: {v: {w: ['req.data["missing"]']}}}
+result: {message_id: "'m'"}
 `))
 
 	s, err := p.Start([]byte(`{"to":"a","template":"t","data":{}}`))
@@ -204,8 +221,8 @@ func TestEvalError(t *testing.T) {
 	_, err = p.Input("x", s)
 
 	var ee *bindings.EvalError
-	if !errors.As(err, &ee) || ee.Step != "x" || ee.Place != "input.v" ||
-		!strings.HasPrefix(err.Error(), "transform failed at step x (input.v): ") {
+	if !errors.As(err, &ee) || ee.Step != "x" || ee.Place != "input.v.w[0]" ||
+		!strings.HasPrefix(err.Error(), "transform failed at step x (input.v.w[0]): ") {
 		t.Fatalf("error %v", err)
 	}
 
@@ -218,12 +235,41 @@ func TestEvalError(t *testing.T) {
 	}
 }
 
+// Values nest: objects and lists are built node by node, numbers,
+// booleans and null are literals, a string is always an expression.
+func TestEvalNested(t *testing.T) {
+	t.Parallel()
+
+	p := mustCompile(t, mustBinding(t, `
+hook: iam.SendEmail
+steps:
+  x:
+    activity: billing.Charge
+    input:
+      to: {address: req.to, copies: [req.to, "'b@c.d'"]}
+      amount: 12
+      share: 0.5
+      urgent: true
+      note: null
+      words: "size(req.template)"
+result: {message_id: "'m'"}
+`))
+
+	s, err := p.Start([]byte(`{"to":"a@b.c","template":"four"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expect(t)(p.Input("x", s))(`{"amount":12,"note":null,"share":0.5,` +
+		`"to":{"address":"a@b.c","copies":["a@b.c","b@c.d"]},"urgent":true,"words":4}`)
+}
+
 // A marshaled program is the same program: a workflow evaluates exactly
 // what was compiled.
 func TestProgramJSON(t *testing.T) {
 	t.Parallel()
 
-	p := mustCompile(t, mustParse(t, sendEmail))
+	p := mustCompile(t, mustBinding(t, sendEmail))
 
 	data, err := json.Marshal(p)
 	if err != nil {

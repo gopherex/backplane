@@ -24,6 +24,7 @@ import (
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/internal/bindings"
+	"github.com/gopherex/backplane/internal/executor"
 	"github.com/gopherex/backplane/internal/wire"
 )
 
@@ -70,6 +71,8 @@ func (e *Engine) status(ctx context.Context, err error) error {
 		code = codes.NotFound
 	case errors.Is(err, bindings.ErrDeleted):
 		code = codes.FailedPrecondition
+	case errors.Is(err, bindings.ErrConflict):
+		code = codes.Aborted
 	case errors.Is(err, context.Canceled):
 		code = codes.Canceled
 	case errors.Is(err, context.DeadlineExceeded):
@@ -130,7 +133,7 @@ func (e *Engine) Test(ctx context.Context, req *consolev1.TestRuleRequest) (*con
 	switch {
 	case errors.As(err, &invalid):
 		for _, v := range invalid.Violations {
-			out.Violations = append(out.Violations, &consolev1.BindingViolation{Path: v.Path, Code: v.Code, Message: v.Message})
+			out.Violations = append(out.Violations, &consolev1.Violation{Path: v.Path, Code: v.Code, Message: v.Message})
 		}
 
 		return out, nil
@@ -368,7 +371,20 @@ func (a API) GetRuleRun(ctx context.Context, req *consolev1.GetRuleRunRequest) (
 		return nil, a.e.status(ctx, err)
 	}
 
-	return &consolev1.GetRuleRunResponse{Run: res}, nil
+	c, err := a.e.temporal()
+	if err != nil {
+		return nil, a.e.status(ctx, err)
+	}
+
+	steps, id, err := executor.Timeline(ctx, c, res)
+	if err != nil {
+		return nil, a.e.status(ctx, err)
+	}
+
+	return &consolev1.GetRuleRunResponse{
+		Run: res, Version: uint64(max(id.Version, 0)),
+		Test: id.Test || strings.HasPrefix(req.GetWorkflowId(), wire.TestRunPrefix), Steps: steps,
+	}, nil
 }
 
 // CancelRuleRun implements RuleService.
@@ -388,16 +404,25 @@ func (a API) CancelRuleRun(
 	return &consolev1.CancelRuleRunResponse{}, nil
 }
 
-// ownRun checks that workflowID is a run (or test run) of rule id and
-// that runs are served.
+// ownRun checks that workflowID is a run (or test run) of rule id — for
+// an empty id, a test run of an unsaved definition — and that runs are
+// served.
 func (e *Engine) ownRun(rule, workflowID string) error {
+	if e.runs == nil {
+		return errNoRuns
+	}
+
+	if rule == "" {
+		if p := testPrefix(""); len(workflowID) <= len(p) || !strings.HasPrefix(workflowID, p) {
+			return fmt.Errorf("%w: %q is not a test run of an unsaved rule", errNotRuleRun, workflowID)
+		}
+
+		return nil
+	}
+
 	id, err := ruleID(rule)
 	if err != nil {
 		return err
-	}
-
-	if e.runs == nil {
-		return errNoRuns
 	}
 
 	if !IsRunOf(id, workflowID) {

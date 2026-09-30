@@ -126,11 +126,11 @@ message ValidateOverrideRequest {
 
 message ValidateOverrideResponse {
   // Empty: the override is valid.
-  repeated Violation violations = 1;
+  repeated ConfigViolation violations = 1;
 }
 
-// Violation is one reason an override is rejected.
-message Violation {
+// ConfigViolation is one reason an override is rejected.
+message ConfigViolation {
   // Path of the failure ("greeter.suffix", "limits.max", "items[2]");
   // empty for a failure of the whole configuration (a form-wide rule).
   string path = 1;
@@ -155,7 +155,7 @@ message SaveRevisionResponse {
   // The saved revision; absent when the override is rejected.
   Revision revision = 1;
   // Why the override is rejected; empty when saved.
-  repeated Violation violations = 2;
+  repeated ConfigViolation violations = 2;
   // Why the revision is saved but not yet in Consul KV; the reconciler
   // delivers it once Consul answers.
   string delivery_error = 3;
@@ -173,7 +173,7 @@ message RollbackResponse {
   Revision revision = 1;
   // Why the values are rejected (the schema may have changed since); empty
   // when saved.
-  repeated Violation violations = 2;
+  repeated ConfigViolation violations = 2;
   // Why the revision is saved but not yet in Consul KV.
   string delivery_error = 3;
 }

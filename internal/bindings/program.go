@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strconv"
 	"time"
 
 	"github.com/google/cel-go/cel"
@@ -34,8 +35,8 @@ type StepPlan struct {
 	Service string `json:"service"`
 	// Kind: a Temporal activity, or a workflow run as a child workflow.
 	Kind backplanev1.ActivityKind `json:"kind"`
-	// Deps are the steps this one waits for, in declaration order: its
-	// `after` and every step its input and when read.
+	// Deps are the steps this one waits for: its `after` and every step
+	// its input and when read.
 	Deps []string `json:"deps,omitempty"`
 	// Group is the step's level in Program.Groups: every dependency is in
 	// a lower group.
@@ -55,13 +56,13 @@ type StepPlan struct {
 }
 
 // spec is a Program's serialized form: everything evaluation needs,
-// nothing it has to look up.
+// nothing it has to look up. Values are their JSON form.
 type spec struct {
-	Kind   Kind       `json:"kind"`
-	Source string     `json:"source"`
-	When   string     `json:"when,omitempty"`
-	Steps  []specStep `json:"steps"`
-	Result Value      `json:"result"`
+	Kind   Kind            `json:"kind"`
+	Source string          `json:"source"`
+	When   string          `json:"when,omitempty"`
+	Steps  []specStep      `json:"steps"`
+	Result json.RawMessage `json:"result,omitempty"`
 	// Input is the schema of `req` or `event` (protobuf binary).
 	Input []byte `json:"input,omitempty"`
 }
@@ -69,9 +70,9 @@ type spec struct {
 type specStep struct {
 	StepPlan
 
-	When      string `json:"when_expr,omitempty"`
-	Input     Value  `json:"input"`
-	UndoInput Value  `json:"undo_input"`
+	When      string          `json:"when_expr,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
+	UndoInput json.RawMessage `json:"undo_input,omitempty"`
 	// Output is the schema of the activity's output (protobuf binary).
 	Output []byte `json:"output,omitempty"`
 }
@@ -103,15 +104,16 @@ type runStep struct {
 	output    *shape
 }
 
-// valueProgram is a compiled Value: fields, or one program; neither is
-// the default of its place.
+// valueProgram is a compiled Value: a program, fields, items or a
+// literal; unset is the default of its place.
 type valueProgram struct {
-	names  []string
-	fields []cel.Program
-	whole  cel.Program
+	kind    ValueKind
+	prg     cel.Program
+	names   []string
+	fields  []valueProgram
+	items   []valueProgram
+	literal any
 }
-
-func (v valueProgram) zero() bool { return v.whole == nil && v.fields == nil }
 
 // newProgram builds the evaluation side of a spec.
 func newProgram(s spec) (*Program, error) {
@@ -203,23 +205,48 @@ func (p *Program) step(b *shapes, st *specStep) (runStep, error) {
 	return run, nil
 }
 
-func (p *Program) value(v Value) (valueProgram, error) {
-	if v.Expr != "" {
-		prg, err := program(p.env, v.Expr)
-
-		return valueProgram{whole: prg}, err
+func (p *Program) value(data json.RawMessage) (valueProgram, error) {
+	v, err := ParseValue(data)
+	if err != nil {
+		return valueProgram{}, err
 	}
 
-	var out valueProgram
+	return p.compileValue(v)
+}
 
-	for _, f := range v.Fields {
-		prg, err := program(p.env, f.Expr)
+func (p *Program) compileValue(v Value) (valueProgram, error) {
+	out := valueProgram{kind: v.Kind()}
+
+	switch out.kind {
+	case ValueUnset:
+	case ValueExpr:
+		prg, err := program(p.env, v.Expr())
 		if err != nil {
-			return out, fmt.Errorf("%s: %w", f.Name, err)
+			return out, err
 		}
 
-		out.names = append(out.names, f.Name)
-		out.fields = append(out.fields, prg)
+		out.prg = prg
+	case ValueObject:
+		for _, f := range v.Fields() {
+			field, err := p.compileValue(f.Value)
+			if err != nil {
+				return out, fmt.Errorf("%s: %w", f.Name, err)
+			}
+
+			out.names = append(out.names, f.Name)
+			out.fields = append(out.fields, field)
+		}
+	case ValueList:
+		for i, item := range v.Items() {
+			compiled, err := p.compileValue(item)
+			if err != nil {
+				return out, fmt.Errorf("[%d]: %w", i, err)
+			}
+
+			out.items = append(out.items, compiled)
+		}
+	case ValueLiteral:
+		out.literal = v.Literal()
 	}
 
 	return out, nil
@@ -228,9 +255,7 @@ func (p *Program) value(v Value) (valueProgram, error) {
 // MarshalJSON is the program's serialized form: a workflow takes it as
 // input and evaluates exactly what was compiled.
 func (p *Program) MarshalJSON() ([]byte, error) {
-	// Value, Field and Retry go by their Go field names: tagging them would
-	// change the input of the workflows in flight.
-	out, err := json.Marshal(p.spec) //nolint:musttag // see above
+	out, err := json.Marshal(p.spec)
 	if err != nil {
 		return nil, fmt.Errorf("bindings: program: %w", err)
 	}
@@ -242,7 +267,7 @@ func (p *Program) MarshalJSON() ([]byte, error) {
 // (json.Unmarshal into one): a Program is not modified once built.
 func (p *Program) UnmarshalJSON(data []byte) error {
 	var s spec
-	if err := json.Unmarshal(data, &s); err != nil { //nolint:musttag // untagged types go by Go field names
+	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("bindings: program: %w", err)
 	}
 
@@ -262,7 +287,7 @@ func (p *Program) Kind() Kind { return p.spec.Kind }
 // Source is the hook or event name.
 func (p *Program) Source() string { return p.spec.Source }
 
-// Steps are the steps in declaration order.
+// Steps are the steps by name.
 func (p *Program) Steps() []StepPlan {
 	out := make([]StepPlan, 0, len(p.spec.Steps))
 
@@ -289,9 +314,8 @@ func (p *Program) Step(name string) (StepPlan, bool) {
 }
 
 // Groups are the steps by level: a group's steps depend only on steps of
-// lower groups and may run in parallel; within a group in declaration
-// order. Running group after group is a valid order; running each step
-// once its Deps are done is a finer one.
+// lower groups; within a group by name. The executor does not wait for a
+// whole group: a step starts once its Deps are done.
 func (p *Program) Groups() [][]string {
 	out := make([][]string, 0, len(p.groups))
 	for _, g := range p.groups {
@@ -511,31 +535,15 @@ func evalBool(prg cel.Program, vars map[string]any, step, place string) (bool, e
 var errNotBool = errors.New("not a bool")
 
 func evalValue(v valueProgram, vars map[string]any, step, place string, zero any) ([]byte, error) {
-	var out any
+	out := zero
 
-	switch {
-	case v.zero():
-		out = zero
-	case v.whole != nil:
-		value, err := eval(v.whole, vars)
+	if v.kind != ValueUnset {
+		value, err := v.eval(vars, step, place)
 		if err != nil {
-			return nil, &EvalError{Step: step, Place: place, Err: err}
+			return nil, err
 		}
 
 		out = value
-	default:
-		obj := make(map[string]any, len(v.fields))
-
-		for i, prg := range v.fields {
-			value, err := eval(prg, vars)
-			if err != nil {
-				return nil, &EvalError{Step: step, Place: place + "." + v.names[i], Err: err}
-			}
-
-			obj[v.names[i]] = value
-		}
-
-		out = obj
 	}
 
 	data, err := marshal(out)
@@ -544,6 +552,48 @@ func evalValue(v valueProgram, vars map[string]any, step, place string, zero any
 	}
 
 	return data, nil
+}
+
+// eval is the value on vars; a failing expression is an *EvalError at its
+// place ("input.to", "input.items[2]").
+func (v valueProgram) eval(vars map[string]any, step, place string) (any, error) {
+	switch v.kind {
+	case ValueExpr:
+		value, err := eval(v.prg, vars)
+		if err != nil {
+			return nil, &EvalError{Step: step, Place: place, Err: err}
+		}
+
+		return value, nil
+	case ValueObject:
+		obj := make(map[string]any, len(v.fields))
+
+		for i, f := range v.fields {
+			value, err := f.eval(vars, step, place+"."+v.names[i])
+			if err != nil {
+				return nil, err
+			}
+
+			obj[v.names[i]] = value
+		}
+
+		return obj, nil
+	case ValueList:
+		list := make([]any, 0, len(v.items))
+
+		for i, item := range v.items {
+			value, err := item.eval(vars, step, place+"["+strconv.Itoa(i)+"]")
+			if err != nil {
+				return nil, err
+			}
+
+			list = append(list, value)
+		}
+
+		return list, nil
+	default:
+		return v.literal, nil
+	}
 }
 
 // marshal is deterministic JSON: sorted keys, no HTML escaping.

@@ -349,10 +349,10 @@ func revisionPB(r Revision) *consolev1.Revision {
 	return out
 }
 
-func violationsPB(vs []Violation) []*consolev1.Violation {
-	out := make([]*consolev1.Violation, 0, len(vs))
+func violationsPB(vs []Violation) []*consolev1.ConfigViolation {
+	out := make([]*consolev1.ConfigViolation, 0, len(vs))
 	for _, v := range vs {
-		out = append(out, &consolev1.Violation{Path: v.Path, Instance: v.Instance, Code: v.Code, Message: v.Message})
+		out = append(out, &consolev1.ConfigViolation{Path: v.Path, Instance: v.Instance, Code: v.Code, Message: v.Message})
 	}
 
 	return out

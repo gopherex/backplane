@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/checker"
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/ast"
 	"github.com/google/cel-go/common/types"
@@ -294,76 +296,167 @@ func nativeMap(m traits.Mapper) (map[string]any, error) {
 	return out, nil
 }
 
-// refs are the names an expression reads: identifiers not bound by a
-// comprehension, and "steps.<name>" for a select on `steps`.
-func refs(e ast.Expr) []string {
-	var out []string
-
-	walk(e, map[string]int{}, func(name string) {
-		if !slices.Contains(out, name) {
-			out = append(out, name)
-		}
-	})
-
-	return out
+// read is one read of a variable by an expression: the variable, the
+// field selections that follow it and where they are.
+type read struct {
+	// path is the JSON Pointer of the expression (set by the compiler).
+	path     string
+	variable string
+	// ident is where the variable's name is.
+	ident  Range
+	fields []string
+	// fieldAt is where each field's name is (zero when not found).
+	fieldAt []Range
+	// whole is the variable with its selections.
+	whole Range
 }
 
-func walk(e ast.Expr, bound map[string]int, visit func(string)) {
+// reader collects the reads of one parsed expression.
+type reader struct {
+	src  []rune
+	info *ast.SourceInfo
+	out  []read
+}
+
+// readsOf are the variables expr reads (identifiers not bound by a
+// comprehension), in source order.
+func readsOf(src string, parsed *ast.AST) []read {
+	r := &reader{src: []rune(src), info: parsed.SourceInfo()}
+	r.walk(parsed.Expr(), map[string]int{})
+
+	slices.SortStableFunc(r.out, func(a, b read) int { return cmp.Compare(a.whole.Start, b.whole.Start) })
+
+	return r.out
+}
+
+func (r *reader) at(id int64) (Range, bool) {
+	o, ok := r.info.GetOffsetRange(id)
+	if !ok {
+		return Range{}, false
+	}
+
+	return Range{Start: int(o.Start), End: int(o.Stop)}, true
+}
+
+func (r *reader) walk(e ast.Expr, bound map[string]int) {
 	switch e.Kind() {
 	case ast.IdentKind:
 		if bound[e.AsIdent()] == 0 {
-			visit(e.AsIdent())
+			at, _ := r.at(e.ID())
+			r.out = append(r.out, read{variable: e.AsIdent(), ident: at, whole: at})
 		}
 	case ast.SelectKind:
-		walkSelect(e.AsSelect(), bound, visit)
+		r.selection(e, bound)
 	case ast.CallKind:
 		call := e.AsCall()
 		if call.IsMemberFunction() {
-			walk(call.Target(), bound, visit)
+			r.walk(call.Target(), bound)
 		}
 
-		walkAll(call.Args(), bound, visit)
+		for _, a := range call.Args() {
+			r.walk(a, bound)
+		}
 	case ast.ListKind:
-		walkAll(e.AsList().Elements(), bound, visit)
+		for _, item := range e.AsList().Elements() {
+			r.walk(item, bound)
+		}
 	case ast.MapKind:
 		for _, entry := range e.AsMap().Entries() {
-			walk(entry.AsMapEntry().Key(), bound, visit)
-			walk(entry.AsMapEntry().Value(), bound, visit)
+			r.walk(entry.AsMapEntry().Key(), bound)
+			r.walk(entry.AsMapEntry().Value(), bound)
 		}
 	case ast.StructKind:
 		for _, f := range e.AsStruct().Fields() {
-			walk(f.AsStructField().Value(), bound, visit)
+			r.walk(f.AsStructField().Value(), bound)
 		}
 	case ast.ComprehensionKind:
-		walkComprehension(e.AsComprehension(), bound, visit)
+		r.comprehension(e.AsComprehension(), bound)
 	default:
 	}
 }
 
-func walkAll(exprs []ast.Expr, bound map[string]int, visit func(string)) {
-	for _, e := range exprs {
-		walk(e, bound, visit)
+// selection is a chain of selects: a read of its variable when the chain
+// starts at an unbound identifier, else a walk of what it starts at.
+func (r *reader) selection(e ast.Expr, bound map[string]int) {
+	var fields []string
+
+	root := e
+	for root.Kind() == ast.SelectKind {
+		fields = append(fields, root.AsSelect().FieldName())
+		root = root.AsSelect().Operand()
 	}
-}
 
-// walkSelect reports a select on an unbound `steps` as "steps.<name>".
-func walkSelect(sel ast.SelectExpr, bound map[string]int, visit func(string)) {
-	operand := sel.Operand()
-
-	if operand.Kind() == ast.IdentKind && operand.AsIdent() == VarSteps && bound[VarSteps] == 0 {
-		visit(VarSteps + "." + sel.FieldName())
+	if root.Kind() != ast.IdentKind || bound[root.AsIdent()] > 0 {
+		r.walk(root, bound)
 
 		return
 	}
 
-	walk(operand, bound, visit)
+	slices.Reverse(fields)
+
+	ident, _ := r.at(root.ID())
+	reading := read{variable: root.AsIdent(), ident: ident, fields: fields, whole: ident}
+
+	pos := ident.End
+	for _, f := range fields {
+		name, ok := r.field(pos, f)
+		if !ok || ident.IsZero() {
+			break
+		}
+
+		reading.fieldAt = append(reading.fieldAt, name)
+		reading.whole.End = name.End
+		pos = name.End
+	}
+
+	for len(reading.fieldAt) < len(fields) {
+		reading.fieldAt = append(reading.fieldAt, Range{})
+	}
+
+	r.out = append(r.out, reading)
 }
 
-// walkComprehension walks a comprehension with its variables bound in
-// the loop and the result.
-func walkComprehension(c ast.ComprehensionExpr, bound map[string]int, visit func(string)) {
-	walk(c.IterRange(), bound, visit)
-	walk(c.AccuInit(), bound, visit)
+// field finds ".<name>" (spaces allowed around the dot, the name possibly
+// in backquotes) at pos: where the name is.
+func (r *reader) field(pos int, name string) (Range, bool) {
+	pos = r.skipSpace(pos)
+	if pos >= len(r.src) || r.src[pos] != '.' {
+		return Range{}, false
+	}
+
+	pos = r.skipSpace(pos + 1)
+	want := []rune(name)
+
+	if pos < len(r.src) && r.src[pos] == '`' {
+		end := pos + 1 + len(want)
+		if end < len(r.src) && string(r.src[pos+1:end]) == name && r.src[end] == '`' {
+			return Range{Start: pos, End: end + 1}, true
+		}
+
+		return Range{}, false
+	}
+
+	end := pos + len(want)
+	if end > len(r.src) || string(r.src[pos:end]) != name {
+		return Range{}, false
+	}
+
+	return Range{Start: pos, End: end}, true
+}
+
+func (r *reader) skipSpace(pos int) int {
+	for pos < len(r.src) && unicode.IsSpace(r.src[pos]) {
+		pos++
+	}
+
+	return pos
+}
+
+// comprehension walks a comprehension with its variables bound in the
+// loop and the result.
+func (r *reader) comprehension(c ast.ComprehensionExpr, bound map[string]int) {
+	r.walk(c.IterRange(), bound)
+	r.walk(c.AccuInit(), bound)
 
 	vars := []string{c.IterVar(), c.AccuVar()}
 	if c.HasIterVar2() {
@@ -374,13 +467,157 @@ func walkComprehension(c ast.ComprehensionExpr, bound map[string]int, visit func
 		bound[v]++
 	}
 
-	walk(c.LoopCondition(), bound, visit)
-	walk(c.LoopStep(), bound, visit)
-	walk(c.Result(), bound, visit)
+	r.walk(c.LoopCondition(), bound)
+	r.walk(c.LoopStep(), bound)
+	r.walk(c.Result(), bound)
 
 	for _, v := range vars {
 		bound[v]--
 	}
+}
+
+// issueRange is where in src a CEL issue is: the span of the expression it
+// is about, else its location; zero when unknown.
+func issueRange(src string, parsed *ast.AST, issue *cel.Error) Range {
+	runes := []rune(src)
+
+	if parsed != nil && issue.ExprID != 0 {
+		r := &reader{src: runes, info: parsed.SourceInfo()}
+		if node, found := findExpr(parsed.Expr(), issue.ExprID); found {
+			if span, known := r.span(node); known {
+				return span
+			}
+		}
+	}
+
+	line, col := issue.Location.Line(), issue.Location.Column()
+	if line < 1 || col < 0 {
+		return Range{}
+	}
+
+	offset := 0
+	for l := 1; l < line && offset < len(runes); offset++ {
+		if runes[offset] == '\n' {
+			l++
+		}
+	}
+
+	start := min(offset+col, len(runes))
+	if start == len(runes) && start > 0 {
+		return Range{Start: start - 1, End: start}
+	}
+
+	return Range{Start: start, End: min(start+1, len(runes))}
+}
+
+// span is the text an expression covers: its own position joined with
+// its operands', a select through its field's name.
+func (r *reader) span(e ast.Expr) (Range, bool) {
+	out, ok := r.at(e.ID())
+
+	join := func(child ast.Expr) {
+		if s, has := r.span(child); has {
+			if !ok {
+				out, ok = s, true
+			}
+
+			out.Start, out.End = min(out.Start, s.Start), max(out.End, s.End)
+		}
+	}
+
+	switch e.Kind() {
+	case ast.SelectKind:
+		sel := e.AsSelect()
+		if s, has := r.span(sel.Operand()); has {
+			if at, found := r.field(s.End, sel.FieldName()); found {
+				return Range{Start: s.Start, End: at.End}, true
+			}
+		}
+
+		join(sel.Operand())
+	case ast.CallKind:
+		call := e.AsCall()
+		if call.IsMemberFunction() {
+			join(call.Target())
+		}
+
+		for _, a := range call.Args() {
+			join(a)
+		}
+	case ast.ListKind:
+		for _, item := range e.AsList().Elements() {
+			join(item)
+		}
+	case ast.MapKind:
+		for _, entry := range e.AsMap().Entries() {
+			join(entry.AsMapEntry().Key())
+			join(entry.AsMapEntry().Value())
+		}
+	default:
+	}
+
+	return out, ok && out.End > out.Start
+}
+
+// findExpr is the node of id in e.
+//
+//nolint:ireturn // CEL's nodes are ast.Expr
+func findExpr(e ast.Expr, id int64) (ast.Expr, bool) {
+	if e.ID() == id {
+		return e, true
+	}
+
+	var children []ast.Expr
+
+	switch e.Kind() {
+	case ast.SelectKind:
+		children = []ast.Expr{e.AsSelect().Operand()}
+	case ast.CallKind:
+		if e.AsCall().IsMemberFunction() {
+			children = append(children, e.AsCall().Target())
+		}
+
+		children = append(children, e.AsCall().Args()...)
+	case ast.ListKind:
+		children = e.AsList().Elements()
+	case ast.MapKind:
+		for _, entry := range e.AsMap().Entries() {
+			children = append(children, entry.AsMapEntry().Key(), entry.AsMapEntry().Value())
+		}
+	case ast.StructKind:
+		for _, f := range e.AsStruct().Fields() {
+			children = append(children, f.AsStructField().Value())
+		}
+	case ast.ComprehensionKind:
+		c := e.AsComprehension()
+		children = []ast.Expr{c.IterRange(), c.AccuInit(), c.LoopCondition(), c.LoopStep(), c.Result()}
+	default:
+	}
+
+	for _, child := range children {
+		if found, ok := findExpr(child, id); ok {
+			return found, true
+		}
+	}
+
+	return nil, false
+}
+
+// maxCollection is the size a cost estimate assumes for a list, map or
+// string whose size is not known before the run.
+const maxCollection = 1000
+
+// sizeEstimator gives CEL's cost estimate the sizes of unknown
+// collections: at most maxCollection.
+type sizeEstimator struct{}
+
+func (sizeEstimator) EstimateSize(checker.AstNode) *checker.SizeEstimate {
+	return &checker.SizeEstimate{Min: 0, Max: maxCollection}
+}
+
+//nolint:gocritic // checker.CostEstimator's signature
+func (sizeEstimator) EstimateCallCost(string, string, *checker.AstNode, []checker.AstNode) *checker.CallEstimate {
+	return nil
 }
 
 func sortedKeys[V any](m map[string]V) []string {

@@ -1,6 +1,6 @@
 # Wiring: bindings and rules as YAML + CEL, with a graph editor — design
 
-Date: 2026-09-30. Status: agreed direction, implementation in progress.
+Date: 2026-09-30. Status: implemented (all three stages).
 
 ## Intent
 
@@ -11,7 +11,9 @@ Stated by the user:
   highlighting and checks while typing;
 - it lives in a new top-level section, **Wiring**;
 - the custom text DSL is removed; YAML with CEL expressions is the format;
-- the API and storage may be changed freely (no versioned `v2` names).
+- the API and storage may be changed freely (no versioned `v2` names);
+- nothing is installed anywhere yet: no compatibility with old data or runs,
+  migrations are squashed into one `init` and local databases are reset.
 
 Assumed: bindings stay declarative (no loops or branches beyond `when`); logic
 that needs a language belongs in a service's workflow or activity, called as a
@@ -78,12 +80,13 @@ editor: { nodes: { formatted: { x: 240, y: 80 } } }
 ```
 
 Step order is not significant: execution follows dependencies; ties break by
-step name. The shared messages move to a common `wiring.proto` (`Step`,
-`Violation`, `EditorLayout`); `BindingStep`, `BindingValue`, `BindingField`,
+step name. The shared messages live in `step.proto` (`Step`, `StepRetry`,
+`Violation`, `Range`, `EditorLayout`, `StepRun`); `wiring.proto` holds the
+editor's `WiringService` (it imports bindings and rules, so the shared parts
+cannot live there). `BindingStep`, `BindingValue`, `BindingField`,
 `ParseBinding`, `FormatBinding`, `ParseRule`, `FormatRule` and the DSL
-(`internal/bindings/dsl.go`) are removed. The Go model becomes a thin view over
-the proto so no field is lost on save. A migration rewrites stored versions to
-the new JSON shape.
+(`internal/bindings/dsl.go`) are removed. The Go model keeps every field of the
+proto, so nothing is lost on save.
 
 ## Validation with positions
 
@@ -110,14 +113,15 @@ Save, Rollback, Delete and Pause take `base_version`; a mismatch is `ABORTED`
   value node, and port-level references (`/steps/send/input/subject ←
   render.subject`). Graph edges and hover types come from here.
 - `RenameStep` — rewrites the name in every CEL expression (AST-based).
+- `GetRuleRun` with an empty id serves a test run of an unsaved rule
+  (`test/rule/draft/…`), so its timeline overlays the graph too.
 
 ## Reliability fixes
 
 - **Broken state:** when manifests change, every current binding and rule is
   re-validated; List/Watch/Get report `BROKEN` with violations instead of
   `BOUND`/active, and a broken rule is visible (not only a log line).
-- **Execution spec** is its own tagged struct with `spec_version`; unknown
-  versions fail loudly instead of mis-decoding in-flight runs.
+- **Execution spec** is its own struct with JSON tags (values as plain JSON).
 - **Scheduling by dependencies:** a step starts as soon as its dependencies
   finish, not when its whole level does.
 - **Rule runs** get the same step timeline as binding runs.
@@ -150,9 +154,9 @@ Route `/wiring` (sidebar: Services, Wiring, Explore, Audit).
 
 ## Stages
 
-1. Backend: model and `wiring.proto`, migration, compile on the new model,
+1. Backend: model, `step.proto` and `wiring.proto`, compile on the new model,
    pointer paths and ranges, `base_version`, catalog, analysis, rename, broken
-   state, spec version, dependency scheduling, rule timeline, cost estimate;
+   state, dependency scheduling, rule timeline, cost estimate;
    DSL removed; demo, conformance and tests moved to the new format.
 2. Console: Wiring section with lists, YAML editor with live validation and
    completion, versions, tests and runs; Automation tab reduced to a summary

@@ -24,6 +24,9 @@ var (
 	ErrNoRule    = errors.New("bindings: no such rule")
 	// ErrDeleted: the rule or binding is deleted already.
 	ErrDeleted = errors.New("bindings: deleted")
+	// ErrConflict: an edit started from a version that is no longer the
+	// current one.
+	ErrConflict = errors.New("bindings: changed since the edit started")
 )
 
 // DefaultAuthor is the author of a version saved outside a console session.

@@ -647,7 +647,7 @@ func (x *ValidateOverrideRequest) GetValues() map[string]string {
 type ValidateOverrideResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty: the override is valid.
-	Violations    []*Violation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*ConfigViolation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -682,15 +682,15 @@ func (*ValidateOverrideResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_config_proto_rawDescGZIP(), []int{9}
 }
 
-func (x *ValidateOverrideResponse) GetViolations() []*Violation {
+func (x *ValidateOverrideResponse) GetViolations() []*ConfigViolation {
 	if x != nil {
 		return x.Violations
 	}
 	return nil
 }
 
-// Violation is one reason an override is rejected.
-type Violation struct {
+// ConfigViolation is one reason an override is rejected.
+type ConfigViolation struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Path of the failure ("greeter.suffix", "limits.max", "items[2]");
 	// empty for a failure of the whole configuration (a form-wide rule).
@@ -707,20 +707,20 @@ type Violation struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Violation) Reset() {
-	*x = Violation{}
+func (x *ConfigViolation) Reset() {
+	*x = ConfigViolation{}
 	mi := &file_backplanepb_console_v1_config_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Violation) String() string {
+func (x *ConfigViolation) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Violation) ProtoMessage() {}
+func (*ConfigViolation) ProtoMessage() {}
 
-func (x *Violation) ProtoReflect() protoreflect.Message {
+func (x *ConfigViolation) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_config_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -732,33 +732,33 @@ func (x *Violation) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Violation.ProtoReflect.Descriptor instead.
-func (*Violation) Descriptor() ([]byte, []int) {
+// Deprecated: Use ConfigViolation.ProtoReflect.Descriptor instead.
+func (*ConfigViolation) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_config_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *Violation) GetPath() string {
+func (x *ConfigViolation) GetPath() string {
 	if x != nil {
 		return x.Path
 	}
 	return ""
 }
 
-func (x *Violation) GetInstance() string {
+func (x *ConfigViolation) GetInstance() string {
 	if x != nil {
 		return x.Instance
 	}
 	return ""
 }
 
-func (x *Violation) GetCode() string {
+func (x *ConfigViolation) GetCode() string {
 	if x != nil {
 		return x.Code
 	}
 	return ""
 }
 
-func (x *Violation) GetMessage() string {
+func (x *ConfigViolation) GetMessage() string {
 	if x != nil {
 		return x.Message
 	}
@@ -831,7 +831,7 @@ type SaveRevisionResponse struct {
 	// The saved revision; absent when the override is rejected.
 	Revision *Revision `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	// Why the override is rejected; empty when saved.
-	Violations []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations []*ConfigViolation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	// Why the revision is saved but not yet in Consul KV; the reconciler
 	// delivers it once Consul answers.
 	DeliveryError string `protobuf:"bytes,3,opt,name=delivery_error,json=deliveryError,proto3" json:"delivery_error,omitempty"`
@@ -876,7 +876,7 @@ func (x *SaveRevisionResponse) GetRevision() *Revision {
 	return nil
 }
 
-func (x *SaveRevisionResponse) GetViolations() []*Violation {
+func (x *SaveRevisionResponse) GetViolations() []*ConfigViolation {
 	if x != nil {
 		return x.Violations
 	}
@@ -957,7 +957,7 @@ type RollbackResponse struct {
 	Revision *Revision `protobuf:"bytes,1,opt,name=revision,proto3" json:"revision,omitempty"`
 	// Why the values are rejected (the schema may have changed since); empty
 	// when saved.
-	Violations []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations []*ConfigViolation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	// Why the revision is saved but not yet in Consul KV.
 	DeliveryError string `protobuf:"bytes,3,opt,name=delivery_error,json=deliveryError,proto3" json:"delivery_error,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1001,7 +1001,7 @@ func (x *RollbackResponse) GetRevision() *Revision {
 	return nil
 }
 
-func (x *RollbackResponse) GetViolations() []*Violation {
+func (x *RollbackResponse) GetViolations() []*ConfigViolation {
 	if x != nil {
 		return x.Violations
 	}
@@ -1159,12 +1159,12 @@ const file_backplanepb_console_v1_config_proto_rawDesc = "" +
 	"\x06values\x18\x02 \x03(\v29.backplane.console.v1.ValidateOverrideRequest.ValuesEntryR\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"[\n" +
-	"\x18ValidateOverrideResponse\x12?\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"a\n" +
+	"\x18ValidateOverrideResponse\x12E\n" +
 	"\n" +
-	"violations\x18\x01 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
-	"violations\"i\n" +
-	"\tViolation\x12\x12\n" +
+	"violations\x18\x01 \x03(\v2%.backplane.console.v1.ConfigViolationR\n" +
+	"violations\"o\n" +
+	"\x0fConfigViolation\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1a\n" +
 	"\binstance\x18\x02 \x01(\tR\binstance\x12\x12\n" +
 	"\x04code\x18\x03 \x01(\tR\x04code\x12\x18\n" +
@@ -1175,21 +1175,21 @@ const file_backplanepb_console_v1_config_proto_rawDesc = "" +
 	"\acomment\x18\x03 \x01(\tR\acomment\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xba\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc0\x01\n" +
 	"\x14SaveRevisionResponse\x12:\n" +
-	"\brevision\x18\x01 \x01(\v2\x1e.backplane.console.v1.RevisionR\brevision\x12?\n" +
+	"\brevision\x18\x01 \x01(\v2\x1e.backplane.console.v1.RevisionR\brevision\x12E\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\x18\x02 \x03(\v2%.backplane.console.v1.ConfigViolationR\n" +
 	"violations\x12%\n" +
 	"\x0edelivery_error\x18\x03 \x01(\tR\rdeliveryError\"a\n" +
 	"\x0fRollbackRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1a\n" +
 	"\brevision\x18\x02 \x01(\x04R\brevision\x12\x18\n" +
-	"\acomment\x18\x03 \x01(\tR\acomment\"\xb6\x01\n" +
+	"\acomment\x18\x03 \x01(\tR\acomment\"\xbc\x01\n" +
 	"\x10RollbackResponse\x12:\n" +
-	"\brevision\x18\x01 \x01(\v2\x1e.backplane.console.v1.RevisionR\brevision\x12?\n" +
+	"\brevision\x18\x01 \x01(\v2\x1e.backplane.console.v1.RevisionR\brevision\x12E\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\x18\x02 \x03(\v2%.backplane.console.v1.ConfigViolationR\n" +
 	"violations\x12%\n" +
 	"\x0edelivery_error\x18\x03 \x01(\tR\rdeliveryError\".\n" +
 	"\x12WatchConfigRequest\x12\x18\n" +
@@ -1228,7 +1228,7 @@ var file_backplanepb_console_v1_config_proto_goTypes = []any{
 	(*ListRevisionsResponse)(nil),    // 7: backplane.console.v1.ListRevisionsResponse
 	(*ValidateOverrideRequest)(nil),  // 8: backplane.console.v1.ValidateOverrideRequest
 	(*ValidateOverrideResponse)(nil), // 9: backplane.console.v1.ValidateOverrideResponse
-	(*Violation)(nil),                // 10: backplane.console.v1.Violation
+	(*ConfigViolation)(nil),          // 10: backplane.console.v1.ConfigViolation
 	(*SaveRevisionRequest)(nil),      // 11: backplane.console.v1.SaveRevisionRequest
 	(*SaveRevisionResponse)(nil),     // 12: backplane.console.v1.SaveRevisionResponse
 	(*RollbackRequest)(nil),          // 13: backplane.console.v1.RollbackRequest
@@ -1255,12 +1255,12 @@ var file_backplanepb_console_v1_config_proto_depIdxs = []int32{
 	23, // 8: backplane.console.v1.LiveValue.source:type_name -> backplane.v1.ConfigSource
 	3,  // 9: backplane.console.v1.ListRevisionsResponse.revisions:type_name -> backplane.console.v1.Revision
 	18, // 10: backplane.console.v1.ValidateOverrideRequest.values:type_name -> backplane.console.v1.ValidateOverrideRequest.ValuesEntry
-	10, // 11: backplane.console.v1.ValidateOverrideResponse.violations:type_name -> backplane.console.v1.Violation
+	10, // 11: backplane.console.v1.ValidateOverrideResponse.violations:type_name -> backplane.console.v1.ConfigViolation
 	19, // 12: backplane.console.v1.SaveRevisionRequest.values:type_name -> backplane.console.v1.SaveRevisionRequest.ValuesEntry
 	3,  // 13: backplane.console.v1.SaveRevisionResponse.revision:type_name -> backplane.console.v1.Revision
-	10, // 14: backplane.console.v1.SaveRevisionResponse.violations:type_name -> backplane.console.v1.Violation
+	10, // 14: backplane.console.v1.SaveRevisionResponse.violations:type_name -> backplane.console.v1.ConfigViolation
 	3,  // 15: backplane.console.v1.RollbackResponse.revision:type_name -> backplane.console.v1.Revision
-	10, // 16: backplane.console.v1.RollbackResponse.violations:type_name -> backplane.console.v1.Violation
+	10, // 16: backplane.console.v1.RollbackResponse.violations:type_name -> backplane.console.v1.ConfigViolation
 	2,  // 17: backplane.console.v1.WatchConfigResponse.config:type_name -> backplane.console.v1.ServiceConfig
 	0,  // 18: backplane.console.v1.ConfigService.GetConfig:input_type -> backplane.console.v1.GetConfigRequest
 	6,  // 19: backplane.console.v1.ConfigService.ListRevisions:input_type -> backplane.console.v1.ListRevisionsRequest

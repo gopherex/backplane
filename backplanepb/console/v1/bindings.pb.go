@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -34,6 +35,10 @@ const (
 	BindingState_BINDING_STATE_UNBOUND BindingState = 2
 	// No binding and the hook is required: calls fail with "no binding".
 	BindingState_BINDING_STATE_REQUIRED_UNBOUND BindingState = 3
+	// The current version is a definition that no longer compiles against
+	// the latest manifests (a service changed a contract it uses): calls
+	// fail until it is fixed. HookBinding.violations say why.
+	BindingState_BINDING_STATE_BROKEN BindingState = 4
 )
 
 // Enum value maps for BindingState.
@@ -43,12 +48,14 @@ var (
 		1: "BINDING_STATE_BOUND",
 		2: "BINDING_STATE_UNBOUND",
 		3: "BINDING_STATE_REQUIRED_UNBOUND",
+		4: "BINDING_STATE_BROKEN",
 	}
 	BindingState_value = map[string]int32{
 		"BINDING_STATE_UNSPECIFIED":      0,
 		"BINDING_STATE_BOUND":            1,
 		"BINDING_STATE_UNBOUND":          2,
 		"BINDING_STATE_REQUIRED_UNBOUND": 3,
+		"BINDING_STATE_BROKEN":           4,
 	}
 )
 
@@ -79,85 +86,22 @@ func (BindingState) EnumDescriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{0}
 }
 
-// StepRunStatus is where a step's call is.
-type StepRunStatus int32
-
-const (
-	StepRunStatus_STEP_RUN_STATUS_UNSPECIFIED StepRunStatus = 0
-	// Never scheduled: skipped by its `when`, or not reached (an earlier
-	// step failed, the run is still before it, or was canceled).
-	StepRunStatus_STEP_RUN_STATUS_NOT_RUN StepRunStatus = 1
-	// Scheduled, not yet picked up by the target service.
-	StepRunStatus_STEP_RUN_STATUS_SCHEDULED StepRunStatus = 2
-	// An attempt is running.
-	StepRunStatus_STEP_RUN_STATUS_STARTED   StepRunStatus = 3
-	StepRunStatus_STEP_RUN_STATUS_COMPLETED StepRunStatus = 4
-	StepRunStatus_STEP_RUN_STATUS_FAILED    StepRunStatus = 5
-	StepRunStatus_STEP_RUN_STATUS_TIMED_OUT StepRunStatus = 6
-	StepRunStatus_STEP_RUN_STATUS_CANCELED  StepRunStatus = 7
-)
-
-// Enum value maps for StepRunStatus.
-var (
-	StepRunStatus_name = map[int32]string{
-		0: "STEP_RUN_STATUS_UNSPECIFIED",
-		1: "STEP_RUN_STATUS_NOT_RUN",
-		2: "STEP_RUN_STATUS_SCHEDULED",
-		3: "STEP_RUN_STATUS_STARTED",
-		4: "STEP_RUN_STATUS_COMPLETED",
-		5: "STEP_RUN_STATUS_FAILED",
-		6: "STEP_RUN_STATUS_TIMED_OUT",
-		7: "STEP_RUN_STATUS_CANCELED",
-	}
-	StepRunStatus_value = map[string]int32{
-		"STEP_RUN_STATUS_UNSPECIFIED": 0,
-		"STEP_RUN_STATUS_NOT_RUN":     1,
-		"STEP_RUN_STATUS_SCHEDULED":   2,
-		"STEP_RUN_STATUS_STARTED":     3,
-		"STEP_RUN_STATUS_COMPLETED":   4,
-		"STEP_RUN_STATUS_FAILED":      5,
-		"STEP_RUN_STATUS_TIMED_OUT":   6,
-		"STEP_RUN_STATUS_CANCELED":    7,
-	}
-)
-
-func (x StepRunStatus) Enum() *StepRunStatus {
-	p := new(StepRunStatus)
-	*p = x
-	return p
-}
-
-func (x StepRunStatus) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (StepRunStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_backplanepb_console_v1_bindings_proto_enumTypes[1].Descriptor()
-}
-
-func (StepRunStatus) Type() protoreflect.EnumType {
-	return &file_backplanepb_console_v1_bindings_proto_enumTypes[1]
-}
-
-func (x StepRunStatus) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use StepRunStatus.Descriptor instead.
-func (StepRunStatus) EnumDescriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{1}
-}
-
 // BindingDefinition is what a binding says: the hook it implements, the
-// steps, and the hook's output.
+// steps, and the hook's output. Its protojson is the canonical form (the
+// console edits it as YAML).
 type BindingDefinition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Full hook name "<service>.<Hook>".
 	Hook string `protobuf:"bytes,1,opt,name=hook,proto3" json:"hook,omitempty"`
-	// In declaration order; the order of execution follows dependencies.
-	Steps []*BindingStep `protobuf:"bytes,2,rep,name=steps,proto3" json:"steps,omitempty"`
-	// The hook's output, CEL over `req` and the steps; empty: {}.
-	Result        *BindingValue `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
+	// By name. Order is not significant: a step runs once the steps it
+	// depends on are done (ties by name).
+	Steps map[string]*Step `protobuf:"bytes,2,rep,name=steps,proto3" json:"steps,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The hook's output, a value over `req` and the steps; absent: {}.
+	Result *structpb.Value `protobuf:"bytes,3,opt,name=result,proto3" json:"result,omitempty"`
+	// Free text for people; not executed.
+	Description string `protobuf:"bytes,4,opt,name=description,proto3" json:"description,omitempty"`
+	// The graph editor's layout; ignored by compile and execution.
+	Editor        *EditorLayout `protobuf:"bytes,15,opt,name=editor,proto3" json:"editor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -199,332 +143,32 @@ func (x *BindingDefinition) GetHook() string {
 	return ""
 }
 
-func (x *BindingDefinition) GetSteps() []*BindingStep {
+func (x *BindingDefinition) GetSteps() map[string]*Step {
 	if x != nil {
 		return x.Steps
 	}
 	return nil
 }
 
-func (x *BindingDefinition) GetResult() *BindingValue {
+func (x *BindingDefinition) GetResult() *structpb.Value {
 	if x != nil {
 		return x.Result
 	}
 	return nil
 }
 
-// BindingStep is one call of an activity.
-type BindingStep struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Identifier, unique in the definition; the step's output is a CEL
-	// variable of this name.
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// Full activity name "<service>.<Activity>".
-	Activity string `protobuf:"bytes,2,opt,name=activity,proto3" json:"activity,omitempty"`
-	// The activity's input; empty: {}.
-	Input *BindingValue `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
-	// CEL bool: the step runs only when true; empty: always.
-	When string `protobuf:"bytes,4,opt,name=when,proto3" json:"when,omitempty"`
-	// Steps this one runs after besides those its expressions reference.
-	After []string `protobuf:"bytes,5,rep,name=after,proto3" json:"after,omitempty"`
-	// Compensation: full activity name run when a later step fails (saga);
-	// empty: none.
-	Undo string `protobuf:"bytes,6,opt,name=undo,proto3" json:"undo,omitempty"`
-	// The undo activity's input; empty: the step's output.
-	UndoInput *BindingValue `protobuf:"bytes,7,opt,name=undo_input,json=undoInput,proto3" json:"undo_input,omitempty"`
-	// Unset fields take the activity's manifest defaults, then the
-	// platform's.
-	Retry *BindingRetry `protobuf:"bytes,8,opt,name=retry,proto3" json:"retry,omitempty"`
-	// One attempt (one run of a workflow activity); unset: the activity's
-	// default, then the platform's.
-	StartToClose *durationpb.Duration `protobuf:"bytes,9,opt,name=start_to_close,json=startToClose,proto3" json:"start_to_close,omitempty"`
-	// An attempt without a heartbeat this long is lost; unset: the
-	// activity's default, else none.
-	Heartbeat     *durationpb.Duration `protobuf:"bytes,10,opt,name=heartbeat,proto3" json:"heartbeat,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingStep) Reset() {
-	*x = BindingStep{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingStep) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingStep) ProtoMessage() {}
-
-func (x *BindingStep) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[1]
+func (x *BindingDefinition) GetDescription() string {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingStep.ProtoReflect.Descriptor instead.
-func (*BindingStep) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *BindingStep) GetName() string {
-	if x != nil {
-		return x.Name
+		return x.Description
 	}
 	return ""
 }
 
-func (x *BindingStep) GetActivity() string {
+func (x *BindingDefinition) GetEditor() *EditorLayout {
 	if x != nil {
-		return x.Activity
-	}
-	return ""
-}
-
-func (x *BindingStep) GetInput() *BindingValue {
-	if x != nil {
-		return x.Input
+		return x.Editor
 	}
 	return nil
-}
-
-func (x *BindingStep) GetWhen() string {
-	if x != nil {
-		return x.When
-	}
-	return ""
-}
-
-func (x *BindingStep) GetAfter() []string {
-	if x != nil {
-		return x.After
-	}
-	return nil
-}
-
-func (x *BindingStep) GetUndo() string {
-	if x != nil {
-		return x.Undo
-	}
-	return ""
-}
-
-func (x *BindingStep) GetUndoInput() *BindingValue {
-	if x != nil {
-		return x.UndoInput
-	}
-	return nil
-}
-
-func (x *BindingStep) GetRetry() *BindingRetry {
-	if x != nil {
-		return x.Retry
-	}
-	return nil
-}
-
-func (x *BindingStep) GetStartToClose() *durationpb.Duration {
-	if x != nil {
-		return x.StartToClose
-	}
-	return nil
-}
-
-func (x *BindingStep) GetHeartbeat() *durationpb.Duration {
-	if x != nil {
-		return x.Heartbeat
-	}
-	return nil
-}
-
-// BindingValue is a value built by CEL: either named fields, each from an
-// expression (an object), or one expression for the whole value. Neither:
-// the default of its place.
-type BindingValue struct {
-	state  protoimpl.MessageState `protogen:"open.v1"`
-	Fields []*BindingField        `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
-	// CEL expression; exclusive with fields.
-	Expr          string `protobuf:"bytes,2,opt,name=expr,proto3" json:"expr,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingValue) Reset() {
-	*x = BindingValue{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingValue) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingValue) ProtoMessage() {}
-
-func (x *BindingValue) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingValue.ProtoReflect.Descriptor instead.
-func (*BindingValue) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *BindingValue) GetFields() []*BindingField {
-	if x != nil {
-		return x.Fields
-	}
-	return nil
-}
-
-func (x *BindingValue) GetExpr() string {
-	if x != nil {
-		return x.Expr
-	}
-	return ""
-}
-
-// BindingField is one field of an object built by CEL.
-type BindingField struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// JSON field name.
-	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	// CEL expression of its value.
-	Expr          string `protobuf:"bytes,2,opt,name=expr,proto3" json:"expr,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingField) Reset() {
-	*x = BindingField{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingField) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingField) ProtoMessage() {}
-
-func (x *BindingField) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingField.ProtoReflect.Descriptor instead.
-func (*BindingField) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *BindingField) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *BindingField) GetExpr() string {
-	if x != nil {
-		return x.Expr
-	}
-	return ""
-}
-
-// BindingRetry is the retry policy of a step; zero fields are unset.
-type BindingRetry struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Attempts in total, the first included.
-	Attempts        uint32               `protobuf:"varint,1,opt,name=attempts,proto3" json:"attempts,omitempty"`
-	InitialInterval *durationpb.Duration `protobuf:"bytes,2,opt,name=initial_interval,json=initialInterval,proto3" json:"initial_interval,omitempty"`
-	MaxInterval     *durationpb.Duration `protobuf:"bytes,3,opt,name=max_interval,json=maxInterval,proto3" json:"max_interval,omitempty"`
-	// Multiplier of the interval after each attempt (>= 1).
-	Backoff       float64 `protobuf:"fixed64,4,opt,name=backoff,proto3" json:"backoff,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingRetry) Reset() {
-	*x = BindingRetry{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingRetry) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingRetry) ProtoMessage() {}
-
-func (x *BindingRetry) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingRetry.ProtoReflect.Descriptor instead.
-func (*BindingRetry) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *BindingRetry) GetAttempts() uint32 {
-	if x != nil {
-		return x.Attempts
-	}
-	return 0
-}
-
-func (x *BindingRetry) GetInitialInterval() *durationpb.Duration {
-	if x != nil {
-		return x.InitialInterval
-	}
-	return nil
-}
-
-func (x *BindingRetry) GetMaxInterval() *durationpb.Duration {
-	if x != nil {
-		return x.MaxInterval
-	}
-	return nil
-}
-
-func (x *BindingRetry) GetBackoff() float64 {
-	if x != nil {
-		return x.Backoff
-	}
-	return 0
 }
 
 // BindingVersion is one saved version of a hook's binding.
@@ -548,7 +192,7 @@ type BindingVersion struct {
 
 func (x *BindingVersion) Reset() {
 	*x = BindingVersion{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[5]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +204,7 @@ func (x *BindingVersion) String() string {
 func (*BindingVersion) ProtoMessage() {}
 
 func (x *BindingVersion) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[5]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +217,7 @@ func (x *BindingVersion) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BindingVersion.ProtoReflect.Descriptor instead.
 func (*BindingVersion) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{5}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *BindingVersion) GetHook() string {
@@ -645,14 +289,17 @@ type HookBinding struct {
 	Description string       `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	State       BindingState `protobuf:"varint,6,opt,name=state,proto3,enum=backplane.console.v1.BindingState" json:"state,omitempty"`
 	// Current version; absent before the first save.
-	Current       *BindingVersion `protobuf:"bytes,7,opt,name=current,proto3" json:"current,omitempty"`
+	Current *BindingVersion `protobuf:"bytes,7,opt,name=current,proto3" json:"current,omitempty"`
+	// Why the current definition does not compile against the latest
+	// manifests (state BROKEN); empty otherwise.
+	Violations    []*Violation `protobuf:"bytes,8,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HookBinding) Reset() {
 	*x = HookBinding{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[6]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +311,7 @@ func (x *HookBinding) String() string {
 func (*HookBinding) ProtoMessage() {}
 
 func (x *HookBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[6]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +324,7 @@ func (x *HookBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HookBinding.ProtoReflect.Descriptor instead.
 func (*HookBinding) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{6}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *HookBinding) GetHook() string {
@@ -729,134 +376,11 @@ func (x *HookBinding) GetCurrent() *BindingVersion {
 	return nil
 }
 
-// BindingViolation is one reason a definition is rejected.
-type BindingViolation struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Place in the definition: "hook", "steps[1].input.to", "result",
-	// "steps[0].retry.attempts"; empty for the whole definition.
-	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	// Machine code: INVALID_NAME, RESERVED_NAME, DUPLICATE_STEP,
-	// UNKNOWN_HOOK, UNKNOWN_EVENT, UNKNOWN_ACTIVITY, UNKNOWN_STEP, CYCLE,
-	// UNDO_REFERENCE, CEL_ERROR, TYPE_MISMATCH, MISSING_FIELD, UNKNOWN_FIELD,
-	// DUPLICATE_FIELD, INVALID_VALUE, INVALID_OPTION.
-	Code          string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
-	Message       string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingViolation) Reset() {
-	*x = BindingViolation{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingViolation) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingViolation) ProtoMessage() {}
-
-func (x *BindingViolation) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[7]
+func (x *HookBinding) GetViolations() []*Violation {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
+		return x.Violations
 	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingViolation.ProtoReflect.Descriptor instead.
-func (*BindingViolation) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *BindingViolation) GetPath() string {
-	if x != nil {
-		return x.Path
-	}
-	return ""
-}
-
-func (x *BindingViolation) GetCode() string {
-	if x != nil {
-		return x.Code
-	}
-	return ""
-}
-
-func (x *BindingViolation) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
-}
-
-// BindingParseError is where the text form does not read.
-type BindingParseError struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// From 1; 0 when the error is not tied to a place.
-	Line uint32 `protobuf:"varint,1,opt,name=line,proto3" json:"line,omitempty"`
-	// From 1, in characters.
-	Column        uint32 `protobuf:"varint,2,opt,name=column,proto3" json:"column,omitempty"`
-	Message       string `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingParseError) Reset() {
-	*x = BindingParseError{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingParseError) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingParseError) ProtoMessage() {}
-
-func (x *BindingParseError) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingParseError.ProtoReflect.Descriptor instead.
-func (*BindingParseError) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *BindingParseError) GetLine() uint32 {
-	if x != nil {
-		return x.Line
-	}
-	return 0
-}
-
-func (x *BindingParseError) GetColumn() uint32 {
-	if x != nil {
-		return x.Column
-	}
-	return 0
-}
-
-func (x *BindingParseError) GetMessage() string {
-	if x != nil {
-		return x.Message
-	}
-	return ""
+	return nil
 }
 
 type ListBindingsRequest struct {
@@ -869,7 +393,7 @@ type ListBindingsRequest struct {
 
 func (x *ListBindingsRequest) Reset() {
 	*x = ListBindingsRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[9]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -881,7 +405,7 @@ func (x *ListBindingsRequest) String() string {
 func (*ListBindingsRequest) ProtoMessage() {}
 
 func (x *ListBindingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[9]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -894,7 +418,7 @@ func (x *ListBindingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingsRequest.ProtoReflect.Descriptor instead.
 func (*ListBindingsRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{9}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ListBindingsRequest) GetService() string {
@@ -914,7 +438,7 @@ type ListBindingsResponse struct {
 
 func (x *ListBindingsResponse) Reset() {
 	*x = ListBindingsResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[10]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -926,7 +450,7 @@ func (x *ListBindingsResponse) String() string {
 func (*ListBindingsResponse) ProtoMessage() {}
 
 func (x *ListBindingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[10]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -939,7 +463,7 @@ func (x *ListBindingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingsResponse.ProtoReflect.Descriptor instead.
 func (*ListBindingsResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{10}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ListBindingsResponse) GetBindings() []*HookBinding {
@@ -960,7 +484,7 @@ type GetBindingRequest struct {
 
 func (x *GetBindingRequest) Reset() {
 	*x = GetBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[11]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -972,7 +496,7 @@ func (x *GetBindingRequest) String() string {
 func (*GetBindingRequest) ProtoMessage() {}
 
 func (x *GetBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[11]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -985,7 +509,7 @@ func (x *GetBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBindingRequest.ProtoReflect.Descriptor instead.
 func (*GetBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{11}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetBindingRequest) GetHook() string {
@@ -1003,15 +527,18 @@ func (x *GetBindingRequest) GetVersion() uint64 {
 }
 
 type GetBindingResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       *BindingVersion        `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Version *BindingVersion        `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
+	// Why the version does not compile against the latest manifests; empty
+	// when it does (or is a tombstone).
+	Violations    []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetBindingResponse) Reset() {
 	*x = GetBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[12]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1023,7 +550,7 @@ func (x *GetBindingResponse) String() string {
 func (*GetBindingResponse) ProtoMessage() {}
 
 func (x *GetBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[12]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1036,12 +563,19 @@ func (x *GetBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBindingResponse.ProtoReflect.Descriptor instead.
 func (*GetBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{12}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetBindingResponse) GetVersion() *BindingVersion {
 	if x != nil {
 		return x.Version
+	}
+	return nil
+}
+
+func (x *GetBindingResponse) GetViolations() []*Violation {
+	if x != nil {
+		return x.Violations
 	}
 	return nil
 }
@@ -1059,7 +593,7 @@ type ListBindingVersionsRequest struct {
 
 func (x *ListBindingVersionsRequest) Reset() {
 	*x = ListBindingVersionsRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[13]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1071,7 +605,7 @@ func (x *ListBindingVersionsRequest) String() string {
 func (*ListBindingVersionsRequest) ProtoMessage() {}
 
 func (x *ListBindingVersionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[13]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1084,7 +618,7 @@ func (x *ListBindingVersionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingVersionsRequest.ProtoReflect.Descriptor instead.
 func (*ListBindingVersionsRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{13}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ListBindingVersionsRequest) GetHook() string {
@@ -1119,7 +653,7 @@ type ListBindingVersionsResponse struct {
 
 func (x *ListBindingVersionsResponse) Reset() {
 	*x = ListBindingVersionsResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[14]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1131,7 +665,7 @@ func (x *ListBindingVersionsResponse) String() string {
 func (*ListBindingVersionsResponse) ProtoMessage() {}
 
 func (x *ListBindingVersionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[14]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1144,7 +678,7 @@ func (x *ListBindingVersionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingVersionsResponse.ProtoReflect.Descriptor instead.
 func (*ListBindingVersionsResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{14}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListBindingVersionsResponse) GetVersions() []*BindingVersion {
@@ -1170,7 +704,7 @@ type ValidateBindingRequest struct {
 
 func (x *ValidateBindingRequest) Reset() {
 	*x = ValidateBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[15]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1182,7 +716,7 @@ func (x *ValidateBindingRequest) String() string {
 func (*ValidateBindingRequest) ProtoMessage() {}
 
 func (x *ValidateBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[15]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1195,7 +729,7 @@ func (x *ValidateBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBindingRequest.ProtoReflect.Descriptor instead.
 func (*ValidateBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{15}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ValidateBindingRequest) GetDefinition() *BindingDefinition {
@@ -1208,14 +742,14 @@ func (x *ValidateBindingRequest) GetDefinition() *BindingDefinition {
 type ValidateBindingResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Empty: the definition is valid.
-	Violations    []*BindingViolation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*Violation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ValidateBindingResponse) Reset() {
 	*x = ValidateBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[16]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +761,7 @@ func (x *ValidateBindingResponse) String() string {
 func (*ValidateBindingResponse) ProtoMessage() {}
 
 func (x *ValidateBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[16]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,10 +774,10 @@ func (x *ValidateBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateBindingResponse.ProtoReflect.Descriptor instead.
 func (*ValidateBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{16}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{10}
 }
 
-func (x *ValidateBindingResponse) GetViolations() []*BindingViolation {
+func (x *ValidateBindingResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -1251,16 +785,21 @@ func (x *ValidateBindingResponse) GetViolations() []*BindingViolation {
 }
 
 type SaveBindingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Definition    *BindingDefinition     `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
-	Comment       string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Definition *BindingDefinition     `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
+	Comment    string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	// The current version the edit started from (0: the hook had no
+	// binding). Set: the save is refused with ABORTED when the current
+	// version is another one, so two editors never overwrite each other
+	// silently. Unset: no check.
+	BaseVersion   *uint64 `protobuf:"varint,3,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SaveBindingRequest) Reset() {
 	*x = SaveBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[17]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1272,7 +811,7 @@ func (x *SaveBindingRequest) String() string {
 func (*SaveBindingRequest) ProtoMessage() {}
 
 func (x *SaveBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[17]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1285,7 +824,7 @@ func (x *SaveBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveBindingRequest.ProtoReflect.Descriptor instead.
 func (*SaveBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{17}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SaveBindingRequest) GetDefinition() *BindingDefinition {
@@ -1302,19 +841,26 @@ func (x *SaveBindingRequest) GetComment() string {
 	return ""
 }
 
+func (x *SaveBindingRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type SaveBindingResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The saved version; absent when the definition is rejected.
 	Version *BindingVersion `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	// Why the definition is rejected; empty when saved.
-	Violations    []*BindingViolation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SaveBindingResponse) Reset() {
 	*x = SaveBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[18]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +872,7 @@ func (x *SaveBindingResponse) String() string {
 func (*SaveBindingResponse) ProtoMessage() {}
 
 func (x *SaveBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[18]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +885,7 @@ func (x *SaveBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SaveBindingResponse.ProtoReflect.Descriptor instead.
 func (*SaveBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{18}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SaveBindingResponse) GetVersion() *BindingVersion {
@@ -1349,7 +895,7 @@ func (x *SaveBindingResponse) GetVersion() *BindingVersion {
 	return nil
 }
 
-func (x *SaveBindingResponse) GetViolations() []*BindingViolation {
+func (x *SaveBindingResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -1360,15 +906,17 @@ type RollbackBindingRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Hook  string                 `protobuf:"bytes,1,opt,name=hook,proto3" json:"hook,omitempty"`
 	// The version whose definition becomes the new version.
-	Version       uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
-	Comment       string `protobuf:"bytes,3,opt,name=comment,proto3" json:"comment,omitempty"`
+	Version uint64 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Comment string `protobuf:"bytes,3,opt,name=comment,proto3" json:"comment,omitempty"`
+	// As SaveBindingRequest.base_version.
+	BaseVersion   *uint64 `protobuf:"varint,4,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RollbackBindingRequest) Reset() {
 	*x = RollbackBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[19]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1380,7 +928,7 @@ func (x *RollbackBindingRequest) String() string {
 func (*RollbackBindingRequest) ProtoMessage() {}
 
 func (x *RollbackBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[19]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1393,7 +941,7 @@ func (x *RollbackBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackBindingRequest.ProtoReflect.Descriptor instead.
 func (*RollbackBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{19}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *RollbackBindingRequest) GetHook() string {
@@ -1417,20 +965,27 @@ func (x *RollbackBindingRequest) GetComment() string {
 	return ""
 }
 
+func (x *RollbackBindingRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type RollbackBindingResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The saved version; absent when the definition is rejected.
 	Version *BindingVersion `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
 	// Why the definition is rejected now (manifests may have changed since);
 	// empty when saved.
-	Violations    []*BindingViolation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations    []*Violation `protobuf:"bytes,2,rep,name=violations,proto3" json:"violations,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RollbackBindingResponse) Reset() {
 	*x = RollbackBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[20]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1442,7 +997,7 @@ func (x *RollbackBindingResponse) String() string {
 func (*RollbackBindingResponse) ProtoMessage() {}
 
 func (x *RollbackBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[20]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1455,7 +1010,7 @@ func (x *RollbackBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackBindingResponse.ProtoReflect.Descriptor instead.
 func (*RollbackBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{20}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RollbackBindingResponse) GetVersion() *BindingVersion {
@@ -1465,7 +1020,7 @@ func (x *RollbackBindingResponse) GetVersion() *BindingVersion {
 	return nil
 }
 
-func (x *RollbackBindingResponse) GetViolations() []*BindingViolation {
+func (x *RollbackBindingResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -1473,16 +1028,18 @@ func (x *RollbackBindingResponse) GetViolations() []*BindingViolation {
 }
 
 type DeleteBindingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Hook          string                 `protobuf:"bytes,1,opt,name=hook,proto3" json:"hook,omitempty"`
-	Comment       string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Hook    string                 `protobuf:"bytes,1,opt,name=hook,proto3" json:"hook,omitempty"`
+	Comment string                 `protobuf:"bytes,2,opt,name=comment,proto3" json:"comment,omitempty"`
+	// As SaveBindingRequest.base_version.
+	BaseVersion   *uint64 `protobuf:"varint,3,opt,name=base_version,json=baseVersion,proto3,oneof" json:"base_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeleteBindingRequest) Reset() {
 	*x = DeleteBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[21]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1494,7 +1051,7 @@ func (x *DeleteBindingRequest) String() string {
 func (*DeleteBindingRequest) ProtoMessage() {}
 
 func (x *DeleteBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[21]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1507,7 +1064,7 @@ func (x *DeleteBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBindingRequest.ProtoReflect.Descriptor instead.
 func (*DeleteBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{21}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *DeleteBindingRequest) GetHook() string {
@@ -1524,6 +1081,13 @@ func (x *DeleteBindingRequest) GetComment() string {
 	return ""
 }
 
+func (x *DeleteBindingRequest) GetBaseVersion() uint64 {
+	if x != nil && x.BaseVersion != nil {
+		return *x.BaseVersion
+	}
+	return 0
+}
+
 type DeleteBindingResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The tombstone.
@@ -1534,7 +1098,7 @@ type DeleteBindingResponse struct {
 
 func (x *DeleteBindingResponse) Reset() {
 	*x = DeleteBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[22]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1546,7 +1110,7 @@ func (x *DeleteBindingResponse) String() string {
 func (*DeleteBindingResponse) ProtoMessage() {}
 
 func (x *DeleteBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[22]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1559,7 +1123,7 @@ func (x *DeleteBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteBindingResponse.ProtoReflect.Descriptor instead.
 func (*DeleteBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{22}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *DeleteBindingResponse) GetVersion() *BindingVersion {
@@ -1567,191 +1131,6 @@ func (x *DeleteBindingResponse) GetVersion() *BindingVersion {
 		return x.Version
 	}
 	return nil
-}
-
-type ParseBindingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ParseBindingRequest) Reset() {
-	*x = ParseBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[23]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ParseBindingRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ParseBindingRequest) ProtoMessage() {}
-
-func (x *ParseBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[23]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ParseBindingRequest.ProtoReflect.Descriptor instead.
-func (*ParseBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{23}
-}
-
-func (x *ParseBindingRequest) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
-}
-
-type ParseBindingResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Absent when the text does not read.
-	Definition    *BindingDefinition   `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
-	Errors        []*BindingParseError `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ParseBindingResponse) Reset() {
-	*x = ParseBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[24]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ParseBindingResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ParseBindingResponse) ProtoMessage() {}
-
-func (x *ParseBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[24]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ParseBindingResponse.ProtoReflect.Descriptor instead.
-func (*ParseBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{24}
-}
-
-func (x *ParseBindingResponse) GetDefinition() *BindingDefinition {
-	if x != nil {
-		return x.Definition
-	}
-	return nil
-}
-
-func (x *ParseBindingResponse) GetErrors() []*BindingParseError {
-	if x != nil {
-		return x.Errors
-	}
-	return nil
-}
-
-type FormatBindingRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Definition    *BindingDefinition     `protobuf:"bytes,1,opt,name=definition,proto3" json:"definition,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FormatBindingRequest) Reset() {
-	*x = FormatBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[25]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FormatBindingRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FormatBindingRequest) ProtoMessage() {}
-
-func (x *FormatBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[25]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FormatBindingRequest.ProtoReflect.Descriptor instead.
-func (*FormatBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{25}
-}
-
-func (x *FormatBindingRequest) GetDefinition() *BindingDefinition {
-	if x != nil {
-		return x.Definition
-	}
-	return nil
-}
-
-type FormatBindingResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Text          string                 `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *FormatBindingResponse) Reset() {
-	*x = FormatBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[26]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *FormatBindingResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*FormatBindingResponse) ProtoMessage() {}
-
-func (x *FormatBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[26]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use FormatBindingResponse.ProtoReflect.Descriptor instead.
-func (*FormatBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{26}
-}
-
-func (x *FormatBindingResponse) GetText() string {
-	if x != nil {
-		return x.Text
-	}
-	return ""
 }
 
 type WatchBindingsRequest struct {
@@ -1764,7 +1143,7 @@ type WatchBindingsRequest struct {
 
 func (x *WatchBindingsRequest) Reset() {
 	*x = WatchBindingsRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[27]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1776,7 +1155,7 @@ func (x *WatchBindingsRequest) String() string {
 func (*WatchBindingsRequest) ProtoMessage() {}
 
 func (x *WatchBindingsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[27]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1789,7 +1168,7 @@ func (x *WatchBindingsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchBindingsRequest.ProtoReflect.Descriptor instead.
 func (*WatchBindingsRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{27}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *WatchBindingsRequest) GetService() string {
@@ -1808,7 +1187,7 @@ type WatchBindingsResponse struct {
 
 func (x *WatchBindingsResponse) Reset() {
 	*x = WatchBindingsResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[28]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1820,7 +1199,7 @@ func (x *WatchBindingsResponse) String() string {
 func (*WatchBindingsResponse) ProtoMessage() {}
 
 func (x *WatchBindingsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[28]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1833,7 +1212,7 @@ func (x *WatchBindingsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchBindingsResponse.ProtoReflect.Descriptor instead.
 func (*WatchBindingsResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{28}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *WatchBindingsResponse) GetBindings() []*HookBinding {
@@ -1864,7 +1243,7 @@ type TestBindingRequest struct {
 
 func (x *TestBindingRequest) Reset() {
 	*x = TestBindingRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[29]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1876,7 +1255,7 @@ func (x *TestBindingRequest) String() string {
 func (*TestBindingRequest) ProtoMessage() {}
 
 func (x *TestBindingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[29]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1889,7 +1268,7 @@ func (x *TestBindingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestBindingRequest.ProtoReflect.Descriptor instead.
 func (*TestBindingRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{29}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *TestBindingRequest) GetHook() string {
@@ -1931,7 +1310,7 @@ type TestBindingResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Violations of the definition (or of the saved version against today's
 	// manifests); when present nothing ran.
-	Violations []*BindingViolation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
+	Violations []*Violation `protobuf:"bytes,1,rep,name=violations,proto3" json:"violations,omitempty"`
 	// The run's end: output (the hook's result) or the error ("step send:
 	// smtp.Send: ...", "transform failed at ..."). Absent with violations.
 	Result *CallResult `protobuf:"bytes,2,opt,name=result,proto3" json:"result,omitempty"`
@@ -1943,7 +1322,7 @@ type TestBindingResponse struct {
 
 func (x *TestBindingResponse) Reset() {
 	*x = TestBindingResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[30]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1955,7 +1334,7 @@ func (x *TestBindingResponse) String() string {
 func (*TestBindingResponse) ProtoMessage() {}
 
 func (x *TestBindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[30]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1968,10 +1347,10 @@ func (x *TestBindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestBindingResponse.ProtoReflect.Descriptor instead.
 func (*TestBindingResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{30}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *TestBindingResponse) GetViolations() []*BindingViolation {
+func (x *TestBindingResponse) GetViolations() []*Violation {
 	if x != nil {
 		return x.Violations
 	}
@@ -2009,7 +1388,7 @@ type ListBindingRunsRequest struct {
 
 func (x *ListBindingRunsRequest) Reset() {
 	*x = ListBindingRunsRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[31]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2021,7 +1400,7 @@ func (x *ListBindingRunsRequest) String() string {
 func (*ListBindingRunsRequest) ProtoMessage() {}
 
 func (x *ListBindingRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[31]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2034,7 +1413,7 @@ func (x *ListBindingRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListBindingRunsRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{31}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListBindingRunsRequest) GetHook() string {
@@ -2085,7 +1464,7 @@ type ListBindingRunsResponse struct {
 
 func (x *ListBindingRunsResponse) Reset() {
 	*x = ListBindingRunsResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[32]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2097,7 +1476,7 @@ func (x *ListBindingRunsResponse) String() string {
 func (*ListBindingRunsResponse) ProtoMessage() {}
 
 func (x *ListBindingRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[32]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2110,7 +1489,7 @@ func (x *ListBindingRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListBindingRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListBindingRunsResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{32}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListBindingRunsResponse) GetRuns() []*Run {
@@ -2146,7 +1525,7 @@ type GetBindingRunRequest struct {
 
 func (x *GetBindingRunRequest) Reset() {
 	*x = GetBindingRunRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[33]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2158,7 +1537,7 @@ func (x *GetBindingRunRequest) String() string {
 func (*GetBindingRunRequest) ProtoMessage() {}
 
 func (x *GetBindingRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[33]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2171,7 +1550,7 @@ func (x *GetBindingRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBindingRunRequest.ProtoReflect.Descriptor instead.
 func (*GetBindingRunRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{33}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *GetBindingRunRequest) GetWorkflowId() string {
@@ -2188,155 +1567,6 @@ func (x *GetBindingRunRequest) GetRunId() string {
 	return ""
 }
 
-// BindingStepRun is one call of a run: a step, or the compensation (undo)
-// of one.
-type BindingStepRun struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	Step  string                 `protobuf:"bytes,1,opt,name=step,proto3" json:"step,omitempty"`
-	// Full activity name: the step's activity, or its undo activity.
-	Activity string `protobuf:"bytes,2,opt,name=activity,proto3" json:"activity,omitempty"`
-	// The call is the step's compensation.
-	Undo bool `protobuf:"varint,3,opt,name=undo,proto3" json:"undo,omitempty"`
-	// The activity is a workflow (a child workflow of the run).
-	Workflow bool          `protobuf:"varint,4,opt,name=workflow,proto3" json:"workflow,omitempty"`
-	Status   StepRunStatus `protobuf:"varint,5,opt,name=status,proto3,enum=backplane.console.v1.StepRunStatus" json:"status,omitempty"`
-	// Of the last attempt that started; 0 before the first.
-	Attempt       int32                  `protobuf:"varint,6,opt,name=attempt,proto3" json:"attempt,omitempty"`
-	ScheduledTime *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=scheduled_time,json=scheduledTime,proto3" json:"scheduled_time,omitempty"`
-	StartedTime   *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=started_time,json=startedTime,proto3" json:"started_time,omitempty"`
-	CloseTime     *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=close_time,json=closeTime,proto3" json:"close_time,omitempty"`
-	// ActivityCall.payload, JSON text.
-	Input string `protobuf:"bytes,10,opt,name=input,proto3" json:"input,omitempty"`
-	// ActivityResult.payload, JSON text; empty until completed.
-	Output string `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
-	// The failure's message and application error type.
-	Error         string `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
-	ErrorType     string `protobuf:"bytes,13,opt,name=error_type,json=errorType,proto3" json:"error_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *BindingStepRun) Reset() {
-	*x = BindingStepRun{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[34]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *BindingStepRun) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*BindingStepRun) ProtoMessage() {}
-
-func (x *BindingStepRun) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[34]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use BindingStepRun.ProtoReflect.Descriptor instead.
-func (*BindingStepRun) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{34}
-}
-
-func (x *BindingStepRun) GetStep() string {
-	if x != nil {
-		return x.Step
-	}
-	return ""
-}
-
-func (x *BindingStepRun) GetActivity() string {
-	if x != nil {
-		return x.Activity
-	}
-	return ""
-}
-
-func (x *BindingStepRun) GetUndo() bool {
-	if x != nil {
-		return x.Undo
-	}
-	return false
-}
-
-func (x *BindingStepRun) GetWorkflow() bool {
-	if x != nil {
-		return x.Workflow
-	}
-	return false
-}
-
-func (x *BindingStepRun) GetStatus() StepRunStatus {
-	if x != nil {
-		return x.Status
-	}
-	return StepRunStatus_STEP_RUN_STATUS_UNSPECIFIED
-}
-
-func (x *BindingStepRun) GetAttempt() int32 {
-	if x != nil {
-		return x.Attempt
-	}
-	return 0
-}
-
-func (x *BindingStepRun) GetScheduledTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.ScheduledTime
-	}
-	return nil
-}
-
-func (x *BindingStepRun) GetStartedTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.StartedTime
-	}
-	return nil
-}
-
-func (x *BindingStepRun) GetCloseTime() *timestamppb.Timestamp {
-	if x != nil {
-		return x.CloseTime
-	}
-	return nil
-}
-
-func (x *BindingStepRun) GetInput() string {
-	if x != nil {
-		return x.Input
-	}
-	return ""
-}
-
-func (x *BindingStepRun) GetOutput() string {
-	if x != nil {
-		return x.Output
-	}
-	return ""
-}
-
-func (x *BindingStepRun) GetError() string {
-	if x != nil {
-		return x.Error
-	}
-	return ""
-}
-
-func (x *BindingStepRun) GetErrorType() string {
-	if x != nil {
-		return x.ErrorType
-	}
-	return ""
-}
-
 type GetBindingRunResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The run as WorkflowService.GetRun shows it.
@@ -2346,16 +1576,16 @@ type GetBindingRunResponse struct {
 	Hook    string `protobuf:"bytes,2,opt,name=hook,proto3" json:"hook,omitempty"`
 	Version uint64 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	Test    bool   `protobuf:"varint,4,opt,name=test,proto3" json:"test,omitempty"`
-	// The program's steps in declaration order, then every compensation in
+	// The program's steps by name, then every compensation in
 	// the order it was scheduled.
-	Steps         []*BindingStepRun `protobuf:"bytes,5,rep,name=steps,proto3" json:"steps,omitempty"`
+	Steps         []*StepRun `protobuf:"bytes,5,rep,name=steps,proto3" json:"steps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetBindingRunResponse) Reset() {
 	*x = GetBindingRunResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[35]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2367,7 +1597,7 @@ func (x *GetBindingRunResponse) String() string {
 func (*GetBindingRunResponse) ProtoMessage() {}
 
 func (x *GetBindingRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[35]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2380,7 +1610,7 @@ func (x *GetBindingRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBindingRunResponse.ProtoReflect.Descriptor instead.
 func (*GetBindingRunResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{35}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *GetBindingRunResponse) GetRun() *GetRunResponse {
@@ -2411,7 +1641,7 @@ func (x *GetBindingRunResponse) GetTest() bool {
 	return false
 }
 
-func (x *GetBindingRunResponse) GetSteps() []*BindingStepRun {
+func (x *GetBindingRunResponse) GetSteps() []*StepRun {
 	if x != nil {
 		return x.Steps
 	}
@@ -2429,7 +1659,7 @@ type CancelBindingRunRequest struct {
 
 func (x *CancelBindingRunRequest) Reset() {
 	*x = CancelBindingRunRequest{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[36]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2441,7 +1671,7 @@ func (x *CancelBindingRunRequest) String() string {
 func (*CancelBindingRunRequest) ProtoMessage() {}
 
 func (x *CancelBindingRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[36]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2454,7 +1684,7 @@ func (x *CancelBindingRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelBindingRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelBindingRunRequest) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{36}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CancelBindingRunRequest) GetWorkflowId() string {
@@ -2479,7 +1709,7 @@ type CancelBindingRunResponse struct {
 
 func (x *CancelBindingRunResponse) Reset() {
 	*x = CancelBindingRunResponse{}
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[37]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2491,7 +1721,7 @@ func (x *CancelBindingRunResponse) String() string {
 func (*CancelBindingRunResponse) ProtoMessage() {}
 
 func (x *CancelBindingRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[37]
+	mi := &file_backplanepb_console_v1_bindings_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2504,42 +1734,24 @@ func (x *CancelBindingRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelBindingRunResponse.ProtoReflect.Descriptor instead.
 func (*CancelBindingRunResponse) Descriptor() ([]byte, []int) {
-	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{37}
+	return file_backplanepb_console_v1_bindings_proto_rawDescGZIP(), []int{26}
 }
 
 var File_backplanepb_console_v1_bindings_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\n" +
-	"%backplanepb/console/v1/bindings.proto\x12\x14backplane.console.v1\x1a\"backplanepb/console/v1/calls.proto\x1a&backplanepb/console/v1/workflows.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x9c\x01\n" +
+	"%backplanepb/console/v1/bindings.proto\x12\x14backplane.console.v1\x1a\"backplanepb/console/v1/calls.proto\x1a&backplanepb/console/v1/workflows.proto\x1a!backplanepb/console/v1/step.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd5\x02\n" +
 	"\x11BindingDefinition\x12\x12\n" +
-	"\x04hook\x18\x01 \x01(\tR\x04hook\x127\n" +
-	"\x05steps\x18\x02 \x03(\v2!.backplane.console.v1.BindingStepR\x05steps\x12:\n" +
-	"\x06result\x18\x03 \x01(\v2\".backplane.console.v1.BindingValueR\x06result\"\xac\x03\n" +
-	"\vBindingStep\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
-	"\bactivity\x18\x02 \x01(\tR\bactivity\x128\n" +
-	"\x05input\x18\x03 \x01(\v2\".backplane.console.v1.BindingValueR\x05input\x12\x12\n" +
-	"\x04when\x18\x04 \x01(\tR\x04when\x12\x14\n" +
-	"\x05after\x18\x05 \x03(\tR\x05after\x12\x12\n" +
-	"\x04undo\x18\x06 \x01(\tR\x04undo\x12A\n" +
+	"\x04hook\x18\x01 \x01(\tR\x04hook\x12H\n" +
+	"\x05steps\x18\x02 \x03(\v22.backplane.console.v1.BindingDefinition.StepsEntryR\x05steps\x12.\n" +
+	"\x06result\x18\x03 \x01(\v2\x16.google.protobuf.ValueR\x06result\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x12:\n" +
+	"\x06editor\x18\x0f \x01(\v2\".backplane.console.v1.EditorLayoutR\x06editor\x1aT\n" +
 	"\n" +
-	"undo_input\x18\a \x01(\v2\".backplane.console.v1.BindingValueR\tundoInput\x128\n" +
-	"\x05retry\x18\b \x01(\v2\".backplane.console.v1.BindingRetryR\x05retry\x12?\n" +
-	"\x0estart_to_close\x18\t \x01(\v2\x19.google.protobuf.DurationR\fstartToClose\x127\n" +
-	"\theartbeat\x18\n" +
-	" \x01(\v2\x19.google.protobuf.DurationR\theartbeat\"^\n" +
-	"\fBindingValue\x12:\n" +
-	"\x06fields\x18\x01 \x03(\v2\".backplane.console.v1.BindingFieldR\x06fields\x12\x12\n" +
-	"\x04expr\x18\x02 \x01(\tR\x04expr\"6\n" +
-	"\fBindingField\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
-	"\x04expr\x18\x02 \x01(\tR\x04expr\"\xc8\x01\n" +
-	"\fBindingRetry\x12\x1a\n" +
-	"\battempts\x18\x01 \x01(\rR\battempts\x12D\n" +
-	"\x10initial_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x0finitialInterval\x12<\n" +
-	"\fmax_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\vmaxInterval\x12\x18\n" +
-	"\abackoff\x18\x04 \x01(\x01R\abackoff\"\xaf\x02\n" +
+	"StepsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.backplane.console.v1.StepR\x05value:\x028\x01\"\xaf\x02\n" +
 	"\x0eBindingVersion\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12G\n" +
@@ -2552,7 +1764,7 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1f\n" +
 	"\vrollback_of\x18\b \x01(\x04R\n" +
-	"rollbackOf\"\x8f\x02\n" +
+	"rollbackOf\"\xd0\x02\n" +
 	"\vHookBinding\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x18\n" +
 	"\aservice\x18\x02 \x01(\tR\aservice\x12\x1a\n" +
@@ -2560,24 +1772,22 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\brequired\x18\x04 \x01(\bR\brequired\x12 \n" +
 	"\vdescription\x18\x05 \x01(\tR\vdescription\x128\n" +
 	"\x05state\x18\x06 \x01(\x0e2\".backplane.console.v1.BindingStateR\x05state\x12>\n" +
-	"\acurrent\x18\a \x01(\v2$.backplane.console.v1.BindingVersionR\acurrent\"T\n" +
-	"\x10BindingViolation\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
-	"\x04code\x18\x02 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"Y\n" +
-	"\x11BindingParseError\x12\x12\n" +
-	"\x04line\x18\x01 \x01(\rR\x04line\x12\x16\n" +
-	"\x06column\x18\x02 \x01(\rR\x06column\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"/\n" +
+	"\acurrent\x18\a \x01(\v2$.backplane.console.v1.BindingVersionR\acurrent\x12?\n" +
+	"\n" +
+	"violations\x18\b \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"/\n" +
 	"\x13ListBindingsRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\"U\n" +
 	"\x14ListBindingsResponse\x12=\n" +
 	"\bbindings\x18\x01 \x03(\v2!.backplane.console.v1.HookBindingR\bbindings\"A\n" +
 	"\x11GetBindingRequest\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\x04R\aversion\"T\n" +
+	"\aversion\x18\x02 \x01(\x04R\aversion\"\x95\x01\n" +
 	"\x12GetBindingResponse\x12>\n" +
-	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\"e\n" +
+	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\x12?\n" +
+	"\n" +
+	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"e\n" +
 	"\x1aListBindingVersionsRequest\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x16\n" +
 	"\x06before\x18\x02 \x01(\x04R\x06before\x12\x1b\n" +
@@ -2589,48 +1799,41 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\x16ValidateBindingRequest\x12G\n" +
 	"\n" +
 	"definition\x18\x01 \x01(\v2'.backplane.console.v1.BindingDefinitionR\n" +
-	"definition\"a\n" +
-	"\x17ValidateBindingResponse\x12F\n" +
+	"definition\"Z\n" +
+	"\x17ValidateBindingResponse\x12?\n" +
 	"\n" +
-	"violations\x18\x01 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"w\n" +
+	"violations\x18\x01 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"\xb0\x01\n" +
 	"\x12SaveBindingRequest\x12G\n" +
 	"\n" +
 	"definition\x18\x01 \x01(\v2'.backplane.console.v1.BindingDefinitionR\n" +
 	"definition\x12\x18\n" +
-	"\acomment\x18\x02 \x01(\tR\acomment\"\x9d\x01\n" +
+	"\acomment\x18\x02 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x03 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"\x96\x01\n" +
 	"\x13SaveBindingResponse\x12>\n" +
-	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\x12F\n" +
+	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\x12?\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"`\n" +
+	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"\x99\x01\n" +
 	"\x16RollbackBindingRequest\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x04R\aversion\x12\x18\n" +
-	"\acomment\x18\x03 \x01(\tR\acomment\"\xa1\x01\n" +
+	"\acomment\x18\x03 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x04 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"\x9a\x01\n" +
 	"\x17RollbackBindingResponse\x12>\n" +
-	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\x12F\n" +
+	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\x12?\n" +
 	"\n" +
-	"violations\x18\x02 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
-	"violations\"D\n" +
+	"violations\x18\x02 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
+	"violations\"}\n" +
 	"\x14DeleteBindingRequest\x12\x12\n" +
 	"\x04hook\x18\x01 \x01(\tR\x04hook\x12\x18\n" +
-	"\acomment\x18\x02 \x01(\tR\acomment\"W\n" +
+	"\acomment\x18\x02 \x01(\tR\acomment\x12&\n" +
+	"\fbase_version\x18\x03 \x01(\x04H\x00R\vbaseVersion\x88\x01\x01B\x0f\n" +
+	"\r_base_version\"W\n" +
 	"\x15DeleteBindingResponse\x12>\n" +
-	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\")\n" +
-	"\x13ParseBindingRequest\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\"\xa0\x01\n" +
-	"\x14ParseBindingResponse\x12G\n" +
-	"\n" +
-	"definition\x18\x01 \x01(\v2'.backplane.console.v1.BindingDefinitionR\n" +
-	"definition\x12?\n" +
-	"\x06errors\x18\x02 \x03(\v2'.backplane.console.v1.BindingParseErrorR\x06errors\"_\n" +
-	"\x14FormatBindingRequest\x12G\n" +
-	"\n" +
-	"definition\x18\x01 \x01(\v2'.backplane.console.v1.BindingDefinitionR\n" +
-	"definition\"+\n" +
-	"\x15FormatBindingResponse\x12\x12\n" +
-	"\x04text\x18\x01 \x01(\tR\x04text\"0\n" +
+	"\aversion\x18\x01 \x01(\v2$.backplane.console.v1.BindingVersionR\aversion\"0\n" +
 	"\x14WatchBindingsRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\"V\n" +
 	"\x15WatchBindingsResponse\x12=\n" +
@@ -2642,10 +1845,10 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\n" +
 	"definition\x18\x04 \x01(\v2'.backplane.console.v1.BindingDefinitionR\n" +
 	"definition\x123\n" +
-	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xb1\x01\n" +
-	"\x13TestBindingResponse\x12F\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\atimeout\"\xaa\x01\n" +
+	"\x13TestBindingResponse\x12?\n" +
 	"\n" +
-	"violations\x18\x01 \x03(\v2&.backplane.console.v1.BindingViolationR\n" +
+	"violations\x18\x01 \x03(\v2\x1f.backplane.console.v1.ViolationR\n" +
 	"violations\x128\n" +
 	"\x06result\x18\x02 \x01(\v2 .backplane.console.v1.CallResultR\x06result\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\"\xb7\x01\n" +
@@ -2663,49 +1866,25 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\x14GetBindingRunRequest\x12\x1f\n" +
 	"\vworkflow_id\x18\x01 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\xe7\x03\n" +
-	"\x0eBindingStepRun\x12\x12\n" +
-	"\x04step\x18\x01 \x01(\tR\x04step\x12\x1a\n" +
-	"\bactivity\x18\x02 \x01(\tR\bactivity\x12\x12\n" +
-	"\x04undo\x18\x03 \x01(\bR\x04undo\x12\x1a\n" +
-	"\bworkflow\x18\x04 \x01(\bR\bworkflow\x12;\n" +
-	"\x06status\x18\x05 \x01(\x0e2#.backplane.console.v1.StepRunStatusR\x06status\x12\x18\n" +
-	"\aattempt\x18\x06 \x01(\x05R\aattempt\x12A\n" +
-	"\x0escheduled_time\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\rscheduledTime\x12=\n" +
-	"\fstarted_time\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\vstartedTime\x129\n" +
-	"\n" +
-	"close_time\x18\t \x01(\v2\x1a.google.protobuf.TimestampR\tcloseTime\x12\x14\n" +
-	"\x05input\x18\n" +
-	" \x01(\tR\x05input\x12\x16\n" +
-	"\x06output\x18\v \x01(\tR\x06output\x12\x14\n" +
-	"\x05error\x18\f \x01(\tR\x05error\x12\x1d\n" +
-	"\n" +
-	"error_type\x18\r \x01(\tR\terrorType\"\xcd\x01\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\xc6\x01\n" +
 	"\x15GetBindingRunResponse\x126\n" +
 	"\x03run\x18\x01 \x01(\v2$.backplane.console.v1.GetRunResponseR\x03run\x12\x12\n" +
 	"\x04hook\x18\x02 \x01(\tR\x04hook\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x12\n" +
-	"\x04test\x18\x04 \x01(\bR\x04test\x12:\n" +
-	"\x05steps\x18\x05 \x03(\v2$.backplane.console.v1.BindingStepRunR\x05steps\"Q\n" +
+	"\x04test\x18\x04 \x01(\bR\x04test\x123\n" +
+	"\x05steps\x18\x05 \x03(\v2\x1d.backplane.console.v1.StepRunR\x05steps\"Q\n" +
 	"\x17CancelBindingRunRequest\x12\x1f\n" +
 	"\vworkflow_id\x18\x01 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
 	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\x1a\n" +
-	"\x18CancelBindingRunResponse*\x85\x01\n" +
+	"\x18CancelBindingRunResponse*\x9f\x01\n" +
 	"\fBindingState\x12\x1d\n" +
 	"\x19BINDING_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13BINDING_STATE_BOUND\x10\x01\x12\x19\n" +
 	"\x15BINDING_STATE_UNBOUND\x10\x02\x12\"\n" +
-	"\x1eBINDING_STATE_REQUIRED_UNBOUND\x10\x03*\x81\x02\n" +
-	"\rStepRunStatus\x12\x1f\n" +
-	"\x1bSTEP_RUN_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
-	"\x17STEP_RUN_STATUS_NOT_RUN\x10\x01\x12\x1d\n" +
-	"\x19STEP_RUN_STATUS_SCHEDULED\x10\x02\x12\x1b\n" +
-	"\x17STEP_RUN_STATUS_STARTED\x10\x03\x12\x1d\n" +
-	"\x19STEP_RUN_STATUS_COMPLETED\x10\x04\x12\x1a\n" +
-	"\x16STEP_RUN_STATUS_FAILED\x10\x05\x12\x1d\n" +
-	"\x19STEP_RUN_STATUS_TIMED_OUT\x10\x06\x12\x1c\n" +
-	"\x18STEP_RUN_STATUS_CANCELED\x10\a2\xf0\v\n" +
+	"\x1eBINDING_STATE_REQUIRED_UNBOUND\x10\x03\x12\x18\n" +
+	"\x14BINDING_STATE_BROKEN\x10\x042\x9f\n" +
+	"\n" +
 	"\x0eBindingService\x12e\n" +
 	"\fListBindings\x12).backplane.console.v1.ListBindingsRequest\x1a*.backplane.console.v1.ListBindingsResponse\x12_\n" +
 	"\n" +
@@ -2714,9 +1893,7 @@ const file_backplanepb_console_v1_bindings_proto_rawDesc = "" +
 	"\x0fValidateBinding\x12,.backplane.console.v1.ValidateBindingRequest\x1a-.backplane.console.v1.ValidateBindingResponse\x12b\n" +
 	"\vSaveBinding\x12(.backplane.console.v1.SaveBindingRequest\x1a).backplane.console.v1.SaveBindingResponse\x12n\n" +
 	"\x0fRollbackBinding\x12,.backplane.console.v1.RollbackBindingRequest\x1a-.backplane.console.v1.RollbackBindingResponse\x12h\n" +
-	"\rDeleteBinding\x12*.backplane.console.v1.DeleteBindingRequest\x1a+.backplane.console.v1.DeleteBindingResponse\x12e\n" +
-	"\fParseBinding\x12).backplane.console.v1.ParseBindingRequest\x1a*.backplane.console.v1.ParseBindingResponse\x12h\n" +
-	"\rFormatBinding\x12*.backplane.console.v1.FormatBindingRequest\x1a+.backplane.console.v1.FormatBindingResponse\x12j\n" +
+	"\rDeleteBinding\x12*.backplane.console.v1.DeleteBindingRequest\x1a+.backplane.console.v1.DeleteBindingResponse\x12j\n" +
 	"\rWatchBindings\x12*.backplane.console.v1.WatchBindingsRequest\x1a+.backplane.console.v1.WatchBindingsResponse0\x01\x12b\n" +
 	"\vTestBinding\x12(.backplane.console.v1.TestBindingRequest\x1a).backplane.console.v1.TestBindingResponse\x12n\n" +
 	"\x0fListBindingRuns\x12,.backplane.console.v1.ListBindingRunsRequest\x1a-.backplane.console.v1.ListBindingRunsResponse\x12h\n" +
@@ -2735,131 +1912,110 @@ func file_backplanepb_console_v1_bindings_proto_rawDescGZIP() []byte {
 	return file_backplanepb_console_v1_bindings_proto_rawDescData
 }
 
-var file_backplanepb_console_v1_bindings_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_backplanepb_console_v1_bindings_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
+var file_backplanepb_console_v1_bindings_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_backplanepb_console_v1_bindings_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_backplanepb_console_v1_bindings_proto_goTypes = []any{
 	(BindingState)(0),                   // 0: backplane.console.v1.BindingState
-	(StepRunStatus)(0),                  // 1: backplane.console.v1.StepRunStatus
-	(*BindingDefinition)(nil),           // 2: backplane.console.v1.BindingDefinition
-	(*BindingStep)(nil),                 // 3: backplane.console.v1.BindingStep
-	(*BindingValue)(nil),                // 4: backplane.console.v1.BindingValue
-	(*BindingField)(nil),                // 5: backplane.console.v1.BindingField
-	(*BindingRetry)(nil),                // 6: backplane.console.v1.BindingRetry
-	(*BindingVersion)(nil),              // 7: backplane.console.v1.BindingVersion
-	(*HookBinding)(nil),                 // 8: backplane.console.v1.HookBinding
-	(*BindingViolation)(nil),            // 9: backplane.console.v1.BindingViolation
-	(*BindingParseError)(nil),           // 10: backplane.console.v1.BindingParseError
-	(*ListBindingsRequest)(nil),         // 11: backplane.console.v1.ListBindingsRequest
-	(*ListBindingsResponse)(nil),        // 12: backplane.console.v1.ListBindingsResponse
-	(*GetBindingRequest)(nil),           // 13: backplane.console.v1.GetBindingRequest
-	(*GetBindingResponse)(nil),          // 14: backplane.console.v1.GetBindingResponse
-	(*ListBindingVersionsRequest)(nil),  // 15: backplane.console.v1.ListBindingVersionsRequest
-	(*ListBindingVersionsResponse)(nil), // 16: backplane.console.v1.ListBindingVersionsResponse
-	(*ValidateBindingRequest)(nil),      // 17: backplane.console.v1.ValidateBindingRequest
-	(*ValidateBindingResponse)(nil),     // 18: backplane.console.v1.ValidateBindingResponse
-	(*SaveBindingRequest)(nil),          // 19: backplane.console.v1.SaveBindingRequest
-	(*SaveBindingResponse)(nil),         // 20: backplane.console.v1.SaveBindingResponse
-	(*RollbackBindingRequest)(nil),      // 21: backplane.console.v1.RollbackBindingRequest
-	(*RollbackBindingResponse)(nil),     // 22: backplane.console.v1.RollbackBindingResponse
-	(*DeleteBindingRequest)(nil),        // 23: backplane.console.v1.DeleteBindingRequest
-	(*DeleteBindingResponse)(nil),       // 24: backplane.console.v1.DeleteBindingResponse
-	(*ParseBindingRequest)(nil),         // 25: backplane.console.v1.ParseBindingRequest
-	(*ParseBindingResponse)(nil),        // 26: backplane.console.v1.ParseBindingResponse
-	(*FormatBindingRequest)(nil),        // 27: backplane.console.v1.FormatBindingRequest
-	(*FormatBindingResponse)(nil),       // 28: backplane.console.v1.FormatBindingResponse
-	(*WatchBindingsRequest)(nil),        // 29: backplane.console.v1.WatchBindingsRequest
-	(*WatchBindingsResponse)(nil),       // 30: backplane.console.v1.WatchBindingsResponse
-	(*TestBindingRequest)(nil),          // 31: backplane.console.v1.TestBindingRequest
-	(*TestBindingResponse)(nil),         // 32: backplane.console.v1.TestBindingResponse
-	(*ListBindingRunsRequest)(nil),      // 33: backplane.console.v1.ListBindingRunsRequest
-	(*ListBindingRunsResponse)(nil),     // 34: backplane.console.v1.ListBindingRunsResponse
-	(*GetBindingRunRequest)(nil),        // 35: backplane.console.v1.GetBindingRunRequest
-	(*BindingStepRun)(nil),              // 36: backplane.console.v1.BindingStepRun
-	(*GetBindingRunResponse)(nil),       // 37: backplane.console.v1.GetBindingRunResponse
-	(*CancelBindingRunRequest)(nil),     // 38: backplane.console.v1.CancelBindingRunRequest
-	(*CancelBindingRunResponse)(nil),    // 39: backplane.console.v1.CancelBindingRunResponse
-	(*durationpb.Duration)(nil),         // 40: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),       // 41: google.protobuf.Timestamp
-	(*CallResult)(nil),                  // 42: backplane.console.v1.CallResult
-	(RunStatus)(0),                      // 43: backplane.console.v1.RunStatus
-	(*Run)(nil),                         // 44: backplane.console.v1.Run
-	(*GetRunResponse)(nil),              // 45: backplane.console.v1.GetRunResponse
+	(*BindingDefinition)(nil),           // 1: backplane.console.v1.BindingDefinition
+	(*BindingVersion)(nil),              // 2: backplane.console.v1.BindingVersion
+	(*HookBinding)(nil),                 // 3: backplane.console.v1.HookBinding
+	(*ListBindingsRequest)(nil),         // 4: backplane.console.v1.ListBindingsRequest
+	(*ListBindingsResponse)(nil),        // 5: backplane.console.v1.ListBindingsResponse
+	(*GetBindingRequest)(nil),           // 6: backplane.console.v1.GetBindingRequest
+	(*GetBindingResponse)(nil),          // 7: backplane.console.v1.GetBindingResponse
+	(*ListBindingVersionsRequest)(nil),  // 8: backplane.console.v1.ListBindingVersionsRequest
+	(*ListBindingVersionsResponse)(nil), // 9: backplane.console.v1.ListBindingVersionsResponse
+	(*ValidateBindingRequest)(nil),      // 10: backplane.console.v1.ValidateBindingRequest
+	(*ValidateBindingResponse)(nil),     // 11: backplane.console.v1.ValidateBindingResponse
+	(*SaveBindingRequest)(nil),          // 12: backplane.console.v1.SaveBindingRequest
+	(*SaveBindingResponse)(nil),         // 13: backplane.console.v1.SaveBindingResponse
+	(*RollbackBindingRequest)(nil),      // 14: backplane.console.v1.RollbackBindingRequest
+	(*RollbackBindingResponse)(nil),     // 15: backplane.console.v1.RollbackBindingResponse
+	(*DeleteBindingRequest)(nil),        // 16: backplane.console.v1.DeleteBindingRequest
+	(*DeleteBindingResponse)(nil),       // 17: backplane.console.v1.DeleteBindingResponse
+	(*WatchBindingsRequest)(nil),        // 18: backplane.console.v1.WatchBindingsRequest
+	(*WatchBindingsResponse)(nil),       // 19: backplane.console.v1.WatchBindingsResponse
+	(*TestBindingRequest)(nil),          // 20: backplane.console.v1.TestBindingRequest
+	(*TestBindingResponse)(nil),         // 21: backplane.console.v1.TestBindingResponse
+	(*ListBindingRunsRequest)(nil),      // 22: backplane.console.v1.ListBindingRunsRequest
+	(*ListBindingRunsResponse)(nil),     // 23: backplane.console.v1.ListBindingRunsResponse
+	(*GetBindingRunRequest)(nil),        // 24: backplane.console.v1.GetBindingRunRequest
+	(*GetBindingRunResponse)(nil),       // 25: backplane.console.v1.GetBindingRunResponse
+	(*CancelBindingRunRequest)(nil),     // 26: backplane.console.v1.CancelBindingRunRequest
+	(*CancelBindingRunResponse)(nil),    // 27: backplane.console.v1.CancelBindingRunResponse
+	nil,                                 // 28: backplane.console.v1.BindingDefinition.StepsEntry
+	(*structpb.Value)(nil),              // 29: google.protobuf.Value
+	(*EditorLayout)(nil),                // 30: backplane.console.v1.EditorLayout
+	(*timestamppb.Timestamp)(nil),       // 31: google.protobuf.Timestamp
+	(*Violation)(nil),                   // 32: backplane.console.v1.Violation
+	(*durationpb.Duration)(nil),         // 33: google.protobuf.Duration
+	(*CallResult)(nil),                  // 34: backplane.console.v1.CallResult
+	(RunStatus)(0),                      // 35: backplane.console.v1.RunStatus
+	(*Run)(nil),                         // 36: backplane.console.v1.Run
+	(*GetRunResponse)(nil),              // 37: backplane.console.v1.GetRunResponse
+	(*StepRun)(nil),                     // 38: backplane.console.v1.StepRun
+	(*Step)(nil),                        // 39: backplane.console.v1.Step
 }
 var file_backplanepb_console_v1_bindings_proto_depIdxs = []int32{
-	3,  // 0: backplane.console.v1.BindingDefinition.steps:type_name -> backplane.console.v1.BindingStep
-	4,  // 1: backplane.console.v1.BindingDefinition.result:type_name -> backplane.console.v1.BindingValue
-	4,  // 2: backplane.console.v1.BindingStep.input:type_name -> backplane.console.v1.BindingValue
-	4,  // 3: backplane.console.v1.BindingStep.undo_input:type_name -> backplane.console.v1.BindingValue
-	6,  // 4: backplane.console.v1.BindingStep.retry:type_name -> backplane.console.v1.BindingRetry
-	40, // 5: backplane.console.v1.BindingStep.start_to_close:type_name -> google.protobuf.Duration
-	40, // 6: backplane.console.v1.BindingStep.heartbeat:type_name -> google.protobuf.Duration
-	5,  // 7: backplane.console.v1.BindingValue.fields:type_name -> backplane.console.v1.BindingField
-	40, // 8: backplane.console.v1.BindingRetry.initial_interval:type_name -> google.protobuf.Duration
-	40, // 9: backplane.console.v1.BindingRetry.max_interval:type_name -> google.protobuf.Duration
-	2,  // 10: backplane.console.v1.BindingVersion.definition:type_name -> backplane.console.v1.BindingDefinition
-	41, // 11: backplane.console.v1.BindingVersion.created_at:type_name -> google.protobuf.Timestamp
-	0,  // 12: backplane.console.v1.HookBinding.state:type_name -> backplane.console.v1.BindingState
-	7,  // 13: backplane.console.v1.HookBinding.current:type_name -> backplane.console.v1.BindingVersion
-	8,  // 14: backplane.console.v1.ListBindingsResponse.bindings:type_name -> backplane.console.v1.HookBinding
-	7,  // 15: backplane.console.v1.GetBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
-	7,  // 16: backplane.console.v1.ListBindingVersionsResponse.versions:type_name -> backplane.console.v1.BindingVersion
-	2,  // 17: backplane.console.v1.ValidateBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
-	9,  // 18: backplane.console.v1.ValidateBindingResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	2,  // 19: backplane.console.v1.SaveBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
-	7,  // 20: backplane.console.v1.SaveBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
-	9,  // 21: backplane.console.v1.SaveBindingResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	7,  // 22: backplane.console.v1.RollbackBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
-	9,  // 23: backplane.console.v1.RollbackBindingResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	7,  // 24: backplane.console.v1.DeleteBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
-	2,  // 25: backplane.console.v1.ParseBindingResponse.definition:type_name -> backplane.console.v1.BindingDefinition
-	10, // 26: backplane.console.v1.ParseBindingResponse.errors:type_name -> backplane.console.v1.BindingParseError
-	2,  // 27: backplane.console.v1.FormatBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
-	8,  // 28: backplane.console.v1.WatchBindingsResponse.bindings:type_name -> backplane.console.v1.HookBinding
-	2,  // 29: backplane.console.v1.TestBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
-	40, // 30: backplane.console.v1.TestBindingRequest.timeout:type_name -> google.protobuf.Duration
-	9,  // 31: backplane.console.v1.TestBindingResponse.violations:type_name -> backplane.console.v1.BindingViolation
-	42, // 32: backplane.console.v1.TestBindingResponse.result:type_name -> backplane.console.v1.CallResult
-	43, // 33: backplane.console.v1.ListBindingRunsRequest.status:type_name -> backplane.console.v1.RunStatus
-	44, // 34: backplane.console.v1.ListBindingRunsResponse.runs:type_name -> backplane.console.v1.Run
-	1,  // 35: backplane.console.v1.BindingStepRun.status:type_name -> backplane.console.v1.StepRunStatus
-	41, // 36: backplane.console.v1.BindingStepRun.scheduled_time:type_name -> google.protobuf.Timestamp
-	41, // 37: backplane.console.v1.BindingStepRun.started_time:type_name -> google.protobuf.Timestamp
-	41, // 38: backplane.console.v1.BindingStepRun.close_time:type_name -> google.protobuf.Timestamp
-	45, // 39: backplane.console.v1.GetBindingRunResponse.run:type_name -> backplane.console.v1.GetRunResponse
-	36, // 40: backplane.console.v1.GetBindingRunResponse.steps:type_name -> backplane.console.v1.BindingStepRun
-	11, // 41: backplane.console.v1.BindingService.ListBindings:input_type -> backplane.console.v1.ListBindingsRequest
-	13, // 42: backplane.console.v1.BindingService.GetBinding:input_type -> backplane.console.v1.GetBindingRequest
-	15, // 43: backplane.console.v1.BindingService.ListBindingVersions:input_type -> backplane.console.v1.ListBindingVersionsRequest
-	17, // 44: backplane.console.v1.BindingService.ValidateBinding:input_type -> backplane.console.v1.ValidateBindingRequest
-	19, // 45: backplane.console.v1.BindingService.SaveBinding:input_type -> backplane.console.v1.SaveBindingRequest
-	21, // 46: backplane.console.v1.BindingService.RollbackBinding:input_type -> backplane.console.v1.RollbackBindingRequest
-	23, // 47: backplane.console.v1.BindingService.DeleteBinding:input_type -> backplane.console.v1.DeleteBindingRequest
-	25, // 48: backplane.console.v1.BindingService.ParseBinding:input_type -> backplane.console.v1.ParseBindingRequest
-	27, // 49: backplane.console.v1.BindingService.FormatBinding:input_type -> backplane.console.v1.FormatBindingRequest
-	29, // 50: backplane.console.v1.BindingService.WatchBindings:input_type -> backplane.console.v1.WatchBindingsRequest
-	31, // 51: backplane.console.v1.BindingService.TestBinding:input_type -> backplane.console.v1.TestBindingRequest
-	33, // 52: backplane.console.v1.BindingService.ListBindingRuns:input_type -> backplane.console.v1.ListBindingRunsRequest
-	35, // 53: backplane.console.v1.BindingService.GetBindingRun:input_type -> backplane.console.v1.GetBindingRunRequest
-	38, // 54: backplane.console.v1.BindingService.CancelBindingRun:input_type -> backplane.console.v1.CancelBindingRunRequest
-	12, // 55: backplane.console.v1.BindingService.ListBindings:output_type -> backplane.console.v1.ListBindingsResponse
-	14, // 56: backplane.console.v1.BindingService.GetBinding:output_type -> backplane.console.v1.GetBindingResponse
-	16, // 57: backplane.console.v1.BindingService.ListBindingVersions:output_type -> backplane.console.v1.ListBindingVersionsResponse
-	18, // 58: backplane.console.v1.BindingService.ValidateBinding:output_type -> backplane.console.v1.ValidateBindingResponse
-	20, // 59: backplane.console.v1.BindingService.SaveBinding:output_type -> backplane.console.v1.SaveBindingResponse
-	22, // 60: backplane.console.v1.BindingService.RollbackBinding:output_type -> backplane.console.v1.RollbackBindingResponse
-	24, // 61: backplane.console.v1.BindingService.DeleteBinding:output_type -> backplane.console.v1.DeleteBindingResponse
-	26, // 62: backplane.console.v1.BindingService.ParseBinding:output_type -> backplane.console.v1.ParseBindingResponse
-	28, // 63: backplane.console.v1.BindingService.FormatBinding:output_type -> backplane.console.v1.FormatBindingResponse
-	30, // 64: backplane.console.v1.BindingService.WatchBindings:output_type -> backplane.console.v1.WatchBindingsResponse
-	32, // 65: backplane.console.v1.BindingService.TestBinding:output_type -> backplane.console.v1.TestBindingResponse
-	34, // 66: backplane.console.v1.BindingService.ListBindingRuns:output_type -> backplane.console.v1.ListBindingRunsResponse
-	37, // 67: backplane.console.v1.BindingService.GetBindingRun:output_type -> backplane.console.v1.GetBindingRunResponse
-	39, // 68: backplane.console.v1.BindingService.CancelBindingRun:output_type -> backplane.console.v1.CancelBindingRunResponse
-	55, // [55:69] is the sub-list for method output_type
-	41, // [41:55] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	28, // 0: backplane.console.v1.BindingDefinition.steps:type_name -> backplane.console.v1.BindingDefinition.StepsEntry
+	29, // 1: backplane.console.v1.BindingDefinition.result:type_name -> google.protobuf.Value
+	30, // 2: backplane.console.v1.BindingDefinition.editor:type_name -> backplane.console.v1.EditorLayout
+	1,  // 3: backplane.console.v1.BindingVersion.definition:type_name -> backplane.console.v1.BindingDefinition
+	31, // 4: backplane.console.v1.BindingVersion.created_at:type_name -> google.protobuf.Timestamp
+	0,  // 5: backplane.console.v1.HookBinding.state:type_name -> backplane.console.v1.BindingState
+	2,  // 6: backplane.console.v1.HookBinding.current:type_name -> backplane.console.v1.BindingVersion
+	32, // 7: backplane.console.v1.HookBinding.violations:type_name -> backplane.console.v1.Violation
+	3,  // 8: backplane.console.v1.ListBindingsResponse.bindings:type_name -> backplane.console.v1.HookBinding
+	2,  // 9: backplane.console.v1.GetBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
+	32, // 10: backplane.console.v1.GetBindingResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 11: backplane.console.v1.ListBindingVersionsResponse.versions:type_name -> backplane.console.v1.BindingVersion
+	1,  // 12: backplane.console.v1.ValidateBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
+	32, // 13: backplane.console.v1.ValidateBindingResponse.violations:type_name -> backplane.console.v1.Violation
+	1,  // 14: backplane.console.v1.SaveBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
+	2,  // 15: backplane.console.v1.SaveBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
+	32, // 16: backplane.console.v1.SaveBindingResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 17: backplane.console.v1.RollbackBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
+	32, // 18: backplane.console.v1.RollbackBindingResponse.violations:type_name -> backplane.console.v1.Violation
+	2,  // 19: backplane.console.v1.DeleteBindingResponse.version:type_name -> backplane.console.v1.BindingVersion
+	3,  // 20: backplane.console.v1.WatchBindingsResponse.bindings:type_name -> backplane.console.v1.HookBinding
+	1,  // 21: backplane.console.v1.TestBindingRequest.definition:type_name -> backplane.console.v1.BindingDefinition
+	33, // 22: backplane.console.v1.TestBindingRequest.timeout:type_name -> google.protobuf.Duration
+	32, // 23: backplane.console.v1.TestBindingResponse.violations:type_name -> backplane.console.v1.Violation
+	34, // 24: backplane.console.v1.TestBindingResponse.result:type_name -> backplane.console.v1.CallResult
+	35, // 25: backplane.console.v1.ListBindingRunsRequest.status:type_name -> backplane.console.v1.RunStatus
+	36, // 26: backplane.console.v1.ListBindingRunsResponse.runs:type_name -> backplane.console.v1.Run
+	37, // 27: backplane.console.v1.GetBindingRunResponse.run:type_name -> backplane.console.v1.GetRunResponse
+	38, // 28: backplane.console.v1.GetBindingRunResponse.steps:type_name -> backplane.console.v1.StepRun
+	39, // 29: backplane.console.v1.BindingDefinition.StepsEntry.value:type_name -> backplane.console.v1.Step
+	4,  // 30: backplane.console.v1.BindingService.ListBindings:input_type -> backplane.console.v1.ListBindingsRequest
+	6,  // 31: backplane.console.v1.BindingService.GetBinding:input_type -> backplane.console.v1.GetBindingRequest
+	8,  // 32: backplane.console.v1.BindingService.ListBindingVersions:input_type -> backplane.console.v1.ListBindingVersionsRequest
+	10, // 33: backplane.console.v1.BindingService.ValidateBinding:input_type -> backplane.console.v1.ValidateBindingRequest
+	12, // 34: backplane.console.v1.BindingService.SaveBinding:input_type -> backplane.console.v1.SaveBindingRequest
+	14, // 35: backplane.console.v1.BindingService.RollbackBinding:input_type -> backplane.console.v1.RollbackBindingRequest
+	16, // 36: backplane.console.v1.BindingService.DeleteBinding:input_type -> backplane.console.v1.DeleteBindingRequest
+	18, // 37: backplane.console.v1.BindingService.WatchBindings:input_type -> backplane.console.v1.WatchBindingsRequest
+	20, // 38: backplane.console.v1.BindingService.TestBinding:input_type -> backplane.console.v1.TestBindingRequest
+	22, // 39: backplane.console.v1.BindingService.ListBindingRuns:input_type -> backplane.console.v1.ListBindingRunsRequest
+	24, // 40: backplane.console.v1.BindingService.GetBindingRun:input_type -> backplane.console.v1.GetBindingRunRequest
+	26, // 41: backplane.console.v1.BindingService.CancelBindingRun:input_type -> backplane.console.v1.CancelBindingRunRequest
+	5,  // 42: backplane.console.v1.BindingService.ListBindings:output_type -> backplane.console.v1.ListBindingsResponse
+	7,  // 43: backplane.console.v1.BindingService.GetBinding:output_type -> backplane.console.v1.GetBindingResponse
+	9,  // 44: backplane.console.v1.BindingService.ListBindingVersions:output_type -> backplane.console.v1.ListBindingVersionsResponse
+	11, // 45: backplane.console.v1.BindingService.ValidateBinding:output_type -> backplane.console.v1.ValidateBindingResponse
+	13, // 46: backplane.console.v1.BindingService.SaveBinding:output_type -> backplane.console.v1.SaveBindingResponse
+	15, // 47: backplane.console.v1.BindingService.RollbackBinding:output_type -> backplane.console.v1.RollbackBindingResponse
+	17, // 48: backplane.console.v1.BindingService.DeleteBinding:output_type -> backplane.console.v1.DeleteBindingResponse
+	19, // 49: backplane.console.v1.BindingService.WatchBindings:output_type -> backplane.console.v1.WatchBindingsResponse
+	21, // 50: backplane.console.v1.BindingService.TestBinding:output_type -> backplane.console.v1.TestBindingResponse
+	23, // 51: backplane.console.v1.BindingService.ListBindingRuns:output_type -> backplane.console.v1.ListBindingRunsResponse
+	25, // 52: backplane.console.v1.BindingService.GetBindingRun:output_type -> backplane.console.v1.GetBindingRunResponse
+	27, // 53: backplane.console.v1.BindingService.CancelBindingRun:output_type -> backplane.console.v1.CancelBindingRunResponse
+	42, // [42:54] is the sub-list for method output_type
+	30, // [30:42] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_console_v1_bindings_proto_init() }
@@ -2869,13 +2025,17 @@ func file_backplanepb_console_v1_bindings_proto_init() {
 	}
 	file_backplanepb_console_v1_calls_proto_init()
 	file_backplanepb_console_v1_workflows_proto_init()
+	file_backplanepb_console_v1_step_proto_init()
+	file_backplanepb_console_v1_bindings_proto_msgTypes[11].OneofWrappers = []any{}
+	file_backplanepb_console_v1_bindings_proto_msgTypes[13].OneofWrappers = []any{}
+	file_backplanepb_console_v1_bindings_proto_msgTypes[15].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_console_v1_bindings_proto_rawDesc), len(file_backplanepb_console_v1_bindings_proto_rawDesc)),
-			NumEnums:      2,
-			NumMessages:   38,
+			NumEnums:      1,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

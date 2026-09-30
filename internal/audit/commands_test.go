@@ -31,7 +31,7 @@ func TestCommandResultsAndRedaction(t *testing.T) {
 		{"rule failure", &consolev1.TestRuleResponse{Result: failed}, nil, "failed"},
 		{"evaluation failure", &consolev1.TestRuleResponse{Error: "secret expression"}, nil, "failed"},
 		{"dry rule no match", &consolev1.TestRuleResponse{}, nil, "succeeded"},
-		{"validation", &consolev1.TestRuleResponse{Violations: []*consolev1.BindingViolation{{Message: "secret"}}}, nil, "rejected"},
+		{"validation", &consolev1.TestRuleResponse{Violations: []*consolev1.Violation{{Message: "secret"}}}, nil, "rejected"},
 		{"partial redrive", &consolev1.RedriveDeadLettersResponse{Redriven: 1, Failed: []*consolev1.SeqError{{Error: "secret"}}}, nil, "partial"},
 		{"failed purge", &consolev1.PurgeDeadLettersResponse{Failed: []*consolev1.SeqError{{Error: "secret"}}}, nil, "failed"},
 		{"timeout uncertain", nil, status.Error(codes.DeadlineExceeded, "secret"), "unknown"},

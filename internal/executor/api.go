@@ -321,32 +321,43 @@ func (a BindingAPI) GetBindingRun(
 			req.GetWorkflowId(), t)
 	}
 
-	var in Input
-
-	_ = json.Unmarshal([]byte(run.GetInput()), &in)
-
-	hook, test, _ := wire.BindingRunHook(req.GetWorkflowId())
-	if in.Identity.Hook != "" {
-		hook = in.Identity.Hook
-	}
-
-	out := &consolev1.GetBindingRunResponse{
-		Run: run, Hook: hook, Version: uint64(max(in.Identity.Version, 0)), Test: test || in.Identity.Test,
-	}
-
 	c, err := x.client()
 	if err != nil {
 		return nil, x.status(ctx, err)
 	}
 
-	events, err := history(ctx, c, req.GetWorkflowId(), run.GetRun().GetRunId())
+	steps, id, err := Timeline(ctx, c, run)
 	if err != nil {
 		return nil, x.status(ctx, err)
 	}
 
-	out.Steps = timeline(programSteps(in.Program), events, run.GetPendingActivities())
+	hook, test, _ := wire.BindingRunHook(req.GetWorkflowId())
+	if id.Hook != "" {
+		hook = id.Hook
+	}
 
-	return out, nil
+	return &consolev1.GetBindingRunResponse{
+		Run: run, Hook: hook, Version: uint64(max(id.Version, 0)), Test: test || id.Test, Steps: steps,
+	}, nil
+}
+
+// Timeline is the steps of a run of wire.BindingWorkflow — a binding's or
+// a rule's — and what ran: every step of the program in its input by
+// name, its call from the run's history (c reads it) or NOT_RUN, then the
+// compensations in the order they were scheduled.
+func Timeline(
+	ctx context.Context, c client.Client, run *consolev1.GetRunResponse,
+) ([]*consolev1.StepRun, Identity, error) {
+	var in Input
+
+	_ = json.Unmarshal([]byte(run.GetInput()), &in)
+
+	events, err := history(ctx, c, run.GetRun().GetWorkflowId(), run.GetRun().GetRunId())
+	if err != nil {
+		return nil, in.Identity, err
+	}
+
+	return timeline(programSteps(in.Program), events, run.GetPendingActivities()), in.Identity, nil
 }
 
 // history is a run's events, at most maxEvents.

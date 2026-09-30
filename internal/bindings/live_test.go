@@ -31,6 +31,16 @@ import (
 func live(t *testing.T) (*bindings.Manager, string) {
 	t.Helper()
 
+	m, iam, _ := liveHub(t)
+
+	return m, iam
+}
+
+// liveHub is live with its Hub and services: publishing changed manifests
+// is a deploy.
+func liveHub(t *testing.T) (*bindings.Manager, string, hubServices) {
+	t.Helper()
+
 	dsn := os.Getenv("BACKPLANE_TEST_PG")
 	if dsn == "" {
 		t.Skip("BACKPLANE_TEST_PG not set")
@@ -98,7 +108,32 @@ func live(t *testing.T) (*bindings.Manager, string) {
 		}
 	})
 
-	return m, iam
+	return m, iam, hubServices{hub: hub, services: services}
+}
+
+// hubServices republishes the fixture with a change.
+type hubServices struct {
+	hub      *registry.Hub
+	services map[string]registry.Service
+}
+
+// publish is the fixture with service's manifest changed by edit.
+func (h hubServices) publish(service string, edit func(*backplanev1.Manifest)) {
+	out := map[string]registry.Service{}
+
+	for name, s := range h.services {
+		if name == service {
+			for v, m := range s.Manifests {
+				m = proto.CloneOf(m)
+				edit(m)
+				s = registry.Service{Name: name, Manifests: map[string]*backplanev1.Manifest{v: m}}
+			}
+		}
+
+		out[name] = s
+	}
+
+	h.hub.Publish(out)
 }
 
 func code(err error) codes.Code { return status.Code(err) }
@@ -126,17 +161,17 @@ func TestBindingLifecycle(t *testing.T) {
 		t.Fatalf("list before: %v", list)
 	}
 
-	parsed, err := api.ParseBinding(ctx, &consolev1.ParseBindingRequest{
-		Text: hook + " :=\n  send = smtp.Send(to: req.to, subject: \"s\", text: req.template)\n  return { message_id: send.id }\n",
-	})
-	if err != nil || len(parsed.GetErrors()) > 0 {
-		t.Fatalf("parse: %v %v", parsed, err)
-	}
-
-	def := parsed.GetDefinition()
+	def := mustBinding(t, `
+hook: `+hook+`
+description: Sends through smtp.
+steps:
+  send: {activity: smtp.Send, input: {to: req.to, subject: "'s'", text: req.template}, description: the mail}
+result: {message_id: send.id}
+editor: {nodes: {send: {x: 240, y: 80}}, notes: [{text: hello, at: {x: 1, y: 2}}]}
+`).PB()
 
 	bad := proto.CloneOf(def)
-	bad.Steps[0].Activity = "smtp.Nope"
+	bad.Steps["send"].Activity = "smtp.Nope"
 
 	rejected, err := api.SaveBinding(ctx, &consolev1.SaveBindingRequest{Definition: bad})
 	if err != nil || rejected.GetVersion() != nil || len(rejected.GetViolations()) == 0 ||
@@ -156,13 +191,23 @@ func TestBindingLifecycle(t *testing.T) {
 	}
 
 	b, version, err := m.Active(ctx, hook)
-	if err != nil || version != 1 || !b.Equal(bindings.BindingFromPB(def)) {
+	if err != nil || version != 1 || !b.Equal(bindings.BindingFromPB(def)) || !proto.Equal(b.PB(), def) {
 		t.Fatalf("active: %+v %d %v", b, version, err)
 	}
 
 	changed := proto.CloneOf(def)
-	changed.Steps[0].When = "req.to != \"\""
-	save(t, api, changed, "second")
+	changed.Steps["send"].When = "req.to != \"\""
+
+	stale, err := api.SaveBinding(ctx, &consolev1.SaveBindingRequest{Definition: changed, BaseVersion: proto.Uint64(0)})
+	if code(err) != codes.Aborted {
+		t.Fatalf("save from a stale base: %v %v", stale, err)
+	}
+
+	if _, err := api.SaveBinding(ctx, &consolev1.SaveBindingRequest{
+		Definition: changed, Comment: "second", BaseVersion: proto.Uint64(1),
+	}); err != nil {
+		t.Fatalf("save from the current base: %v", err)
+	}
 
 	page, err := api.ListBindingVersions(ctx, &consolev1.ListBindingVersionsRequest{Hook: hook, PageSize: 1})
 	if err != nil || len(page.GetVersions()) != 1 || page.GetVersions()[0].GetVersion() != 2 || page.GetNextBefore() != 2 {
@@ -193,6 +238,10 @@ func TestBindingLifecycle(t *testing.T) {
 		t.Fatalf("delete again: %v", err)
 	}
 
+	if _, err := api.DeleteBinding(ctx, &consolev1.DeleteBindingRequest{Hook: hook, BaseVersion: proto.Uint64(3)}); code(err) != codes.NotFound {
+		t.Fatalf("delete of a deleted binding: %v", err)
+	}
+
 	if _, err := api.GetBinding(ctx, &consolev1.GetBindingRequest{Hook: hook, Version: 99}); code(err) != codes.NotFound {
 		t.Fatalf("get of a missing version: %v", err)
 	}
@@ -207,15 +256,109 @@ func TestBindingLifecycle(t *testing.T) {
 		!list.GetBindings()[1].GetCurrent().GetDeleted() {
 		t.Fatalf("list after delete: %v %v", list, err)
 	}
+}
 
-	text, err := api.FormatBinding(ctx, &consolev1.FormatBindingRequest{Definition: def})
+// A binding whose contract changes under it is broken: listed with the
+// violations, and its version shows them too.
+//
+//nolint:paralleltest // one database
+func TestBrokenBinding(t *testing.T) {
+	m, iam, hub := liveHub(t)
+	ctx := t.Context()
+	api := m.BindingAPI()
+	hook := iam + ".SendEmail"
+
+	save(t, api, mustBinding(t, `
+hook: `+hook+`
+steps:
+  send: {activity: smtp.Send, input: {to: req.to, subject: "'s'", text: "'t'"}}
+result: {message_id: send.id}
+`).PB(), "")
+
+	hub.publish("smtp", func(m *backplanev1.Manifest) { m.Version = "2.0.0"; m.Activities = m.GetActivities()[1:] })
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for {
+		list, err := api.ListBindings(ctx, &consolev1.ListBindingsRequest{Service: iam})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		b := list.GetBindings()[1]
+		if b.GetState() == consolev1.BindingState_BINDING_STATE_BROKEN {
+			if len(b.GetViolations()) == 0 || b.GetViolations()[0].GetPath() != "/steps/send/activity" {
+				t.Fatalf("violations %v", b.GetViolations())
+			}
+
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("not broken: %v", b)
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	got, err := api.GetBinding(ctx, &consolev1.GetBindingRequest{Hook: hook})
+	if err != nil || len(got.GetViolations()) == 0 {
+		t.Fatalf("get: %v %v", got, err)
+	}
+}
+
+// WiringService: the catalog of every service, the analysis of a draft
+// and a rename.
+//
+//nolint:paralleltest // one database
+func TestWiringAPI(t *testing.T) {
+	m, iam := live(t)
+	ctx := t.Context()
+	api := m.WiringAPI()
+
+	cat, err := api.GetWiringCatalog(ctx, &consolev1.GetWiringCatalogRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	again, err := api.ParseBinding(ctx, &consolev1.ParseBindingRequest{Text: text.GetText()})
-	if err != nil || !proto.Equal(again.GetDefinition(), def) {
-		t.Fatalf("format and parse: %v %v", again, err)
+	contracts := map[string]*consolev1.WiringContract{}
+	for _, c := range cat.GetServices() {
+		contracts[c.GetService()] = c
+	}
+
+	if len(contracts[iam].GetHooks()) != 2 || len(contracts["smtp"].GetActivities()) != 2 ||
+		len(contracts[iam].GetEvents()) != 1 {
+		t.Fatalf("catalog %v", cat)
+	}
+
+	def := mustBinding(t, `
+hook: `+iam+`.SendEmail
+steps:
+  send: {activity: smtp.Send, input: {to: req.to, subject: "'s'", text: nope}}
+result: {message_id: send.id}
+`).PB()
+
+	analyzed, err := api.AnalyzeBinding(ctx, &consolev1.AnalyzeBindingRequest{Definition: def})
+	a := analyzed.GetAnalysis()
+
+	if err != nil || len(a.GetViolations()) != 1 || a.GetViolations()[0].GetExpr().GetEnd() != 4 ||
+		len(a.GetSteps()) != 1 || len(a.GetReferences()) != 3 {
+		t.Fatalf("analysis %v %v", analyzed, err)
+	}
+
+	renamed, err := api.RenameStep(ctx, &consolev1.RenameStepRequest{
+		Definition: &consolev1.RenameStepRequest_Binding{Binding: def}, From: "send", To: "mail",
+	})
+	if err != nil || renamed.GetBinding().GetSteps()["mail"] == nil ||
+		renamed.GetBinding().GetResult().GetStructValue().GetFields()["message_id"].GetStringValue() != "mail.id" {
+		t.Fatalf("rename %v %v", renamed, err)
+	}
+
+	refused, err := api.RenameStep(ctx, &consolev1.RenameStepRequest{
+		Definition: &consolev1.RenameStepRequest_Binding{Binding: def}, From: "send", To: "req",
+	})
+	if err != nil || len(refused.GetViolations()) == 0 || refused.GetBinding() != nil {
+		t.Fatalf("rename to a reserved name %v %v", refused, err)
 	}
 }
 
@@ -249,8 +392,8 @@ func TestWatchBindings(t *testing.T) {
 		t.Fatalf("first: %v", first)
 	}
 
-	b := mustParse(t, iam+".Audit :=\n  x = billing.Charge(v: 1)\n")
-	if _, err := m.Save(ctx, b, ""); err != nil {
+	b := mustBinding(t, "hook: "+iam+".Audit\nsteps: {x: {activity: billing.Charge, input: {v: 1}}}")
+	if _, err := m.Save(ctx, b, "", bindings.Base{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -306,17 +449,15 @@ func TestRuleLifecycle(t *testing.T) {
 	api := m.RuleAPI()
 	event := iam + ".UserRegistered"
 
-	parsed, err := api.ParseRule(ctx, &consolev1.ParseRuleRequest{
-		Text: "on " + event + " when event.email != \"\" :=\n  send = smtp.Send(to: event.email, subject: \"hi\", text: event.name)\n",
-	})
-	if err != nil || len(parsed.GetErrors()) > 0 {
-		t.Fatalf("parse: %v %v", parsed, err)
-	}
-
-	def := parsed.GetDefinition()
+	def := mustRule(t, `
+event: `+event+`
+when: event.email != ""
+steps:
+  send: {activity: smtp.Send, input: {to: event.email, subject: "'hi'", text: event.name}}
+`).PB()
 
 	noName, err := api.SaveRule(ctx, &consolev1.SaveRuleRequest{Definition: def})
-	if err != nil || len(noName.GetViolations()) == 0 || noName.GetViolations()[0].GetPath() != "name" {
+	if err != nil || len(noName.GetViolations()) == 0 || noName.GetViolations()[0].GetPath() != "/name" {
 		t.Fatalf("without a name: %v %v", noName, err)
 	}
 
@@ -328,8 +469,15 @@ func TestRuleLifecycle(t *testing.T) {
 	id := created.GetVersion().GetRuleId()
 
 	listed, err := api.ListRules(ctx, &consolev1.ListRulesRequest{Event: event})
-	if err != nil || len(listed.GetRules()) != 1 || listed.GetRules()[0].GetId() != id {
+	if err != nil || len(listed.GetRules()) != 1 || listed.GetRules()[0].GetId() != id ||
+		listed.GetRules()[0].GetState() != consolev1.RuleState_RULE_STATE_ACTIVE {
 		t.Fatalf("list: %v %v", listed, err)
+	}
+
+	if _, err := api.SaveRule(ctx, &consolev1.SaveRuleRequest{
+		Id: id, Name: "welcome2", Definition: def, BaseVersion: proto.Uint64(7),
+	}); code(err) != codes.Aborted {
+		t.Fatalf("save from a stale base: %v", err)
 	}
 
 	renamed, err := api.SaveRule(ctx, &consolev1.SaveRuleRequest{Id: id, Name: "welcome2", Definition: def})
@@ -337,8 +485,12 @@ func TestRuleLifecycle(t *testing.T) {
 		t.Fatalf("save v2: %v %v", renamed, err)
 	}
 
-	paused, err := api.PauseRule(ctx, &consolev1.PauseRuleRequest{Id: id})
-	if err != nil || !paused.GetRule().GetPaused() {
+	if _, err := api.PauseRule(ctx, &consolev1.PauseRuleRequest{Id: id, BaseVersion: proto.Uint64(1)}); code(err) != codes.Aborted {
+		t.Fatalf("pause of a stale version: %v", err)
+	}
+
+	paused, err := api.PauseRule(ctx, &consolev1.PauseRuleRequest{Id: id, BaseVersion: proto.Uint64(2)})
+	if err != nil || !paused.GetRule().GetPaused() || paused.GetRule().GetState() != consolev1.RuleState_RULE_STATE_PAUSED {
 		t.Fatalf("pause: %v %v", paused, err)
 	}
 

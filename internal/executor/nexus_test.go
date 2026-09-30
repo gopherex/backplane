@@ -114,7 +114,7 @@ func TestRequired(t *testing.T) {
 func TestPrepare(t *testing.T) {
 	t.Parallel()
 
-	b, err := bindings.ParseBinding("iam.SendEmail :=\n  send = smtp.Send(to: req.to)\n  return { id: send.id }\n")
+	b, err := bindings.BindingYAML("hook: iam.SendEmail\nsteps: {send: {activity: smtp.Send, input: {to: req.to}}}\nresult: {id: send.id}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestPrepare(t *testing.T) {
 func TestPrepareNotSynced(t *testing.T) {
 	t.Parallel()
 
-	b, err := bindings.ParseBinding("iam.SendEmail :=\n  send = smtp.Send(req)\n")
+	b, err := bindings.BindingYAML("hook: iam.SendEmail\nsteps: {send: {activity: smtp.Send, input: req}}")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,11 +280,13 @@ func completedEvent(t *testing.T, id, sched int64, output string) *historypb.His
 func TestTimeline(t *testing.T) {
 	t.Parallel()
 
-	p := program(t, `iam.SendEmail :=
-  render = template.Exec(req) [undo: smtp.Recall]
-  send   = smtp.Send(text: render.text)
-  audit  = billing.Charge(req) [after: send]
-  late   = template.Lookup(req) [after: send]
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  render: {activity: template.Exec, input: req, undo: smtp.Recall}
+  send: {activity: smtp.Send, input: {text: render.text}}
+  audit: {activity: billing.Charge, input: req, after: [send]}
+  late: {activity: template.Lookup, input: req, after: [send]}
 `)
 
 	prog, err := json.Marshal(p)
@@ -311,7 +313,7 @@ func TestTimeline(t *testing.T) {
 		scheduled(t, 11, "11", "late", "template.Lookup", `{}`),
 	}
 
-	got := executor.Timeline(prog, events, []*consolev1.PendingActivity{
+	got := executor.TimelineOf(prog, events, []*consolev1.PendingActivity{
 		{ActivityId: "11", State: "STARTED", Attempt: 3, LastFailure: "busy"},
 	})
 
@@ -322,10 +324,10 @@ func TestTimeline(t *testing.T) {
 	}
 
 	want := []row{
-		{"render", "template.Exec", false, consolev1.StepRunStatus_STEP_RUN_STATUS_COMPLETED},
-		{"send", "smtp.Send", false, consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED},
 		{"audit", "billing.Charge", false, consolev1.StepRunStatus_STEP_RUN_STATUS_NOT_RUN},
 		{"late", "template.Lookup", false, consolev1.StepRunStatus_STEP_RUN_STATUS_STARTED},
+		{"render", "template.Exec", false, consolev1.StepRunStatus_STEP_RUN_STATUS_COMPLETED},
+		{"send", "smtp.Send", false, consolev1.StepRunStatus_STEP_RUN_STATUS_FAILED},
 		{"render", "smtp.Recall", true, consolev1.StepRunStatus_STEP_RUN_STATUS_SCHEDULED},
 	}
 
@@ -340,15 +342,15 @@ func TestTimeline(t *testing.T) {
 		}
 	}
 
-	if got[0].GetOutput() != `{"text":"body"}` || got[0].GetAttempt() != 2 {
-		t.Errorf("render: %v", got[0])
+	if got[2].GetOutput() != `{"text":"body"}` || got[2].GetAttempt() != 2 {
+		t.Errorf("render: %v", got[2])
 	}
 
-	if got[1].GetError() != "smtp.Send: refused" || got[1].GetErrorType() != "Refused" {
-		t.Errorf("send: %v", got[1])
+	if got[3].GetError() != "smtp.Send: refused" || got[3].GetErrorType() != "Refused" {
+		t.Errorf("send: %v", got[3])
 	}
 
-	if got[3].GetAttempt() != 3 || got[3].GetError() != "busy" {
-		t.Errorf("late: %v", got[3])
+	if got[1].GetAttempt() != 3 || got[1].GetError() != "busy" {
+		t.Errorf("late: %v", got[1])
 	}
 }

@@ -56,7 +56,8 @@ CREATE INDEX console_session_expires_at_idx ON backplane.console_session (expire
 -- Bindings (§7.1): versions of the binding of each hook ("<service>.<Hook>"),
 -- append-only; versions count from 1 per hook, a rollback is a new version
 -- copying an older one's definition (rollback_of), a delete is a tombstone
--- (definition NULL). definition: protojson of backplane.console.v1.BindingDefinition.
+-- (definition NULL). definition: protojson of backplane.console.v1.BindingDefinition
+-- (steps keyed by name, values as JSON trees of CEL expressions).
 CREATE TABLE backplane.binding_version (
   hook        text        NOT NULL,
   version     bigint      NOT NULL CHECK (version > 0),

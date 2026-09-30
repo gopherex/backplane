@@ -24,6 +24,8 @@ import (
 	"github.com/gopherex/ws-proto/wsrpc"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
+	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/internal/bindings"
 )
 
 // M2 end to end (platform-design.md §16.2): the real backplane binary and
@@ -50,21 +52,37 @@ const (
 	// m2Paused is how long a paused rule is watched not to run.
 	m2Paused = 3 * time.Second
 
-	// Text forms (§7.1, §8.1) of what the scenario saves.
-	m2BindingText = "hello.Greet :=\n" +
-		"  echo = hello.Echo(text: \"bound \" + req.name)\n" +
-		"  return {text: echo.text}\n"
-	m2DraftText = "hello.Greet :=\n" +
-		"  echo = hello.Echo(text: \"test \" + req.name)\n" +
-		"  return {text: echo.text}\n"
-	m2UnknownActivityText = "hello.Greet :=\n" +
-		"  echo = hello.Nope(text: req.name)\n" +
-		"  return {text: echo.text}\n"
-	m2TypeErrorText = "hello.Greet :=\n" +
-		"  echo = hello.Echo(text: req.name + 1)\n" +
-		"  return {text: echo.text}\n"
-	m2RuleText = "on hello.Greeted when event.name != \"skip\" :=\n" +
-		"  echo = hello.Echo(text: event.name)\n"
+	// YAML forms (as the console edits them) of what the scenario saves.
+	m2BindingText = `
+hook: hello.Greet
+steps:
+  echo: {activity: hello.Echo, input: {text: '"bound " + req.name'}}
+result: {text: echo.text}
+`
+	m2DraftText = `
+hook: hello.Greet
+steps:
+  echo: {activity: hello.Echo, input: {text: '"test " + req.name'}}
+result: {text: echo.text}
+`
+	m2UnknownActivityText = `
+hook: hello.Greet
+steps:
+  echo: {activity: hello.Nope, input: {text: req.name}}
+result: {text: echo.text}
+`
+	m2TypeErrorText = `
+hook: hello.Greet
+steps:
+  echo: {activity: hello.Echo, input: {text: req.name + 1}}
+result: {text: echo.text}
+`
+	m2RuleText = `
+event: hello.Greeted
+when: event.name != "skip"
+steps:
+  echo: {activity: hello.Echo, input: {text: event.name}}
+`
 )
 
 // m2 is the scenario's world.
@@ -415,14 +433,12 @@ func (w *m2) callHook(t *testing.T, name string) (*consolev1.CallResult, error) 
 func (w *m2) parseBinding(t *testing.T, text string) *consolev1.BindingDefinition {
 	t.Helper()
 
-	var res consolev1.ParseBindingResponse
-	w.call(t, "/backplane.console.v1.BindingService/ParseBinding", &consolev1.ParseBindingRequest{Text: text}, &res)
-
-	if len(res.GetErrors()) > 0 || res.GetDefinition() == nil {
-		t.Fatalf("ParseBinding(%q): errors %v", text, res.GetErrors())
+	b, err := bindings.BindingYAML(text)
+	if err != nil {
+		t.Fatalf("binding %q: %v", text, err)
 	}
 
-	return res.GetDefinition()
+	return b.PB()
 }
 
 // bindingRuns is ListBindingRuns of hello.Greet.
@@ -498,7 +514,7 @@ func (w *m2) findBindingRun(
 }
 
 // echoStep is the step echo of a run.
-func echoStep(run *consolev1.GetBindingRunResponse) *consolev1.BindingStepRun {
+func echoStep(run *consolev1.GetBindingRunResponse) *consolev1.StepRun {
 	for _, s := range run.GetSteps() {
 		if s.GetStep() == "echo" && !s.GetUndo() {
 			return s
@@ -560,18 +576,32 @@ func (w *m2) binds(t *testing.T) {
 
 	def := w.parseBinding(t, m2BindingText)
 
-	if def.GetHook() != m2Hook || len(def.GetSteps()) != 1 || def.GetSteps()[0].GetName() != "echo" ||
-		def.GetSteps()[0].GetActivity() != m2Echo || len(def.GetResult().GetFields()) != 1 {
-		t.Fatalf("ParseBinding: %v", def)
+	if def.GetHook() != m2Hook || len(def.GetSteps()) != 1 || def.GetSteps()["echo"].GetActivity() != m2Echo ||
+		len(def.GetResult().GetStructValue().GetFields()) != 1 {
+		t.Fatalf("binding: %v", def)
 	}
 
-	// The text form round-trips.
-	var text consolev1.FormatBindingResponse
-	w.call(t, "/backplane.console.v1.BindingService/FormatBinding",
-		&consolev1.FormatBindingRequest{Definition: def}, &text)
+	// The wiring editor sees the contract and the binding's graph.
+	var cat consolev1.GetWiringCatalogResponse
+	w.call(t, "/backplane.console.v1.WiringService/GetWiringCatalog", &consolev1.GetWiringCatalogRequest{}, &cat)
 
-	if back := w.parseBinding(t, text.GetText()); !proto.Equal(back, def) {
-		t.Fatalf("FormatBinding %q parses back to %v, want %v", text.GetText(), back, def)
+	if !slices.ContainsFunc(cat.GetServices(), func(c *consolev1.WiringContract) bool {
+		return c.GetService() == service && slices.ContainsFunc(c.GetActivities(), func(a *backplanev1.Activity) bool {
+			return service+"."+a.GetName() == m2Echo
+		})
+	}) {
+		t.Fatalf("GetWiringCatalog lacks %s: %v", m2Echo, &cat)
+	}
+
+	var analyzed consolev1.AnalyzeBindingResponse
+	w.call(t, "/backplane.console.v1.WiringService/AnalyzeBinding",
+		&consolev1.AnalyzeBindingRequest{Definition: def}, &analyzed)
+
+	if a := analyzed.GetAnalysis(); len(a.GetViolations()) > 0 || len(a.GetSteps()) != 1 ||
+		!slices.ContainsFunc(a.GetReferences(), func(r *consolev1.Reference) bool {
+			return r.GetPath() == "/result/text" && r.GetVariable() == "echo"
+		}) {
+		t.Fatalf("AnalyzeBinding: %v", a)
 	}
 
 	var valid consolev1.ValidateBindingResponse
@@ -660,7 +690,7 @@ func (w *m2) rejects(t *testing.T) {
 		w.call(t, "/backplane.console.v1.BindingService/ValidateBinding",
 			&consolev1.ValidateBindingRequest{Definition: def}, &valid)
 
-		if !slices.ContainsFunc(valid.GetViolations(), func(v *consolev1.BindingViolation) bool {
+		if !slices.ContainsFunc(valid.GetViolations(), func(v *consolev1.Violation) bool {
 			return slices.Contains(c.codes, v.GetCode())
 		}) {
 			t.Fatalf("ValidateBinding, %s: want a violation %v, got %v", c.name, c.codes, valid.GetViolations())
@@ -1008,13 +1038,15 @@ func (w *m2) runsAre(t *testing.T, what string, want ...string) {
 func (w *m2) rules(t *testing.T) {
 	t.Helper()
 
-	var parsed consolev1.ParseRuleResponse
-	w.call(t, "/backplane.console.v1.RuleService/ParseRule", &consolev1.ParseRuleRequest{Text: m2RuleText}, &parsed)
+	rule, err := bindings.RuleYAML(m2RuleText)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	def := parsed.GetDefinition()
-	if len(parsed.GetErrors()) > 0 || def.GetEvent() != m2Event || def.GetWhen() != `event.name != "skip"` ||
-		len(def.GetSteps()) != 1 || def.GetSteps()[0].GetActivity() != m2Echo {
-		t.Fatalf("ParseRule(%q): %v", m2RuleText, &parsed)
+	def := rule.PB()
+	if def.GetEvent() != m2Event || def.GetWhen() != `event.name != "skip"` ||
+		len(def.GetSteps()) != 1 || def.GetSteps()["echo"].GetActivity() != m2Echo {
+		t.Fatalf("rule %q: %v", m2RuleText, def)
 	}
 
 	w.ruleDef = def

@@ -28,8 +28,6 @@ const (
 	RuleService_DeleteRule_FullMethodName       = "/backplane.console.v1.RuleService/DeleteRule"
 	RuleService_PauseRule_FullMethodName        = "/backplane.console.v1.RuleService/PauseRule"
 	RuleService_ResumeRule_FullMethodName       = "/backplane.console.v1.RuleService/ResumeRule"
-	RuleService_ParseRule_FullMethodName        = "/backplane.console.v1.RuleService/ParseRule"
-	RuleService_FormatRule_FullMethodName       = "/backplane.console.v1.RuleService/FormatRule"
 	RuleService_WatchRules_FullMethodName       = "/backplane.console.v1.RuleService/WatchRules"
 	RuleService_TestRule_FullMethodName         = "/backplane.console.v1.RuleService/TestRule"
 	RuleService_ListRuleRuns_FullMethodName     = "/backplane.console.v1.RuleService/ListRuleRuns"
@@ -75,11 +73,6 @@ type RuleServiceClient interface {
 	PauseRule(ctx context.Context, in *PauseRuleRequest, opts ...grpc.CallOption) (*PauseRuleResponse, error)
 	// ResumeRule undoes PauseRule.
 	ResumeRule(ctx context.Context, in *ResumeRuleRequest, opts ...grpc.CallOption) (*ResumeRuleResponse, error)
-	// ParseRule reads the text form of a rule (§8.1).
-	ParseRule(ctx context.Context, in *ParseRuleRequest, opts ...grpc.CallOption) (*ParseRuleResponse, error)
-	// FormatRule writes the text form of a definition; ParseRule reads it
-	// back into the same definition.
-	FormatRule(ctx context.Context, in *FormatRuleRequest, opts ...grpc.CallOption) (*FormatRuleResponse, error)
 	// WatchRules streams ListRules: now, then again whenever it changes.
 	WatchRules(ctx context.Context, in *WatchRulesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRulesResponse], error)
 	// TestRule runs a rule on a sample event: the definition is compiled
@@ -92,7 +85,7 @@ type RuleServiceClient interface {
 	// workflow id prefix rule/<id>/ or test/rule/<id>/).
 	ListRuleRuns(ctx context.Context, in *ListRuleRunsRequest, opts ...grpc.CallOption) (*ListRuleRunsResponse, error)
 	// GetRuleRun is one run of the rule: status, input, result or failure,
-	// pending activities and history.
+	// pending activities, history and the steps' timeline.
 	GetRuleRun(ctx context.Context, in *GetRuleRunRequest, opts ...grpc.CallOption) (*GetRuleRunResponse, error)
 	// CancelRuleRun requests cancellation of a run of the rule.
 	CancelRuleRun(ctx context.Context, in *CancelRuleRunRequest, opts ...grpc.CallOption) (*CancelRuleRunResponse, error)
@@ -196,26 +189,6 @@ func (c *ruleServiceClient) ResumeRule(ctx context.Context, in *ResumeRuleReques
 	return out, nil
 }
 
-func (c *ruleServiceClient) ParseRule(ctx context.Context, in *ParseRuleRequest, opts ...grpc.CallOption) (*ParseRuleResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ParseRuleResponse)
-	err := c.cc.Invoke(ctx, RuleService_ParseRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *ruleServiceClient) FormatRule(ctx context.Context, in *FormatRuleRequest, opts ...grpc.CallOption) (*FormatRuleResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(FormatRuleResponse)
-	err := c.cc.Invoke(ctx, RuleService_FormatRule_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *ruleServiceClient) WatchRules(ctx context.Context, in *WatchRulesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchRulesResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &RuleService_ServiceDesc.Streams[0], RuleService_WatchRules_FullMethodName, cOpts...)
@@ -313,11 +286,6 @@ type RuleServiceServer interface {
 	PauseRule(context.Context, *PauseRuleRequest) (*PauseRuleResponse, error)
 	// ResumeRule undoes PauseRule.
 	ResumeRule(context.Context, *ResumeRuleRequest) (*ResumeRuleResponse, error)
-	// ParseRule reads the text form of a rule (§8.1).
-	ParseRule(context.Context, *ParseRuleRequest) (*ParseRuleResponse, error)
-	// FormatRule writes the text form of a definition; ParseRule reads it
-	// back into the same definition.
-	FormatRule(context.Context, *FormatRuleRequest) (*FormatRuleResponse, error)
 	// WatchRules streams ListRules: now, then again whenever it changes.
 	WatchRules(*WatchRulesRequest, grpc.ServerStreamingServer[WatchRulesResponse]) error
 	// TestRule runs a rule on a sample event: the definition is compiled
@@ -330,7 +298,7 @@ type RuleServiceServer interface {
 	// workflow id prefix rule/<id>/ or test/rule/<id>/).
 	ListRuleRuns(context.Context, *ListRuleRunsRequest) (*ListRuleRunsResponse, error)
 	// GetRuleRun is one run of the rule: status, input, result or failure,
-	// pending activities and history.
+	// pending activities, history and the steps' timeline.
 	GetRuleRun(context.Context, *GetRuleRunRequest) (*GetRuleRunResponse, error)
 	// CancelRuleRun requests cancellation of a run of the rule.
 	CancelRuleRun(context.Context, *CancelRuleRunRequest) (*CancelRuleRunResponse, error)
@@ -370,12 +338,6 @@ func (UnimplementedRuleServiceServer) PauseRule(context.Context, *PauseRuleReque
 }
 func (UnimplementedRuleServiceServer) ResumeRule(context.Context, *ResumeRuleRequest) (*ResumeRuleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResumeRule not implemented")
-}
-func (UnimplementedRuleServiceServer) ParseRule(context.Context, *ParseRuleRequest) (*ParseRuleResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ParseRule not implemented")
-}
-func (UnimplementedRuleServiceServer) FormatRule(context.Context, *FormatRuleRequest) (*FormatRuleResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method FormatRule not implemented")
 }
 func (UnimplementedRuleServiceServer) WatchRules(*WatchRulesRequest, grpc.ServerStreamingServer[WatchRulesResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchRules not implemented")
@@ -575,42 +537,6 @@ func _RuleService_ResumeRule_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RuleService_ParseRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ParseRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).ParseRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_ParseRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).ParseRule(ctx, req.(*ParseRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _RuleService_FormatRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(FormatRuleRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RuleServiceServer).FormatRule(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RuleService_FormatRule_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RuleServiceServer).FormatRule(ctx, req.(*FormatRuleRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _RuleService_WatchRules_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(WatchRulesRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -736,14 +662,6 @@ var RuleService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResumeRule",
 			Handler:    _RuleService_ResumeRule_Handler,
-		},
-		{
-			MethodName: "ParseRule",
-			Handler:    _RuleService_ParseRule_Handler,
-		},
-		{
-			MethodName: "FormatRule",
-			Handler:    _RuleService_FormatRule_Handler,
 		},
 		{
 			MethodName: "TestRule",

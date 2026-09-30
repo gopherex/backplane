@@ -48,13 +48,13 @@ func installation() bindings.Manifests {
 	}
 }
 
-// program compiles a binding's text against installation.
+// program compiles a binding (YAML) against installation.
 func program(t *testing.T, text string) *bindings.Program {
 	t.Helper()
 
-	b, err := bindings.ParseBinding(text)
+	b, err := bindings.BindingYAML(text)
 	if err != nil {
-		t.Fatalf("parse: %v", err)
+		t.Fatalf("binding: %v", err)
 	}
 
 	p, err := bindings.CompileBinding(b, installation())
@@ -197,10 +197,12 @@ func TestSequentialStepsAndResult(t *testing.T) {
 		},
 	})
 
-	p := program(t, `iam.SendEmail :=
-  render = template.Exec(name: req.name)
-  send   = smtp.Send(to: req.to, subject: render.subject, text: render.text)
-  return { message_id: send.id, size: send.size }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  render: {activity: template.Exec, input: {name: req.name}}
+  send: {activity: smtp.Send, input: {to: req.to, subject: render.subject, text: render.text}}
+result: {message_id: send.id, size: send.size}
 `)
 
 	out, err := run(t, e, p, `{"name":"Ann","to":"ann@example.com"}`)
@@ -261,11 +263,13 @@ func TestParallelGroup(t *testing.T) {
 		},
 	})
 
-	p := program(t, `iam.SendEmail :=
-  a = template.Exec(req)
-  b = template.Lookup(req)
-  send = smtp.Send(text: a.text + b.text)
-  return { message_id: send.id }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  a: {activity: template.Exec, input: req}
+  b: {activity: template.Lookup, input: req}
+  send: {activity: smtp.Send, input: {text: a.text + b.text}}
+result: {message_id: send.id}
 `)
 
 	if groups := p.Groups(); len(groups) != 2 || len(groups[0]) != 2 {
@@ -274,6 +278,49 @@ func TestParallelGroup(t *testing.T) {
 
 	out, err := run(t, e, p, `{}`)
 	if err != nil || out != `{"message_id":"ab"}` {
+		t.Fatalf("result: %s %v", out, err)
+	}
+}
+
+// A step starts once its own dependencies are done, not when its whole
+// level is: late waits for a, which waits until quick's follower ran.
+func TestDependencyScheduling(t *testing.T) {
+	t.Parallel()
+
+	followed := make(chan struct{})
+	rec := &calls{}
+	e := env(t, rec, map[string]handler{
+		"Exec": func(map[string]any) (any, error) {
+			select {
+			case <-followed:
+				return map[string]any{"text": "slow"}, nil
+			case <-time.After(5 * time.Second):
+				return nil, errors.New("the follower of the quick step never started")
+			}
+		},
+		"Lookup": func(map[string]any) (any, error) { return map[string]any{"text": "quick"}, nil },
+		"Send": func(in map[string]any) (any, error) {
+			if in["text"] == "quick" {
+				close(followed)
+			}
+
+			return map[string]any{"id": in["text"]}, nil
+		},
+		"Charge": func(in map[string]any) (any, error) { return map[string]any{"id": in["v"]}, nil },
+	})
+
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  slow: {activity: template.Exec, input: req}
+  quick: {activity: template.Lookup, input: req}
+  follow: {activity: smtp.Send, input: {text: quick.text}}
+  late: {activity: billing.Charge, input: {v: slow.text + follow.id}}
+result: {message_id: late.id}
+`)
+
+	out, err := run(t, e, p, `{}`)
+	if err != nil || out != `{"message_id":"slowquick"}` {
 		t.Fatalf("result: %s %v", out, err)
 	}
 }
@@ -287,10 +334,12 @@ func TestWhenSkips(t *testing.T) {
 		"Send":   func(in map[string]any) (any, error) { return map[string]any{"id": in["text"]}, nil },
 	})
 
-	p := program(t, `iam.SendEmail :=
-  charge = billing.Charge(req) [when: req.priority > 0]
-  send   = smtp.Send(text: steps.charge.skipped ? "free" : charge.id) [after: charge]
-  return { message_id: send.id }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  charge: {activity: billing.Charge, input: req, when: req.priority > 0}
+  send: {activity: smtp.Send, input: {text: 'steps.charge.skipped ? "free" : charge.id'}, after: [charge]}
+result: {message_id: send.id}
 `)
 
 	out, err := run(t, e, p, `{"priority":0}`)
@@ -319,11 +368,17 @@ func TestUndoOnFailure(t *testing.T) {
 		},
 	})
 
-	p := program(t, `iam.SendEmail :=
-  charge = billing.Charge(req) [undo: billing.Refund(id: charge.id, reason: "rollback")]
-  render = template.Exec(req) [after: charge, undo: smtp.Recall]
-  send   = smtp.Send(text: render.text)
-  return { message_id: send.id }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  charge:
+    activity: billing.Charge
+    input: req
+    undo: billing.Refund
+    undoInput: {id: charge.id, reason: "'rollback'"}
+  render: {activity: template.Exec, input: req, after: [charge], undo: smtp.Recall}
+  send: {activity: smtp.Send, input: {text: render.text}}
+result: {message_id: send.id}
 `)
 
 	_, err := run(t, e, p, `{}`)
@@ -357,8 +412,10 @@ func TestRetriesThenFails(t *testing.T) {
 		"Send": func(map[string]any) (any, error) { return nil, errors.New("try later") },
 	})
 
-	p := program(t, `iam.SendEmail :=
-  send = smtp.Send(req) [retry: 2, retry_interval: 10ms]
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  send: {activity: smtp.Send, input: req, retry: {attempts: 2, initialInterval: 0.010s}}
 `)
 
 	_, err := run(t, e, p, `{}`)
@@ -383,9 +440,11 @@ func TestEvalError(t *testing.T) {
 		"Exec":   func(map[string]any) (any, error) { return map[string]any{}, nil },
 	})
 
-	p := program(t, `iam.SendEmail :=
-  charge = billing.Charge(req) [undo: billing.Refund]
-  render = template.Exec(name: req.missing.name) [after: charge]
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  charge: {activity: billing.Charge, input: req, undo: billing.Refund}
+  render: {activity: template.Exec, input: {name: req.missing.name}, after: [charge]}
 `)
 
 	_, err := run(t, e, p, `{}`)
@@ -409,9 +468,11 @@ func TestResultEvalError(t *testing.T) {
 		"Charge": func(map[string]any) (any, error) { return map[string]any{"id": "c-1"}, nil },
 	})
 
-	p := program(t, `iam.SendEmail :=
-  charge = billing.Charge(req)
-  return { message_id: charge.nope }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  charge: {activity: billing.Charge, input: req}
+result: {message_id: charge.nope}
 `)
 
 	_, err := run(t, e, p, `{}`)
@@ -437,10 +498,12 @@ func TestChildWorkflowStep(t *testing.T) {
 		}, call)
 	}, workflow.RegisterOptions{Name: "Archive"})
 
-	p := program(t, `iam.SendEmail :=
-  send    = smtp.Send(text: "x")
-  archive = smtp.Archive(id: send.id)
-  return { message_id: archive.ref }
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  send: {activity: smtp.Send, input: {text: "'x'"}}
+  archive: {activity: smtp.Archive, input: {id: send.id}}
+result: {message_id: archive.ref}
 `)
 
 	out, err := run(t, e, p, `{}`)
@@ -462,8 +525,11 @@ func TestRuleRun(t *testing.T) {
 		"Send": func(in map[string]any) (any, error) { return map[string]any{"id": in["to"]}, nil },
 	})
 
-	r, err := bindings.ParseRule(`on iam.UserRegistered when event.email != "" :=
-  send = smtp.Send(to: event.email, text: meta.id)
+	r, err := bindings.RuleYAML(`
+event: iam.UserRegistered
+when: event.email != ""
+steps:
+  send: {activity: smtp.Send, input: {to: event.email, text: meta.id}}
 `)
 	if err != nil {
 		t.Fatal(err)

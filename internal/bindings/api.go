@@ -29,10 +29,20 @@ func invalid(msg string) error {
 	return status.Error(codes.InvalidArgument, msg) //nolint:wrapcheck // a gRPC status travels as is
 }
 
-// Register registers BindingService and RuleService on r.
+// Register registers WiringService on r. BindingService and RuleService
+// are served by the executor and the rules engine, around BindingAPI and
+// RuleAPI.
 func (m *Manager) Register(r grpc.ServiceRegistrar) {
-	consolev1.RegisterBindingServiceServer(r, m.BindingAPI())
-	consolev1.RegisterRuleServiceServer(r, m.RuleAPI())
+	consolev1.RegisterWiringServiceServer(r, m.WiringAPI())
+}
+
+// base is the Base of a request's optional base_version.
+func base(v *uint64) Base {
+	if v == nil {
+		return Base{}
+	}
+
+	return At(toInt64(*v))
 }
 
 // status maps errors to gRPC codes; unexpected ones are logged.
@@ -46,6 +56,8 @@ func (m *Manager) status(err error) error {
 		code = codes.NotFound
 	case errors.Is(err, ErrDeleted):
 		code = codes.FailedPrecondition
+	case errors.Is(err, ErrConflict):
+		code = codes.Aborted
 	case errors.Is(err, context.Canceled):
 		code = codes.Canceled
 	case errors.Is(err, context.DeadlineExceeded):
@@ -109,6 +121,7 @@ func (m *Manager) HookBindings(ctx context.Context, service string) ([]*consolev
 	}
 
 	byHook := declaredHooks(cat, service)
+	validation := FromRegistry(cat)
 
 	for i := range current {
 		v := &current[i]
@@ -125,6 +138,15 @@ func (m *Manager) HookBindings(ctx context.Context, service string) ([]*consolev
 		}
 
 		binding.Current = v.PB()
+
+		if !v.Deleted {
+			vs, err := ValidateBinding(v.Binding, validation)
+			if err != nil {
+				return nil, err
+			}
+
+			binding.Violations = ViolationsPB(vs)
+		}
 	}
 
 	out := make([]*consolev1.HookBinding, 0, len(byHook))
@@ -159,9 +181,12 @@ func declaredHooks(cat registry.Catalog, service string) map[string]*consolev1.H
 	return byHook
 }
 
-// bindingState is whether a hook is bound, and if not whether it must be.
+// bindingState is whether a hook is bound (and its binding compiles), and
+// if not whether it must be.
 func bindingState(binding *consolev1.HookBinding) consolev1.BindingState {
 	switch {
+	case len(binding.GetViolations()) > 0:
+		return consolev1.BindingState_BINDING_STATE_BROKEN
 	case binding.GetCurrent() != nil && !binding.GetCurrent().GetDeleted():
 		return consolev1.BindingState_BINDING_STATE_BOUND
 	case binding.GetRequired():
@@ -186,7 +211,18 @@ func (a BindingAPI) GetBinding(
 		return nil, a.m.status(err)
 	}
 
-	return &consolev1.GetBindingResponse{Version: v.PB()}, nil
+	out := &consolev1.GetBindingResponse{Version: v.PB()}
+
+	if !v.Deleted {
+		vs, err := a.m.Validate(v.Binding)
+		if err != nil {
+			return nil, a.m.status(err)
+		}
+
+		out.Violations = ViolationsPB(vs)
+	}
+
+	return out, nil
 }
 
 // ListBindingVersions implements BindingService.
@@ -234,7 +270,7 @@ func (a BindingAPI) ValidateBinding(
 func (a BindingAPI) SaveBinding(
 	ctx context.Context, req *consolev1.SaveBindingRequest,
 ) (*consolev1.SaveBindingResponse, error) {
-	saved, err := a.m.Save(ctx, BindingFromPB(req.GetDefinition()), req.GetComment())
+	saved, err := a.m.Save(ctx, BindingFromPB(req.GetDefinition()), req.GetComment(), base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
@@ -255,7 +291,7 @@ func (a BindingAPI) RollbackBinding(
 		return nil, invalid("hook and version are required")
 	}
 
-	saved, err := a.m.Rollback(ctx, req.GetHook(), toInt64(req.GetVersion()), req.GetComment())
+	saved, err := a.m.Rollback(ctx, req.GetHook(), toInt64(req.GetVersion()), req.GetComment(), base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
@@ -276,31 +312,12 @@ func (a BindingAPI) DeleteBinding(
 		return nil, invalid("hook is required")
 	}
 
-	v, err := a.m.Delete(ctx, req.GetHook(), req.GetComment())
+	v, err := a.m.Delete(ctx, req.GetHook(), req.GetComment(), base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
 
 	return &consolev1.DeleteBindingResponse{Version: v.PB()}, nil
-}
-
-// ParseBinding implements BindingService.
-func (a BindingAPI) ParseBinding(
-	_ context.Context, req *consolev1.ParseBindingRequest,
-) (*consolev1.ParseBindingResponse, error) {
-	b, err := ParseBinding(req.GetText())
-	if err != nil {
-		return &consolev1.ParseBindingResponse{Errors: parseErrorsPB(err)}, nil
-	}
-
-	return &consolev1.ParseBindingResponse{Definition: b.PB()}, nil
-}
-
-// FormatBinding implements BindingService.
-func (a BindingAPI) FormatBinding(
-	_ context.Context, req *consolev1.FormatBindingRequest,
-) (*consolev1.FormatBindingResponse, error) {
-	return &consolev1.FormatBindingResponse{Text: FormatBinding(BindingFromPB(req.GetDefinition()))}, nil
 }
 
 // WatchBindings implements BindingService: the list now, then again
@@ -357,22 +374,6 @@ func follow[M proto.Message](
 	}
 }
 
-func parseErrorsPB(err error) []*consolev1.BindingParseError {
-	var pes ParseErrors
-	if !errors.As(err, &pes) {
-		return []*consolev1.BindingParseError{{Message: err.Error()}}
-	}
-
-	out := make([]*consolev1.BindingParseError, 0, len(pes))
-	for _, e := range pes {
-		out = append(out, &consolev1.BindingParseError{
-			Line: uint32(max(e.Line, 0)), Column: uint32(max(e.Column, 0)), Message: e.Message, //nolint:gosec // small
-		})
-	}
-
-	return out
-}
-
 // ---- RuleService ------------------------------------------------------------
 
 // RuleAPI is the Manager as backplane.console.v1.RuleService.
@@ -397,6 +398,11 @@ func ruleID(s string) (uuid.UUID, error) {
 }
 
 func (m *Manager) rulesPB(ctx context.Context, event string) ([]*consolev1.Rule, error) {
+	cat, err := m.Catalog()
+	if err != nil {
+		return nil, err
+	}
+
 	rules, err := m.Rules(ctx)
 	if err != nil {
 		return nil, err
@@ -409,10 +415,54 @@ func (m *Manager) rulesPB(ctx context.Context, event string) ([]*consolev1.Rule,
 			continue
 		}
 
-		out = append(out, rules[i].PB())
+		rule, err := rulePB(rules[i], cat)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, rule)
 	}
 
 	return out, nil
+}
+
+// rulePB is the rule with its state against the catalog: broken when its
+// current definition no longer compiles.
+func rulePB(e RuleEntry, cat Catalog) (*consolev1.Rule, error) {
+	out := e.PB()
+
+	switch {
+	case e.Current.Deleted:
+		out.State = consolev1.RuleState_RULE_STATE_DELETED
+
+		return out, nil
+	case e.Paused:
+		out.State = consolev1.RuleState_RULE_STATE_PAUSED
+	default:
+		out.State = consolev1.RuleState_RULE_STATE_ACTIVE
+	}
+
+	vs, err := ValidateRule(e.Current.Rule, cat)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(vs) > 0 {
+		out.State = consolev1.RuleState_RULE_STATE_BROKEN
+		out.Violations = ViolationsPB(vs)
+	}
+
+	return out, nil
+}
+
+// rulePB is rulePB against the latest manifests.
+func (m *Manager) rulePB(e RuleEntry) (*consolev1.Rule, error) {
+	cat, err := m.Catalog()
+	if err != nil {
+		return nil, err
+	}
+
+	return rulePB(e, cat)
 }
 
 // ListRules implements RuleService.
@@ -444,7 +494,28 @@ func (a RuleAPI) GetRule(ctx context.Context, req *consolev1.GetRuleRequest) (*c
 		}
 	}
 
-	return &consolev1.GetRuleResponse{Rule: e.PB(), Version: v.PB()}, nil
+	cat, err := a.m.Catalog()
+	if err != nil {
+		return nil, a.m.status(err)
+	}
+
+	rule, err := rulePB(e, cat)
+	if err != nil {
+		return nil, a.m.status(err)
+	}
+
+	out := &consolev1.GetRuleResponse{Rule: rule, Version: v.PB()}
+
+	if !v.Deleted {
+		vs, err := ValidateRule(v.Rule, cat)
+		if err != nil {
+			return nil, a.m.status(err)
+		}
+
+		out.Violations = ViolationsPB(vs)
+	}
+
+	return out, nil
 }
 
 // ListRuleVersions implements RuleService.
@@ -506,7 +577,8 @@ func (a RuleAPI) SaveRule(ctx context.Context, req *consolev1.SaveRuleRequest) (
 		}
 	}
 
-	saved, err := a.m.SaveRule(ctx, id, req.GetName(), RuleFromPB(req.GetDefinition()), req.GetComment())
+	saved, err := a.m.SaveRule(ctx, id, req.GetName(), RuleFromPB(req.GetDefinition()), req.GetComment(),
+		base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
@@ -532,7 +604,7 @@ func (a RuleAPI) RollbackRule(
 		return nil, invalid("version is required")
 	}
 
-	saved, err := a.m.RollbackRule(ctx, id, toInt64(req.GetVersion()), req.GetComment())
+	saved, err := a.m.RollbackRule(ctx, id, toInt64(req.GetVersion()), req.GetComment(), base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
@@ -554,7 +626,7 @@ func (a RuleAPI) DeleteRule(
 		return nil, err
 	}
 
-	v, err := a.m.DeleteRule(ctx, id, req.GetComment())
+	v, err := a.m.DeleteRule(ctx, id, req.GetComment(), base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
@@ -569,12 +641,17 @@ func (a RuleAPI) PauseRule(ctx context.Context, req *consolev1.PauseRuleRequest)
 		return nil, err
 	}
 
-	e, err := a.m.PauseRule(ctx, id, true)
+	e, err := a.m.PauseRule(ctx, id, true, base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
 
-	return &consolev1.PauseRuleResponse{Rule: e.PB()}, nil
+	rule, err := a.m.rulePB(e)
+	if err != nil {
+		return nil, a.m.status(err)
+	}
+
+	return &consolev1.PauseRuleResponse{Rule: rule}, nil
 }
 
 // ResumeRule implements RuleService.
@@ -586,29 +663,17 @@ func (a RuleAPI) ResumeRule(
 		return nil, err
 	}
 
-	e, err := a.m.PauseRule(ctx, id, false)
+	e, err := a.m.PauseRule(ctx, id, false, base(req.BaseVersion))
 	if err != nil {
 		return nil, a.m.status(err)
 	}
 
-	return &consolev1.ResumeRuleResponse{Rule: e.PB()}, nil
-}
-
-// ParseRule implements RuleService.
-func (a RuleAPI) ParseRule(_ context.Context, req *consolev1.ParseRuleRequest) (*consolev1.ParseRuleResponse, error) {
-	r, err := ParseRule(req.GetText())
+	rule, err := a.m.rulePB(e)
 	if err != nil {
-		return &consolev1.ParseRuleResponse{Errors: parseErrorsPB(err)}, nil
+		return nil, a.m.status(err)
 	}
 
-	return &consolev1.ParseRuleResponse{Definition: r.PB()}, nil
-}
-
-// FormatRule implements RuleService.
-func (a RuleAPI) FormatRule(
-	_ context.Context, req *consolev1.FormatRuleRequest,
-) (*consolev1.FormatRuleResponse, error) {
-	return &consolev1.FormatRuleResponse{Text: FormatRule(RuleFromPB(req.GetDefinition()))}, nil
+	return &consolev1.ResumeRuleResponse{Rule: rule}, nil
 }
 
 // WatchRules implements RuleService: the list now, then again whenever it
