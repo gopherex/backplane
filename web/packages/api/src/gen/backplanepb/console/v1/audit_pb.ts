@@ -2,213 +2,213 @@
 // @generated from file backplanepb/console/v1/audit.proto (package backplane.console.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Value } from "../../../google/protobuf/struct_pb.js";
+import { file_google_protobuf_struct } from "../../../google/protobuf/struct_pb.js";
 import type { Timestamp } from "../../../google/protobuf/timestamp_pb.js";
 import { file_google_protobuf_timestamp } from "../../../google/protobuf/timestamp_pb.js";
-import type { Message } from "@bufbuild/protobuf";
+import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file backplanepb/console/v1/audit.proto.
  */
 export const file_backplanepb_console_v1_audit: GenFile = /*@__PURE__*/
-  fileDesc("CiJiYWNrcGxhbmVwYi9jb25zb2xlL3YxL2F1ZGl0LnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSL1AQoKQXVkaXRFbnRyeRIKCgJpZBgBIAEoCRIQCghzZXF1ZW5jZRgCIAEoBBIuCgpjcmVhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVhY3RvchgEIAEoCRIOCgZhY3Rpb24YBSABKAkSDwoHc3ViamVjdBgGIAEoCRIPCgdvdXRjb21lGAcgASgJEhQKDG9wZXJhdGlvbl9pZBgIIAEoCRIxCgZkZXRhaWwYCSABKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdERldGFpbBIPCgdzZXJ2aWNlGAogASgJItUBCgtBdWRpdERldGFpbBIQCghyZXZpc2lvbhgBIAEoBBITCgtyb2xsYmFja19vZhgCIAEoBBIMCgRrZXlzGAMgAygJEhMKBnBhdXNlZBgEIAEoCEgAiAEBEgwKBGNvZGUYBSABKAkSEwoLd29ya2Zsb3dfaWQYBiABKAkSDgoGcnVuX2lkGAcgASgJEhAKCGFmZmVjdGVkGAggASgEEg4KBnNpZ25hbBgJIAEoCRIOCgZyZWFzb24YCiABKAkSDAoEbm90ZRgLIAEoCUIJCgdfcGF1c2VkIskBCgtBdWRpdEZpbHRlchINCgVhY3RvchgBIAEoCRIOCgZhY3Rpb24YAiABKAkSDwoHc3ViamVjdBgDIAEoCRIPCgdvdXRjb21lGAQgASgJEhQKDG9wZXJhdGlvbl9pZBgFIAEoCRIpCgVzdGFydBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASJwoDZW5kGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIPCgdzZXJ2aWNlGAggASgJIm0KEExpc3RBdWRpdFJlcXVlc3QSMQoGZmlsdGVyGAEgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGaWx0ZXISEQoJcGFnZV9zaXplGAIgASgNEhMKC3BhZ2VfY3Vyc29yGAMgASgJInYKEUxpc3RBdWRpdFJlc3BvbnNlEjEKB2VudHJpZXMYASADKAsyIC5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEVudHJ5EhgKEG5leHRfcGFnZV9jdXJzb3IYAiABKAkSFAoMd2F0Y2hfY3Vyc29yGAMgASgJIlwKEVdhdGNoQXVkaXRSZXF1ZXN0EjEKBmZpbHRlchgBIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RmlsdGVyEhQKDGFmdGVyX2N1cnNvchgCIAEoCSJXChJXYXRjaEF1ZGl0UmVzcG9uc2USMQoHZW50cmllcxgBIAMoCzIgLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RW50cnkSDgoGY3Vyc29yGAIgASgJMs8BCgxBdWRpdFNlcnZpY2USXAoJTGlzdEF1ZGl0EiYuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdEF1ZGl0UmVxdWVzdBonLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RBdWRpdFJlc3BvbnNlEmEKCldhdGNoQXVkaXQSJy5iYWNrcGxhbmUuY29uc29sZS52MS5XYXRjaEF1ZGl0UmVxdWVzdBooLmJhY2twbGFuZS5jb25zb2xlLnYxLldhdGNoQXVkaXRSZXNwb25zZTABQkBaPmdpdGh1Yi5jb20vZ29waGVyZXgvYmFja3BsYW5lL2JhY2twbGFuZXBiL2NvbnNvbGUvdjE7Y29uc29sZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("CiJiYWNrcGxhbmVwYi9jb25zb2xlL3YxL2F1ZGl0LnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSK/AwoLQXVkaXRSZWNvcmQSCgoCaWQYASABKAkSMQoGc291cmNlGAIgASgOMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRTb3VyY2USKAoEdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLcmVjZWl2ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB3NlcnZpY2UYBSABKAkSDQoFYWN0b3IYBiABKAkSDgoGYWN0aW9uGAcgASgJEg8KB3N1YmplY3QYCCABKAkSDwoHb3V0Y29tZRgJIAEoCRIPCgdtZXNzYWdlGAogASgJEhQKDG9wZXJhdGlvbl9pZBgLIAEoCRIQCghzZXF1ZW5jZRgMIAEoBBIrCgphdHRyaWJ1dGVzGA0gASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBIpCghyZXNvdXJjZRgOIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSEAoIc2V2ZXJpdHkYDyABKAkSEAoIdHJhY2VfaWQYECABKAkSDwoHc3Bhbl9pZBgRIAEoCSK7AQoOQXVkaXRDb25kaXRpb24SMQoFZmllbGQYASABKA4yIC5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEZpZWxkSAASEwoJYXR0cmlidXRlGAIgASgJSAASLwoCb3AYAyABKA4yIy5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdE9wZXJhdG9yEiYKBnZhbHVlcxgEIAMoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZUIICgZ0YXJnZXQiqQEKC0F1ZGl0RmlsdGVyEikKBXN0YXJ0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBInCgNlbmQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjgKCmNvbmRpdGlvbnMYAyADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdENvbmRpdGlvbhIMCgR0ZXh0GAQgASgJIm8KElNlYXJjaEF1ZGl0UmVxdWVzdBIxCgZmaWx0ZXIYASABKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEZpbHRlchIRCglwYWdlX3NpemUYAiABKA0SEwoLcGFnZV9jdXJzb3IYAyABKAkiYwoTU2VhcmNoQXVkaXRSZXNwb25zZRIyCgdyZWNvcmRzGAEgAygLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRSZWNvcmQSGAoQbmV4dF9wYWdlX2N1cnNvchgCIAEoCSJbChVBdWRpdEhpc3RvZ3JhbVJlcXVlc3QSMQoGZmlsdGVyGAEgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGaWx0ZXISDwoHYnVja2V0cxgCIAEoDSJiChZBdWRpdEhpc3RvZ3JhbVJlc3BvbnNlEjIKB2J1Y2tldHMYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEJ1Y2tldBIUCgxzdGVwX3NlY29uZHMYAiABKAMibwoLQXVkaXRCdWNrZXQSKQoFc3RhcnQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhAKCHBsYXRmb3JtGAIgASgEEhMKC2FwcGxpY2F0aW9uGAMgASgEEg4KBmZhaWxlZBgEIAEoBCJHChJBdWRpdEZpZWxkc1JlcXVlc3QSMQoGZmlsdGVyGAEgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGaWx0ZXIiTAoTQXVkaXRGaWVsZHNSZXNwb25zZRI1CgZmaWVsZHMYASADKAsyJS5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEZpZWxkQ291bnQiMwoPQXVkaXRGaWVsZENvdW50EhEKCWF0dHJpYnV0ZRgBIAEoCRINCgVjb3VudBgCIAEoBCKNAQoSQXVkaXRGYWNldHNSZXF1ZXN0EjEKBmZpbHRlchgBIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RmlsdGVyEjUKB3RhcmdldHMYAiADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdENvbmRpdGlvbhINCgVsaW1pdBgDIAEoDSJHChNBdWRpdEZhY2V0c1Jlc3BvbnNlEjAKBmZhY2V0cxgBIAMoCzIgLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RmFjZXQiiAEKCkF1ZGl0RmFjZXQSNAoGdGFyZ2V0GAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRDb25kaXRpb24SNQoGdmFsdWVzGAIgAygLMiUuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGYWNldFZhbHVlEg0KBXRvdGFsGAMgASgEIkcKD0F1ZGl0RmFjZXRWYWx1ZRIlCgV2YWx1ZRgBIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5WYWx1ZRINCgVjb3VudBgCIAEoBCpkCgtBdWRpdFNvdXJjZRIcChhBVURJVF9TT1VSQ0VfVU5TUEVDSUZJRUQQABIZChVBVURJVF9TT1VSQ0VfUExBVEZPUk0QARIcChhBVURJVF9TT1VSQ0VfQVBQTElDQVRJT04QAiqKAgoKQXVkaXRGaWVsZBIbChdBVURJVF9GSUVMRF9VTlNQRUNJRklFRBAAEhYKEkFVRElUX0ZJRUxEX1NPVVJDRRABEhcKE0FVRElUX0ZJRUxEX1NFUlZJQ0UQAhIWChJBVURJVF9GSUVMRF9BQ1RJT04QAxIVChFBVURJVF9GSUVMRF9BQ1RPUhAEEhcKE0FVRElUX0ZJRUxEX1NVQkpFQ1QQBRIXChNBVURJVF9GSUVMRF9PVVRDT01FEAYSGQoVQVVESVRfRklFTERfT1BFUkFUSU9OEAcSGAoUQVVESVRfRklFTERfU0VWRVJJVFkQCBIYChRBVURJVF9GSUVMRF9UUkFDRV9JRBAJKtICCg1BdWRpdE9wZXJhdG9yEh4KGkFVRElUX09QRVJBVE9SX1VOU1BFQ0lGSUVEEAASFQoRQVVESVRfT1BFUkFUT1JfSVMQARIZChVBVURJVF9PUEVSQVRPUl9JU19OT1QQAhIbChdBVURJVF9PUEVSQVRPUl9DT05UQUlOUxADEh8KG0FVRElUX09QRVJBVE9SX05PVF9DT05UQUlOUxAEEhkKFUFVRElUX09QRVJBVE9SX1BSRUZJWBAFEhkKFUFVRElUX09QRVJBVE9SX0VYSVNUUxAGEh0KGUFVRElUX09QRVJBVE9SX05PVF9FWElTVFMQBxIVChFBVURJVF9PUEVSQVRPUl9HVBAIEhYKEkFVRElUX09QRVJBVE9SX0dURRAJEhUKEUFVRElUX09QRVJBVE9SX0xUEAoSFgoSQVVESVRfT1BFUkFUT1JfTFRFEAsypwMKDEF1ZGl0U2VydmljZRJiCgtTZWFyY2hBdWRpdBIoLmJhY2twbGFuZS5jb25zb2xlLnYxLlNlYXJjaEF1ZGl0UmVxdWVzdBopLmJhY2twbGFuZS5jb25zb2xlLnYxLlNlYXJjaEF1ZGl0UmVzcG9uc2USawoOQXVkaXRIaXN0b2dyYW0SKy5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEhpc3RvZ3JhbVJlcXVlc3QaLC5iYWNrcGxhbmUuY29uc29sZS52MS5BdWRpdEhpc3RvZ3JhbVJlc3BvbnNlEmIKC0F1ZGl0RmllbGRzEiguYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGaWVsZHNSZXF1ZXN0GikuYmFja3BsYW5lLmNvbnNvbGUudjEuQXVkaXRGaWVsZHNSZXNwb25zZRJiCgtBdWRpdEZhY2V0cxIoLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RmFjZXRzUmVxdWVzdBopLmJhY2twbGFuZS5jb25zb2xlLnYxLkF1ZGl0RmFjZXRzUmVzcG9uc2VCQFo+Z2l0aHViLmNvbS9nb3BoZXJleC9iYWNrcGxhbmUvYmFja3BsYW5lcGIvY29uc29sZS92MTtjb25zb2xldjFiBnByb3RvMw", [file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
- * @generated from message backplane.console.v1.AuditEntry
+ * AuditRecord is one entry of the feed.
+ *
+ * @generated from message backplane.console.v1.AuditRecord
  */
-export type AuditEntry = Message<"backplane.console.v1.AuditEntry"> & {
+export type AuditRecord = Message<"backplane.console.v1.AuditRecord"> & {
   /**
    * @generated from field: string id = 1;
    */
   id: string;
 
   /**
-   * @generated from field: uint64 sequence = 2;
+   * @generated from field: backplane.console.v1.AuditSource source = 2;
+   */
+  source: AuditSource;
+
+  /**
+   * When it happened: the platform entry's commit, the application record's
+   * time (else its observed time, else its arrival).
+   *
+   * @generated from field: google.protobuf.Timestamp time = 3;
+   */
+  time?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp received_at = 4;
+   */
+  receivedAt?: Timestamp | undefined;
+
+  /**
+   * The service it is about; empty for installation-wide platform entries.
+   *
+   * @generated from field: string service = 5;
+   */
+  service: string;
+
+  /**
+   * @generated from field: string actor = 6;
+   */
+  actor: string;
+
+  /**
+   * @generated from field: string action = 7;
+   */
+  action: string;
+
+  /**
+   * @generated from field: string subject = 8;
+   */
+  subject: string;
+
+  /**
+   * Platform: succeeded, intent, failed, partial, rejected, unknown.
+   * Application: backplane.audit.outcome as sent.
+   *
+   * @generated from field: string outcome = 9;
+   */
+  outcome: string;
+
+  /**
+   * Application: the record's body. Platform: empty.
+   *
+   * @generated from field: string message = 10;
+   */
+  message: string;
+
+  /**
+   * Platform: the operation id shared by a command's intent and result.
+   *
+   * @generated from field: string operation_id = 11;
+   */
+  operationId: string;
+
+  /**
+   * Platform: the entry's sequence (commit order). Application: 0.
+   *
+   * @generated from field: uint64 sequence = 12;
    */
   sequence: bigint;
 
   /**
-   * @generated from field: google.protobuf.Timestamp created_at = 3;
-   */
-  createdAt?: Timestamp | undefined;
-
-  /**
-   * @generated from field: string actor = 4;
-   */
-  actor: string;
-
-  /**
-   * @generated from field: string action = 5;
-   */
-  action: string;
-
-  /**
-   * @generated from field: string subject = 6;
-   */
-  subject: string;
-
-  /**
-   * succeeded (database control change), intent, succeeded/failed/partial/rejected/unknown
-   * (external command result). Intent without a result has an unknown outcome;
-   * never replay the command merely because its result entry is missing.
+   * Platform: the entry's detail (revision, keys, workflow_id, run_id, ...).
+   * Application: the record's attributes.
    *
-   * @generated from field: string outcome = 7;
+   * @generated from field: google.protobuf.Struct attributes = 13;
    */
-  outcome: string;
+  attributes?: JsonObject | undefined;
 
   /**
-   * @generated from field: string operation_id = 8;
-   */
-  operationId: string;
-
-  /**
-   * @generated from field: backplane.console.v1.AuditDetail detail = 9;
-   */
-  detail?: AuditDetail | undefined;
-
-  /**
-   * The service the entry is about: its configuration, the binding of one of
-   * its hooks, a rule on one of its events or a command addressed to it.
-   * Empty for installation-wide entries (sessions).
+   * Application: the resource's attributes.
    *
-   * @generated from field: string service = 10;
+   * @generated from field: google.protobuf.Struct resource = 14;
    */
-  service: string;
+  resource?: JsonObject | undefined;
+
+  /**
+   * @generated from field: string severity = 15;
+   */
+  severity: string;
+
+  /**
+   * @generated from field: string trace_id = 16;
+   */
+  traceId: string;
+
+  /**
+   * @generated from field: string span_id = 17;
+   */
+  spanId: string;
 };
 
 /**
- * Describes the message backplane.console.v1.AuditEntry.
- * Use `create(AuditEntrySchema)` to create a new message.
+ * Describes the message backplane.console.v1.AuditRecord.
+ * Use `create(AuditRecordSchema)` to create a new message.
  */
-export const AuditEntrySchema: GenMessage<AuditEntry> = /*@__PURE__*/
+export const AuditRecordSchema: GenMessage<AuditRecord> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 0);
 
 /**
- * Safe control metadata only. No request payload, arbitrary error text,
- * configuration values, revision comments, credentials or session tokens.
- * The operator's words on a run or schedule command are kept, bounded to
- * 256 characters: signal names, termination reasons, pause/resume notes.
+ * AuditCondition is one condition: a field or attribute, an operator, values.
  *
- * @generated from message backplane.console.v1.AuditDetail
+ * @generated from message backplane.console.v1.AuditCondition
  */
-export type AuditDetail = Message<"backplane.console.v1.AuditDetail"> & {
+export type AuditCondition = Message<"backplane.console.v1.AuditCondition"> & {
   /**
-   * @generated from field: uint64 revision = 1;
+   * @generated from oneof backplane.console.v1.AuditCondition.target
    */
-  revision: bigint;
+  target: {
+    /**
+     * @generated from field: backplane.console.v1.AuditField field = 1;
+     */
+    value: AuditField;
+    case: "field";
+  } | {
+    /**
+     * An attribute key as is ("tenant", "event.name", "workflow_id").
+     *
+     * @generated from field: string attribute = 2;
+     */
+    value: string;
+    case: "attribute";
+  } | { case: undefined; value?: undefined };
 
   /**
-   * @generated from field: uint64 rollback_of = 2;
+   * @generated from field: backplane.console.v1.AuditOperator op = 3;
    */
-  rollbackOf: bigint;
+  op: AuditOperator;
 
   /**
-   * @generated from field: repeated string keys = 3;
-   */
-  keys: string[];
-
-  /**
-   * @generated from field: optional bool paused = 4;
-   */
-  paused?: boolean | undefined;
-
-  /**
-   * @generated from field: string code = 5;
-   */
-  code: string;
-
-  /**
-   * @generated from field: string workflow_id = 6;
-   */
-  workflowId: string;
-
-  /**
-   * @generated from field: string run_id = 7;
-   */
-  runId: string;
-
-  /**
-   * @generated from field: uint64 affected = 8;
-   */
-  affected: bigint;
-
-  /**
-   * SignalRun: the signal's name (never its argument).
+   * IS and IS_NOT compare JSON values exactly (an attribute holding 3 is 3,
+   * not "3"); a field compares text.
    *
-   * @generated from field: string signal = 9;
+   * @generated from field: repeated google.protobuf.Value values = 4;
    */
-  signal: string;
-
-  /**
-   * TerminateRun: the reason the operator typed.
-   *
-   * @generated from field: string reason = 10;
-   */
-  reason: string;
-
-  /**
-   * PauseSchedule, UnpauseSchedule: the note the operator typed.
-   *
-   * @generated from field: string note = 11;
-   */
-  note: string;
+  values: Value[];
 };
 
 /**
- * Describes the message backplane.console.v1.AuditDetail.
- * Use `create(AuditDetailSchema)` to create a new message.
+ * Describes the message backplane.console.v1.AuditCondition.
+ * Use `create(AuditConditionSchema)` to create a new message.
  */
-export const AuditDetailSchema: GenMessage<AuditDetail> = /*@__PURE__*/
+export const AuditConditionSchema: GenMessage<AuditCondition> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 1);
 
 /**
+ * AuditFilter: every condition holds, and the text, and the time range.
+ *
  * @generated from message backplane.console.v1.AuditFilter
  */
 export type AuditFilter = Message<"backplane.console.v1.AuditFilter"> & {
   /**
-   * @generated from field: string actor = 1;
-   */
-  actor: string;
-
-  /**
-   * @generated from field: string action = 2;
-   */
-  action: string;
-
-  /**
-   * @generated from field: string subject = 3;
-   */
-  subject: string;
-
-  /**
-   * @generated from field: string outcome = 4;
-   */
-  outcome: string;
-
-  /**
-   * @generated from field: string operation_id = 5;
-   */
-  operationId: string;
-
-  /**
-   * Inclusive start, exclusive end. Absent = unbounded.
+   * Inclusive start, exclusive end of the record's time. Absent: unbounded.
    *
-   * @generated from field: google.protobuf.Timestamp start = 6;
+   * @generated from field: google.protobuf.Timestamp start = 1;
    */
   start?: Timestamp | undefined;
 
   /**
-   * @generated from field: google.protobuf.Timestamp end = 7;
+   * @generated from field: google.protobuf.Timestamp end = 2;
    */
   end?: Timestamp | undefined;
 
   /**
-   * Only entries about this service (AuditEntry.service).
-   *
-   * @generated from field: string service = 8;
+   * @generated from field: repeated backplane.console.v1.AuditCondition conditions = 3;
    */
-  service: string;
+  conditions: AuditCondition[];
+
+  /**
+   * Case-insensitive substring of the message, action, subject or attributes.
+   *
+   * @generated from field: string text = 4;
+   */
+  text: string;
 };
 
 /**
@@ -219,9 +219,9 @@ export const AuditFilterSchema: GenMessage<AuditFilter> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 2);
 
 /**
- * @generated from message backplane.console.v1.ListAuditRequest
+ * @generated from message backplane.console.v1.SearchAuditRequest
  */
-export type ListAuditRequest = Message<"backplane.console.v1.ListAuditRequest"> & {
+export type SearchAuditRequest = Message<"backplane.console.v1.SearchAuditRequest"> & {
   /**
    * @generated from field: backplane.console.v1.AuditFilter filter = 1;
    */
@@ -243,119 +243,507 @@ export type ListAuditRequest = Message<"backplane.console.v1.ListAuditRequest"> 
 };
 
 /**
- * Describes the message backplane.console.v1.ListAuditRequest.
- * Use `create(ListAuditRequestSchema)` to create a new message.
+ * Describes the message backplane.console.v1.SearchAuditRequest.
+ * Use `create(SearchAuditRequestSchema)` to create a new message.
  */
-export const ListAuditRequestSchema: GenMessage<ListAuditRequest> = /*@__PURE__*/
+export const SearchAuditRequestSchema: GenMessage<SearchAuditRequest> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 3);
 
 /**
- * @generated from message backplane.console.v1.ListAuditResponse
+ * @generated from message backplane.console.v1.SearchAuditResponse
  */
-export type ListAuditResponse = Message<"backplane.console.v1.ListAuditResponse"> & {
+export type SearchAuditResponse = Message<"backplane.console.v1.SearchAuditResponse"> & {
   /**
-   * @generated from field: repeated backplane.console.v1.AuditEntry entries = 1;
+   * @generated from field: repeated backplane.console.v1.AuditRecord records = 1;
    */
-  entries: AuditEntry[];
+  records: AuditRecord[];
 
   /**
+   * Empty on the last page.
+   *
    * @generated from field: string next_page_cursor = 2;
    */
   nextPageCursor: string;
-
-  /**
-   * Starts a delta stream after the first page's consistent snapshot.
-   *
-   * @generated from field: string watch_cursor = 3;
-   */
-  watchCursor: string;
 };
 
 /**
- * Describes the message backplane.console.v1.ListAuditResponse.
- * Use `create(ListAuditResponseSchema)` to create a new message.
+ * Describes the message backplane.console.v1.SearchAuditResponse.
+ * Use `create(SearchAuditResponseSchema)` to create a new message.
  */
-export const ListAuditResponseSchema: GenMessage<ListAuditResponse> = /*@__PURE__*/
+export const SearchAuditResponseSchema: GenMessage<SearchAuditResponse> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 4);
 
 /**
- * @generated from message backplane.console.v1.WatchAuditRequest
+ * @generated from message backplane.console.v1.AuditHistogramRequest
  */
-export type WatchAuditRequest = Message<"backplane.console.v1.WatchAuditRequest"> & {
+export type AuditHistogramRequest = Message<"backplane.console.v1.AuditHistogramRequest"> & {
   /**
    * @generated from field: backplane.console.v1.AuditFilter filter = 1;
    */
   filter?: AuditFilter | undefined;
 
   /**
-   * Required. Bound to installation and filter; expired cursors fail explicitly.
+   * 0 = 60; at most 240.
    *
-   * @generated from field: string after_cursor = 2;
+   * @generated from field: uint32 buckets = 2;
    */
-  afterCursor: string;
+  buckets: number;
 };
 
 /**
- * Describes the message backplane.console.v1.WatchAuditRequest.
- * Use `create(WatchAuditRequestSchema)` to create a new message.
+ * Describes the message backplane.console.v1.AuditHistogramRequest.
+ * Use `create(AuditHistogramRequestSchema)` to create a new message.
  */
-export const WatchAuditRequestSchema: GenMessage<WatchAuditRequest> = /*@__PURE__*/
+export const AuditHistogramRequestSchema: GenMessage<AuditHistogramRequest> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 5);
 
 /**
- * @generated from message backplane.console.v1.WatchAuditResponse
+ * @generated from message backplane.console.v1.AuditHistogramResponse
  */
-export type WatchAuditResponse = Message<"backplane.console.v1.WatchAuditResponse"> & {
+export type AuditHistogramResponse = Message<"backplane.console.v1.AuditHistogramResponse"> & {
   /**
-   * @generated from field: repeated backplane.console.v1.AuditEntry entries = 1;
+   * @generated from field: repeated backplane.console.v1.AuditBucket buckets = 1;
    */
-  entries: AuditEntry[];
+  buckets: AuditBucket[];
 
   /**
-   * @generated from field: string cursor = 2;
+   * Width of every bucket.
+   *
+   * @generated from field: int64 step_seconds = 2;
    */
-  cursor: string;
+  stepSeconds: bigint;
 };
 
 /**
- * Describes the message backplane.console.v1.WatchAuditResponse.
- * Use `create(WatchAuditResponseSchema)` to create a new message.
+ * Describes the message backplane.console.v1.AuditHistogramResponse.
+ * Use `create(AuditHistogramResponseSchema)` to create a new message.
  */
-export const WatchAuditResponseSchema: GenMessage<WatchAuditResponse> = /*@__PURE__*/
+export const AuditHistogramResponseSchema: GenMessage<AuditHistogramResponse> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_audit, 6);
 
 /**
- * Durable control audit. Cookie authentication matches the other console APIs.
- * Reads are retry-safe and are not themselves audit entries. InvalidArgument:
- * bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
- * Unavailable: database unavailable. A stream is canceled with its caller.
+ * @generated from message backplane.console.v1.AuditBucket
+ */
+export type AuditBucket = Message<"backplane.console.v1.AuditBucket"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp start = 1;
+   */
+  start?: Timestamp | undefined;
+
+  /**
+   * @generated from field: uint64 platform = 2;
+   */
+  platform: bigint;
+
+  /**
+   * @generated from field: uint64 application = 3;
+   */
+  application: bigint;
+
+  /**
+   * Of both: outcome failed, rejected, partial or unknown.
+   *
+   * @generated from field: uint64 failed = 4;
+   */
+  failed: bigint;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditBucket.
+ * Use `create(AuditBucketSchema)` to create a new message.
+ */
+export const AuditBucketSchema: GenMessage<AuditBucket> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 7);
+
+/**
+ * @generated from message backplane.console.v1.AuditFieldsRequest
+ */
+export type AuditFieldsRequest = Message<"backplane.console.v1.AuditFieldsRequest"> & {
+  /**
+   * @generated from field: backplane.console.v1.AuditFilter filter = 1;
+   */
+  filter?: AuditFilter | undefined;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFieldsRequest.
+ * Use `create(AuditFieldsRequestSchema)` to create a new message.
+ */
+export const AuditFieldsRequestSchema: GenMessage<AuditFieldsRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 8);
+
+/**
+ * @generated from message backplane.console.v1.AuditFieldsResponse
+ */
+export type AuditFieldsResponse = Message<"backplane.console.v1.AuditFieldsResponse"> & {
+  /**
+   * At most 200.
+   *
+   * @generated from field: repeated backplane.console.v1.AuditFieldCount fields = 1;
+   */
+  fields: AuditFieldCount[];
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFieldsResponse.
+ * Use `create(AuditFieldsResponseSchema)` to create a new message.
+ */
+export const AuditFieldsResponseSchema: GenMessage<AuditFieldsResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 9);
+
+/**
+ * @generated from message backplane.console.v1.AuditFieldCount
+ */
+export type AuditFieldCount = Message<"backplane.console.v1.AuditFieldCount"> & {
+  /**
+   * @generated from field: string attribute = 1;
+   */
+  attribute: string;
+
+  /**
+   * @generated from field: uint64 count = 2;
+   */
+  count: bigint;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFieldCount.
+ * Use `create(AuditFieldCountSchema)` to create a new message.
+ */
+export const AuditFieldCountSchema: GenMessage<AuditFieldCount> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 10);
+
+/**
+ * @generated from message backplane.console.v1.AuditFacetsRequest
+ */
+export type AuditFacetsRequest = Message<"backplane.console.v1.AuditFacetsRequest"> & {
+  /**
+   * @generated from field: backplane.console.v1.AuditFilter filter = 1;
+   */
+  filter?: AuditFilter | undefined;
+
+  /**
+   * Each a field or an attribute.
+   *
+   * @generated from field: repeated backplane.console.v1.AuditCondition targets = 2;
+   */
+  targets: AuditCondition[];
+
+  /**
+   * Values per target: 0 = 10; at most 50.
+   *
+   * @generated from field: uint32 limit = 3;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFacetsRequest.
+ * Use `create(AuditFacetsRequestSchema)` to create a new message.
+ */
+export const AuditFacetsRequestSchema: GenMessage<AuditFacetsRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 11);
+
+/**
+ * @generated from message backplane.console.v1.AuditFacetsResponse
+ */
+export type AuditFacetsResponse = Message<"backplane.console.v1.AuditFacetsResponse"> & {
+  /**
+   * In the order of the targets.
+   *
+   * @generated from field: repeated backplane.console.v1.AuditFacet facets = 1;
+   */
+  facets: AuditFacet[];
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFacetsResponse.
+ * Use `create(AuditFacetsResponseSchema)` to create a new message.
+ */
+export const AuditFacetsResponseSchema: GenMessage<AuditFacetsResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 12);
+
+/**
+ * @generated from message backplane.console.v1.AuditFacet
+ */
+export type AuditFacet = Message<"backplane.console.v1.AuditFacet"> & {
+  /**
+   * @generated from field: backplane.console.v1.AuditCondition target = 1;
+   */
+  target?: AuditCondition | undefined;
+
+  /**
+   * @generated from field: repeated backplane.console.v1.AuditFacetValue values = 2;
+   */
+  values: AuditFacetValue[];
+
+  /**
+   * Matching records the target is set in.
+   *
+   * @generated from field: uint64 total = 3;
+   */
+  total: bigint;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFacet.
+ * Use `create(AuditFacetSchema)` to create a new message.
+ */
+export const AuditFacetSchema: GenMessage<AuditFacet> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 13);
+
+/**
+ * @generated from message backplane.console.v1.AuditFacetValue
+ */
+export type AuditFacetValue = Message<"backplane.console.v1.AuditFacetValue"> & {
+  /**
+   * @generated from field: google.protobuf.Value value = 1;
+   */
+  value?: Value | undefined;
+
+  /**
+   * @generated from field: uint64 count = 2;
+   */
+  count: bigint;
+};
+
+/**
+ * Describes the message backplane.console.v1.AuditFacetValue.
+ * Use `create(AuditFacetValueSchema)` to create a new message.
+ */
+export const AuditFacetValueSchema: GenMessage<AuditFacetValue> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_audit, 14);
+
+/**
+ * @generated from enum backplane.console.v1.AuditSource
+ */
+export enum AuditSource {
+  /**
+   * @generated from enum value: AUDIT_SOURCE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Operators' changes and commands (console sessions, admin).
+   *
+   * @generated from enum value: AUDIT_SOURCE_PLATFORM = 1;
+   */
+  PLATFORM = 1,
+
+  /**
+   * Records marked backplane.audit=true by services and third parties.
+   *
+   * @generated from enum value: AUDIT_SOURCE_APPLICATION = 2;
+   */
+  APPLICATION = 2,
+}
+
+/**
+ * Describes the enum backplane.console.v1.AuditSource.
+ */
+export const AuditSourceSchema: GenEnum<AuditSource> = /*@__PURE__*/
+  enumDesc(file_backplanepb_console_v1_audit, 0);
+
+/**
+ * AuditField is a fixed field of a record.
+ *
+ * @generated from enum backplane.console.v1.AuditField
+ */
+export enum AuditField {
+  /**
+   * @generated from enum value: AUDIT_FIELD_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * "platform" or "application".
+   *
+   * @generated from enum value: AUDIT_FIELD_SOURCE = 1;
+   */
+  SOURCE = 1,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_SERVICE = 2;
+   */
+  SERVICE = 2,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_ACTION = 3;
+   */
+  ACTION = 3,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_ACTOR = 4;
+   */
+  ACTOR = 4,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_SUBJECT = 5;
+   */
+  SUBJECT = 5,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_OUTCOME = 6;
+   */
+  OUTCOME = 6,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_OPERATION = 7;
+   */
+  OPERATION = 7,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_SEVERITY = 8;
+   */
+  SEVERITY = 8,
+
+  /**
+   * @generated from enum value: AUDIT_FIELD_TRACE_ID = 9;
+   */
+  TRACE_ID = 9,
+}
+
+/**
+ * Describes the enum backplane.console.v1.AuditField.
+ */
+export const AuditFieldSchema: GenEnum<AuditField> = /*@__PURE__*/
+  enumDesc(file_backplanepb_console_v1_audit, 1);
+
+/**
+ * @generated from enum backplane.console.v1.AuditOperator
+ */
+export enum AuditOperator {
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Equals any of the values.
+   *
+   * @generated from enum value: AUDIT_OPERATOR_IS = 1;
+   */
+  IS = 1,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_IS_NOT = 2;
+   */
+  IS_NOT = 2,
+
+  /**
+   * Contains any of the values, case-insensitive.
+   *
+   * @generated from enum value: AUDIT_OPERATOR_CONTAINS = 3;
+   */
+  CONTAINS = 3,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_NOT_CONTAINS = 4;
+   */
+  NOT_CONTAINS = 4,
+
+  /**
+   * Starts with any of the values.
+   *
+   * @generated from enum value: AUDIT_OPERATOR_PREFIX = 5;
+   */
+  PREFIX = 5,
+
+  /**
+   * Set (a field: not empty); no values.
+   *
+   * @generated from enum value: AUDIT_OPERATOR_EXISTS = 6;
+   */
+  EXISTS = 6,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_NOT_EXISTS = 7;
+   */
+  NOT_EXISTS = 7,
+
+  /**
+   * Numeric comparison with one value (attributes holding numbers only).
+   *
+   * @generated from enum value: AUDIT_OPERATOR_GT = 8;
+   */
+  GT = 8,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_GTE = 9;
+   */
+  GTE = 9,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_LT = 10;
+   */
+  LT = 10,
+
+  /**
+   * @generated from enum value: AUDIT_OPERATOR_LTE = 11;
+   */
+  LTE = 11,
+}
+
+/**
+ * Describes the enum backplane.console.v1.AuditOperator.
+ */
+export const AuditOperatorSchema: GenEnum<AuditOperator> = /*@__PURE__*/
+  enumDesc(file_backplanepb_console_v1_audit, 2);
+
+/**
+ * AuditService reads one audit feed from two sources: the platform's control
+ * audit (operators' changes and commands, written with them) and application
+ * audit (log records services and third parties mark backplane.audit=true,
+ * forwarded by the deployment's Collector). Both are filtered alike: fixed
+ * fields and attributes (a platform entry's detail, an application record's
+ * attributes). Cookie authentication matches the other console APIs; reads
+ * are not audited. A live view repeats SearchAudit's first page. InvalidArgument:
+ * a bad filter, limit or cursor; Unavailable: the database is down.
  *
  * @generated from service backplane.console.v1.AuditService
  */
 export const AuditService: GenService<{
   /**
-   * Newest first. The first page also supplies a watch cursor representing its
-   * committed snapshot. Subsequent pages retain that snapshot's upper bound.
+   * Newest first by time, then id.
    *
-   * @generated from rpc backplane.console.v1.AuditService.ListAudit
+   * @generated from rpc backplane.console.v1.AuditService.SearchAudit
    */
-  listAudit: {
+  searchAudit: {
     methodKind: "unary";
-    input: typeof ListAuditRequestSchema;
-    output: typeof ListAuditResponseSchema;
+    input: typeof SearchAuditRequestSchema;
+    output: typeof SearchAuditResponseSchema;
   },
   /**
-   * Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
-   * Never coalesces entries. Empty batches advance the cursor over nonmatching
-   * entries; save each returned cursor. Slow readers are bounded by database
-   * retention, not an in-memory backlog. Reconnect using the last saved cursor.
+   * Records over time: buckets of equal width across the filter's range
+   * (from the first matching record when it has no start).
    *
-   * @generated from rpc backplane.console.v1.AuditService.WatchAudit
+   * @generated from rpc backplane.console.v1.AuditService.AuditHistogram
    */
-  watchAudit: {
-    methodKind: "server_streaming";
-    input: typeof WatchAuditRequestSchema;
-    output: typeof WatchAuditResponseSchema;
+  auditHistogram: {
+    methodKind: "unary";
+    input: typeof AuditHistogramRequestSchema;
+    output: typeof AuditHistogramResponseSchema;
+  },
+  /**
+   * Attribute keys of the matching records, most frequent first.
+   *
+   * @generated from rpc backplane.console.v1.AuditService.AuditFields
+   */
+  auditFields: {
+    methodKind: "unary";
+    input: typeof AuditFieldsRequestSchema;
+    output: typeof AuditFieldsResponseSchema;
+  },
+  /**
+   * The most frequent values of fields over the matching records. A field's
+   * own conditions are left out of its values, so the other choices show.
+   *
+   * @generated from rpc backplane.console.v1.AuditService.AuditFacets
+   */
+  auditFacets: {
+    methodKind: "unary";
+    input: typeof AuditFacetsRequestSchema;
+    output: typeof AuditFacetsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_backplanepb_console_v1_audit, 0);

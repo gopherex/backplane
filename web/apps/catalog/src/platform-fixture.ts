@@ -1,4 +1,5 @@
 import { create, fromJson, toJson, type JsonValue } from '@bufbuild/protobuf';
+import { timestampFromDate, ValueSchema } from '@bufbuild/protobuf/wkt';
 import * as api from '@gopherex/backplane-api';
 import { WsStatusError, type ClientConstructor, type ClientRuntime, type ClientState } from '@gopherex/backplane-client';
 import { SchemaSchema } from '@gopherex/backplane-api/schemapb/schema_pb';
@@ -27,6 +28,24 @@ const wiringCatalog = () => create(api.GetWiringCatalogResponseSchema, { service
     { name: 'Batch', input: create(SchemaSchema, { fields: [{ name: 'people', required: true, kind: { case: 'list', value: { items: [{ kind: { case: 'object', value: { schema: textSchema('name') } } }] } } }] }) }], events: [{ name: 'Greeted', schema: textSchema('name', 'text') }] },
 ] });
 
+const appTime = (minutes: number) => timestampFromDate(new Date(Date.UTC(2026, 8, 30, 12, minutes)));
+/** The audit feed as backplane keeps it: a platform entry and two records an identity service marked backplane.audit. */
+const auditRecords = () => [
+  create(api.AuditRecordSchema, { id: 'app-2', source: api.AuditSource.APPLICATION, time: appTime(5), receivedAt: appTime(5), service: 'iam', action: 'identity.deleted', actor: 'user:7',
+    subject: 'identity/42', outcome: 'succeeded', severity: 'INFO', message: 'identity deleted', attributes: { 'backplane.audit': true, tenant: 'acme' }, resource: { 'service.name': 'iam' },
+    traceId: '0102030405060708090a0b0c0d0e0f10' }),
+  create(api.AuditRecordSchema, { id: 'app-1', source: api.AuditSource.APPLICATION, time: appTime(2), receivedAt: appTime(3), service: 'iam', action: 'login.failed', actor: 'user:9',
+    subject: 'identity/7', outcome: 'failed', severity: 'WARN', message: 'password mismatch', attributes: { 'backplane.audit': true, tenant: 'globex' }, resource: { 'service.name': 'iam' } }),
+  create(api.AuditRecordSchema, { id: 'platform-1', source: api.AuditSource.PLATFORM, time: appTime(0), receivedAt: appTime(0), service: 'hello', action: 'config.save', actor: 'console:1b7e2c9a-0000-4000-8000-000000000000',
+    subject: 'hello', outcome: 'succeeded', operationId: 'op-1', sequence: 9007199254740993n, attributes: { revision: 3, keys: ['greeter.suffix'] } }),
+];
+/** The fixture's conditions: attribute or field equality, and text. */
+const matches = (record: api.AuditRecord, filter?: api.AuditFilter) => (filter?.conditions ?? []).every((condition) => {
+  const values = condition.values.map((value) => value.kind.value);
+  const actual = condition.target.case === 'attribute' ? (record.attributes as Record<string, unknown> | undefined)?.[condition.target.value]
+    : [, record.source === api.AuditSource.PLATFORM ? 'platform' : 'application', record.service, record.action, record.actor, record.subject, record.outcome][condition.target.value ?? 0];
+  return condition.op === api.AuditOperator.IS_NOT ? !values.includes(actual as never) : values.includes(actual as never);
+}) && (!filter?.text || JSON.stringify(record).toLowerCase().includes(filter.text.toLowerCase()));
 type FixtureStep = { input?: JsonValue; when?: string; after?: string[]; activity?: string; forEach?: string; as?: string; steps?: Record<string, FixtureStep>; result?: JsonValue };
 /** A fixture analysis: every read of a variable in the definition's expressions (by pattern, not CEL), bodies included. */
 function analyze(json: { steps?: Record<string, FixtureStep>; result?: JsonValue }) {
@@ -73,7 +92,6 @@ export class PlatformFixture implements ClientRuntime {
   client<T extends object>(_constructor: ClientConstructor<T>): T {
     const fixture = this;
     const config = () => create(api.ServiceConfigSchema, { service: 'hello', live: ['greeter.suffix'], current: fixture.revision, instances: [{ id: 'hello-1', version: '1.0.0', appliedRevision: fixture.revision.revision, live: [{ path: 'greeter.suffix', value: fixture.revision.values['greeter.suffix'] }] }] });
-    const entry = (id: string, sequence: bigint) => create(api.AuditEntrySchema, { id, sequence, actor: 'operator', action: 'config.save', subject: 'hello', outcome: 'succeeded', operationId: 'op-1' });
     const snapshot = async function* <R>(value: R, signal?: AbortSignal) { fixture.active++; try { yield value; await untilAbort(signal); } finally { fixture.active--; } };
     const beforeWrite = () => { fixture.writes++; if (fixture.failWrites) throw new WsStatusError(14, 'Fixture outage'); };
     const methods = {
@@ -84,13 +102,24 @@ export class PlatformFixture implements ClientRuntime {
       async validateOverride(request: api.ValidateOverrideRequest) { return create(api.ValidateOverrideResponseSchema, { violations: request.values['greeter.suffix'] === '"invalid"' ? [{ path: 'greeter.suffix', code: 'INVALID_VALUE', message: 'Invalid suffix' }] : [] }); },
       async saveRevision(request: api.SaveRevisionRequest) { beforeWrite(); fixture.revision = create(api.RevisionSchema, { service: request.service, revision: fixture.revision.revision + 1n, values: request.values, comment: request.comment }); return create(api.SaveRevisionResponseSchema, { revision: fixture.revision }); },
       async rollback() { beforeWrite(); return create(api.RollbackResponseSchema, { revision: fixture.revision }); },
-      async listAudit(request: api.ListAuditRequest) { fixture.gap = false; return create(api.ListAuditResponseSchema, { entries: request.filter?.actor && request.filter.actor !== 'operator' ? [] : [entry('a', 9007199254740993n)], watchCursor: 'snapshot' }); },
-      async *watchAudit(request: api.WatchAuditRequest, options: api.CallOptions) {
-        fixture.active++; fixture.watchOpens++; fixture.cursors.push(request.afterCursor);
-        try { if (fixture.gap) throw new WsStatusError(11, 'Expired cursor');
-          yield create(api.WatchAuditResponseSchema, { entries: request.filter?.actor && request.filter.actor !== 'operator' ? [] : [entry('b', 9007199254740994n)], cursor: 'delta' });
-          yield create(api.WatchAuditResponseSchema, { cursor: 'empty-advanced' }); await untilAbort(options.signal);
-        } finally { fixture.active--; }
+      async searchAudit(request: api.SearchAuditRequest) { return create(api.SearchAuditResponseSchema, { records: auditRecords().filter((record) => matches(record, request.filter)) }); },
+      async auditHistogram(request: api.AuditHistogramRequest) {
+        const records = auditRecords().filter((record) => matches(record, request.filter));
+        return create(api.AuditHistogramResponseSchema, { stepSeconds: 60n, buckets: [0, 1, 2, 3, 4, 5].map((minute) => {
+          const inside = records.filter((record) => Number(record.time!.seconds) - Number(appTime(0).seconds) === minute * 60);
+          return { start: appTime(minute), platform: BigInt(inside.filter((record) => record.source === api.AuditSource.PLATFORM).length),
+            application: BigInt(inside.filter((record) => record.source === api.AuditSource.APPLICATION).length), failed: BigInt(inside.filter((record) => record.outcome === 'failed').length) };
+        }) });
+      },
+      async auditFields() { return create(api.AuditFieldsResponseSchema, { fields: [{ attribute: 'tenant', count: 2n }, { attribute: 'revision', count: 1n }, { attribute: 'backplane.audit', count: 2n }] }); },
+      async auditFacets(request: api.AuditFacetsRequest) {
+        const records = auditRecords().filter((record) => matches(record, request.filter));
+        return create(api.AuditFacetsResponseSchema, { facets: request.targets.map((target) => {
+          const values = records.map((record) => target.target.case === 'attribute' ? (record.attributes as Record<string, unknown> | undefined)?.[target.target.value]
+            : [, record.source === api.AuditSource.PLATFORM ? 'platform' : 'application', record.service, record.action, record.actor, record.subject, record.outcome][target.target.value ?? 0]).filter((value) => value !== undefined && value !== '');
+          const counts = new Map<string, number>(); for (const value of values) counts.set(JSON.stringify(value), (counts.get(JSON.stringify(value)) ?? 0) + 1);
+          return { target, total: BigInt(values.length), values: [...counts].map(([value, count]) => ({ value: fromJson(ValueSchema, JSON.parse(value) as JsonValue), count: BigInt(count) })) };
+        }) });
       },
       async getObsCapabilities() { return create(api.GetObsCapabilitiesResponseSchema, { signals: [{ signal: api.ObsSignal.LOGS, languages: [api.ObsLanguage.LOGSQL] }, { signal: api.ObsSignal.METRICS, languages: [api.ObsLanguage.METRICSQL, api.ObsLanguage.PROMQL] }, { signal: api.ObsSignal.TRACES, languages: [api.ObsLanguage.LOGSQL, api.ObsLanguage.TRACEQL], traceLookup: true }], maxLimit: 1000, maxPoints: 10000 }); },
       async listObsSources() { return create(api.ListObsSourcesResponseSchema, { sources: [{ resource: { 'service.name': 'hello' } }, { resource: { 'service.name': 'kratos' } }] }); },

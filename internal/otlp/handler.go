@@ -175,7 +175,10 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request) {
 
 	// Only protocol headers cross this boundary. Cookies, credentials, baggage,
 	// forwarding headers and query parameters are never passed to the Collector.
+	// IngestHeader marks what came through here (browsers, public keys), so
+	// the Collector's audit pipeline can refuse its backplane.audit label.
 	request.Header.Set("Content-Type", contentType)
+	request.Header.Set(IngestHeader, IngestProxy)
 
 	response, err := h.transport.RoundTrip(request)
 	if err != nil {

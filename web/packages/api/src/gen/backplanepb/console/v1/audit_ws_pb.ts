@@ -2,9 +2,9 @@
 // @generated from file backplanepb/console/v1/audit.proto (package backplane.console.v1, syntax proto3)
 /* eslint-disable */
 
-import { applyUnaryCallbacks, iterateStream, MethodInfo, WsTransport } from "@gopherex/ws-proto-transport";
-import type { ListAuditRequest, ListAuditResponse, WatchAuditRequest, WatchAuditResponse } from "./audit_pb.js";
-import { ListAuditRequestSchema, ListAuditResponseSchema, WatchAuditRequestSchema, WatchAuditResponseSchema } from "./audit_pb.js";
+import { applyUnaryCallbacks, MethodInfo, WsTransport } from "@gopherex/ws-proto-transport";
+import type { AuditFacetsRequest, AuditFacetsResponse, AuditFieldsRequest, AuditFieldsResponse, AuditHistogramRequest, AuditHistogramResponse, SearchAuditRequest, SearchAuditResponse } from "./audit_pb.js";
+import { AuditFacetsRequestSchema, AuditFacetsResponseSchema, AuditFieldsRequestSchema, AuditFieldsResponseSchema, AuditHistogramRequestSchema, AuditHistogramResponseSchema, SearchAuditRequestSchema, SearchAuditResponseSchema } from "./audit_pb.js";
 
 export interface CallOptions {
   /** Request metadata sent as headers on the opening frame. */
@@ -19,27 +19,47 @@ export interface CallOptions {
   onTrailer?: (trailer: Record<string, string>) => void;
 }
 
-const AuditService_ListAudit: MethodInfo<ListAuditRequest, ListAuditResponse> = {
+const AuditService_SearchAudit: MethodInfo<SearchAuditRequest, SearchAuditResponse> = {
   typeName: "backplane.console.v1.AuditService",
-  name: "ListAudit",
+  name: "SearchAudit",
   kind: "unary",
-  input: ListAuditRequestSchema,
-  output: ListAuditResponseSchema,
+  input: SearchAuditRequestSchema,
+  output: SearchAuditResponseSchema,
 };
 
-const AuditService_WatchAudit: MethodInfo<WatchAuditRequest, WatchAuditResponse> = {
+const AuditService_AuditHistogram: MethodInfo<AuditHistogramRequest, AuditHistogramResponse> = {
   typeName: "backplane.console.v1.AuditService",
-  name: "WatchAudit",
-  kind: "server_streaming",
-  input: WatchAuditRequestSchema,
-  output: WatchAuditResponseSchema,
+  name: "AuditHistogram",
+  kind: "unary",
+  input: AuditHistogramRequestSchema,
+  output: AuditHistogramResponseSchema,
+};
+
+const AuditService_AuditFields: MethodInfo<AuditFieldsRequest, AuditFieldsResponse> = {
+  typeName: "backplane.console.v1.AuditService",
+  name: "AuditFields",
+  kind: "unary",
+  input: AuditFieldsRequestSchema,
+  output: AuditFieldsResponseSchema,
+};
+
+const AuditService_AuditFacets: MethodInfo<AuditFacetsRequest, AuditFacetsResponse> = {
+  typeName: "backplane.console.v1.AuditService",
+  name: "AuditFacets",
+  kind: "unary",
+  input: AuditFacetsRequestSchema,
+  output: AuditFacetsResponseSchema,
 };
 
 /**
- * Durable control audit. Cookie authentication matches the other console APIs.
- * Reads are retry-safe and are not themselves audit entries. InvalidArgument:
- * bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
- * Unavailable: database unavailable. A stream is canceled with its caller.
+ * AuditService reads one audit feed from two sources: the platform's control
+ * audit (operators' changes and commands, written with them) and application
+ * audit (log records services and third parties mark backplane.audit=true,
+ * forwarded by the deployment's Collector). Both are filtered alike: fixed
+ * fields and attributes (a platform entry's detail, an application record's
+ * attributes). Cookie authentication matches the other console APIs; reads
+ * are not audited. A live view repeats SearchAudit's first page. InvalidArgument:
+ * a bad filter, limit or cursor; Unavailable: the database is down.
  *
  * @generated from service backplane.console.v1.AuditService
  */
@@ -47,27 +67,45 @@ export class AuditServiceClient {
   constructor(private readonly transport: WsTransport) {}
 
   /**
-   * Newest first. The first page also supplies a watch cursor representing its
-   * committed snapshot. Subsequent pages retain that snapshot's upper bound.
+   * Newest first by time, then id.
    *
-   * @generated from rpc backplane.console.v1.AuditService.ListAudit
+   * @generated from rpc backplane.console.v1.AuditService.SearchAudit
    */
-  async listAudit(req: ListAuditRequest, options?: CallOptions): Promise<ListAuditResponse> {
-    const res = await this.transport.unary(AuditService_ListAudit, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+  async searchAudit(req: SearchAuditRequest, options?: CallOptions): Promise<SearchAuditResponse> {
+    const res = await this.transport.unary(AuditService_SearchAudit, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
     return applyUnaryCallbacks(res, options);
   }
 
   /**
-   * Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
-   * Never coalesces entries. Empty batches advance the cursor over nonmatching
-   * entries; save each returned cursor. Slow readers are bounded by database
-   * retention, not an in-memory backlog. Reconnect using the last saved cursor.
+   * Records over time: buckets of equal width across the filter's range
+   * (from the first matching record when it has no start).
    *
-   * @generated from rpc backplane.console.v1.AuditService.WatchAudit
+   * @generated from rpc backplane.console.v1.AuditService.AuditHistogram
    */
-  async *watchAudit(req: WatchAuditRequest, options?: CallOptions): AsyncIterable<WatchAuditResponse> {
-    const res = await this.transport.stream(AuditService_WatchAudit, (async function* () { yield req; })(), { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
-    yield* iterateStream(res, options);
+  async auditHistogram(req: AuditHistogramRequest, options?: CallOptions): Promise<AuditHistogramResponse> {
+    const res = await this.transport.unary(AuditService_AuditHistogram, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * Attribute keys of the matching records, most frequent first.
+   *
+   * @generated from rpc backplane.console.v1.AuditService.AuditFields
+   */
+  async auditFields(req: AuditFieldsRequest, options?: CallOptions): Promise<AuditFieldsResponse> {
+    const res = await this.transport.unary(AuditService_AuditFields, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * The most frequent values of fields over the matching records. A field's
+   * own conditions are left out of its values, so the other choices show.
+   *
+   * @generated from rpc backplane.console.v1.AuditService.AuditFacets
+   */
+  async auditFacets(req: AuditFacetsRequest, options?: CallOptions): Promise<AuditFacetsResponse> {
+    const res = await this.transport.unary(AuditService_AuditFacets, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
   }
 
 }

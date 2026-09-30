@@ -1,10 +1,16 @@
 // Generated callable wrappers; request values come from the caller/form.
 import type * as API from '@gopherex/backplane-api';
-export function AuditService_ListAudit(client: API.AuditServiceClient, request: API.ListAuditRequest, signal: AbortSignal) {
-  return client.listAudit(request, { signal });
+export function AuditService_SearchAudit(client: API.AuditServiceClient, request: API.SearchAuditRequest, signal: AbortSignal) {
+  return client.searchAudit(request, { signal });
 }
-export function AuditService_WatchAudit(client: API.AuditServiceClient, request: API.WatchAuditRequest, signal: AbortSignal) {
-  return client.watchAudit(request, { signal });
+export function AuditService_AuditHistogram(client: API.AuditServiceClient, request: API.AuditHistogramRequest, signal: AbortSignal) {
+  return client.auditHistogram(request, { signal });
+}
+export function AuditService_AuditFields(client: API.AuditServiceClient, request: API.AuditFieldsRequest, signal: AbortSignal) {
+  return client.auditFields(request, { signal });
+}
+export function AuditService_AuditFacets(client: API.AuditServiceClient, request: API.AuditFacetsRequest, signal: AbortSignal) {
+  return client.auditFacets(request, { signal });
 }
 export function BindingService_ListBindings(client: API.BindingServiceClient, request: API.ListBindingsRequest, signal: AbortSignal) {
   return client.listBindings(request, { signal });

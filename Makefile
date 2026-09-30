@@ -17,7 +17,7 @@ EASYP_VERSION              := v0.16.6
 PROTOC_GEN_GO_VERSION      := v1.36.11
 PROTOC_GEN_GO_GRPC_VERSION := v1.6.2
 GOLANGCI_LINT_VERSION      := v2.11.3
-SQLD_VERSION               := v1.1.3
+SQLD_VERSION               := v1.1.7
 
 # Scratch database `make db-init` realizes schemas in: sqld drops every
 # non-system schema in it, so never point it at a real database.

@@ -2,79 +2,131 @@ syntax = "proto3";
 
 package backplane.console.v1;
 
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
 
-// Durable control audit. Cookie authentication matches the other console APIs.
-// Reads are retry-safe and are not themselves audit entries. InvalidArgument:
-// bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
-// Unavailable: database unavailable. A stream is canceled with its caller.
+// AuditService reads one audit feed from two sources: the platform's control
+// audit (operators' changes and commands, written with them) and application
+// audit (log records services and third parties mark backplane.audit=true,
+// forwarded by the deployment's Collector). Both are filtered alike: fixed
+// fields and attributes (a platform entry's detail, an application record's
+// attributes). Cookie authentication matches the other console APIs; reads
+// are not audited. A live view repeats SearchAudit's first page. InvalidArgument:
+// a bad filter, limit or cursor; Unavailable: the database is down.
 service AuditService {
-  // Newest first. The first page also supplies a watch cursor representing its
-  // committed snapshot. Subsequent pages retain that snapshot's upper bound.
-  rpc ListAudit(ListAuditRequest) returns (ListAuditResponse);
-  // Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
-  // Never coalesces entries. Empty batches advance the cursor over nonmatching
-  // entries; save each returned cursor. Slow readers are bounded by database
-  // retention, not an in-memory backlog. Reconnect using the last saved cursor.
-  rpc WatchAudit(WatchAuditRequest) returns (stream WatchAuditResponse);
+  // Newest first by time, then id.
+  rpc SearchAudit(SearchAuditRequest) returns (SearchAuditResponse);
+  // Records over time: buckets of equal width across the filter's range
+  // (from the first matching record when it has no start).
+  rpc AuditHistogram(AuditHistogramRequest) returns (AuditHistogramResponse);
+  // Attribute keys of the matching records, most frequent first.
+  rpc AuditFields(AuditFieldsRequest) returns (AuditFieldsResponse);
+  // The most frequent values of fields over the matching records. A field's
+  // own conditions are left out of its values, so the other choices show.
+  rpc AuditFacets(AuditFacetsRequest) returns (AuditFacetsResponse);
 }
 
-message AuditEntry {
+enum AuditSource {
+  AUDIT_SOURCE_UNSPECIFIED = 0;
+  // Operators' changes and commands (console sessions, admin).
+  AUDIT_SOURCE_PLATFORM = 1;
+  // Records marked backplane.audit=true by services and third parties.
+  AUDIT_SOURCE_APPLICATION = 2;
+}
+
+// AuditRecord is one entry of the feed.
+message AuditRecord {
   string id = 1;
-  uint64 sequence = 2;
-  google.protobuf.Timestamp created_at = 3;
-  string actor = 4;
-  string action = 5;
-  string subject = 6;
-  // succeeded (database control change), intent, succeeded/failed/partial/rejected/unknown
-  // (external command result). Intent without a result has an unknown outcome;
-  // never replay the command merely because its result entry is missing.
-  string outcome = 7;
-  string operation_id = 8;
-  AuditDetail detail = 9;
-  // The service the entry is about: its configuration, the binding of one of
-  // its hooks, a rule on one of its events or a command addressed to it.
-  // Empty for installation-wide entries (sessions).
-  string service = 10;
+  AuditSource source = 2;
+  // When it happened: the platform entry's commit, the application record's
+  // time (else its observed time, else its arrival).
+  google.protobuf.Timestamp time = 3;
+  google.protobuf.Timestamp received_at = 4;
+  // The service it is about; empty for installation-wide platform entries.
+  string service = 5;
+  string actor = 6;
+  string action = 7;
+  string subject = 8;
+  // Platform: succeeded, intent, failed, partial, rejected, unknown.
+  // Application: backplane.audit.outcome as sent.
+  string outcome = 9;
+  // Application: the record's body. Platform: empty.
+  string message = 10;
+  // Platform: the operation id shared by a command's intent and result.
+  string operation_id = 11;
+  // Platform: the entry's sequence (commit order). Application: 0.
+  uint64 sequence = 12;
+  // Platform: the entry's detail (revision, keys, workflow_id, run_id, ...).
+  // Application: the record's attributes.
+  google.protobuf.Struct attributes = 13;
+  // Application: the resource's attributes.
+  google.protobuf.Struct resource = 14;
+  string severity = 15;
+  string trace_id = 16;
+  string span_id = 17;
 }
 
-// Safe control metadata only. No request payload, arbitrary error text,
-// configuration values, revision comments, credentials or session tokens.
-// The operator's words on a run or schedule command are kept, bounded to
-// 256 characters: signal names, termination reasons, pause/resume notes.
-message AuditDetail {
-  uint64 revision = 1;
-  uint64 rollback_of = 2;
-  repeated string keys = 3;
-  optional bool paused = 4;
-  string code = 5;
-  string workflow_id = 6;
-  string run_id = 7;
-  uint64 affected = 8;
-  // SignalRun: the signal's name (never its argument).
-  string signal = 9;
-  // TerminateRun: the reason the operator typed.
-  string reason = 10;
-  // PauseSchedule, UnpauseSchedule: the note the operator typed.
-  string note = 11;
+// AuditField is a fixed field of a record.
+enum AuditField {
+  AUDIT_FIELD_UNSPECIFIED = 0;
+  // "platform" or "application".
+  AUDIT_FIELD_SOURCE = 1;
+  AUDIT_FIELD_SERVICE = 2;
+  AUDIT_FIELD_ACTION = 3;
+  AUDIT_FIELD_ACTOR = 4;
+  AUDIT_FIELD_SUBJECT = 5;
+  AUDIT_FIELD_OUTCOME = 6;
+  AUDIT_FIELD_OPERATION = 7;
+  AUDIT_FIELD_SEVERITY = 8;
+  AUDIT_FIELD_TRACE_ID = 9;
 }
 
+enum AuditOperator {
+  AUDIT_OPERATOR_UNSPECIFIED = 0;
+  // Equals any of the values.
+  AUDIT_OPERATOR_IS = 1;
+  AUDIT_OPERATOR_IS_NOT = 2;
+  // Contains any of the values, case-insensitive.
+  AUDIT_OPERATOR_CONTAINS = 3;
+  AUDIT_OPERATOR_NOT_CONTAINS = 4;
+  // Starts with any of the values.
+  AUDIT_OPERATOR_PREFIX = 5;
+  // Set (a field: not empty); no values.
+  AUDIT_OPERATOR_EXISTS = 6;
+  AUDIT_OPERATOR_NOT_EXISTS = 7;
+  // Numeric comparison with one value (attributes holding numbers only).
+  AUDIT_OPERATOR_GT = 8;
+  AUDIT_OPERATOR_GTE = 9;
+  AUDIT_OPERATOR_LT = 10;
+  AUDIT_OPERATOR_LTE = 11;
+}
+
+// AuditCondition is one condition: a field or attribute, an operator, values.
+message AuditCondition {
+  oneof target {
+    AuditField field = 1;
+    // An attribute key as is ("tenant", "event.name", "workflow_id").
+    string attribute = 2;
+  }
+  AuditOperator op = 3;
+  // IS and IS_NOT compare JSON values exactly (an attribute holding 3 is 3,
+  // not "3"); a field compares text.
+  repeated google.protobuf.Value values = 4;
+}
+
+// AuditFilter: every condition holds, and the text, and the time range.
 message AuditFilter {
-  string actor = 1;
-  string action = 2;
-  string subject = 3;
-  string outcome = 4;
-  string operation_id = 5;
-  // Inclusive start, exclusive end. Absent = unbounded.
-  google.protobuf.Timestamp start = 6;
-  google.protobuf.Timestamp end = 7;
-  // Only entries about this service (AuditEntry.service).
-  string service = 8;
+  // Inclusive start, exclusive end of the record's time. Absent: unbounded.
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+  repeated AuditCondition conditions = 3;
+  // Case-insensitive substring of the message, action, subject or attributes.
+  string text = 4;
 }
 
-message ListAuditRequest {
+message SearchAuditRequest {
   AuditFilter filter = 1;
   // 0 = 100; maximum 500.
   uint32 page_size = 2;
@@ -82,20 +134,67 @@ message ListAuditRequest {
   string page_cursor = 3;
 }
 
-message ListAuditResponse {
-  repeated AuditEntry entries = 1;
+message SearchAuditResponse {
+  repeated AuditRecord records = 1;
+  // Empty on the last page.
   string next_page_cursor = 2;
-  // Starts a delta stream after the first page's consistent snapshot.
-  string watch_cursor = 3;
 }
 
-message WatchAuditRequest {
+message AuditHistogramRequest {
   AuditFilter filter = 1;
-  // Required. Bound to installation and filter; expired cursors fail explicitly.
-  string after_cursor = 2;
+  // 0 = 60; at most 240.
+  uint32 buckets = 2;
 }
 
-message WatchAuditResponse {
-  repeated AuditEntry entries = 1;
-  string cursor = 2;
+message AuditHistogramResponse {
+  repeated AuditBucket buckets = 1;
+  // Width of every bucket.
+  int64 step_seconds = 2;
+}
+
+message AuditBucket {
+  google.protobuf.Timestamp start = 1;
+  uint64 platform = 2;
+  uint64 application = 3;
+  // Of both: outcome failed, rejected, partial or unknown.
+  uint64 failed = 4;
+}
+
+message AuditFieldsRequest {
+  AuditFilter filter = 1;
+}
+
+message AuditFieldsResponse {
+  // At most 200.
+  repeated AuditFieldCount fields = 1;
+}
+
+message AuditFieldCount {
+  string attribute = 1;
+  uint64 count = 2;
+}
+
+message AuditFacetsRequest {
+  AuditFilter filter = 1;
+  // Each a field or an attribute.
+  repeated AuditCondition targets = 2;
+  // Values per target: 0 = 10; at most 50.
+  uint32 limit = 3;
+}
+
+message AuditFacetsResponse {
+  // In the order of the targets.
+  repeated AuditFacet facets = 1;
+}
+
+message AuditFacet {
+  AuditCondition target = 1;
+  repeated AuditFacetValue values = 2;
+  // Matching records the target is set in.
+  uint64 total = 3;
+}
+
+message AuditFacetValue {
+  google.protobuf.Value value = 1;
+  uint64 count = 2;
 }

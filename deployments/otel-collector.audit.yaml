@@ -1,0 +1,49 @@
+# Application audit (platform-design §14, docs/audit-api.md): log records
+# marked backplane.audit=true go to backplane's OTLP audit listener, which
+# keeps them; logs still go wherever the main config sends them. Merge it
+# with the main config:
+#
+#   otelcol-contrib --config=otel-collector.yaml --config=otel-collector.audit.yaml
+#
+# Needs the filter and attributes processors and the file_storage extension
+# (otelcol-contrib, or a build with them). The queue directory must be
+# writable and persistent: records wait there while backplane is down.
+receivers:
+  otlp:
+    protocols:
+      http:
+        # Backplane's OTLP proxy marks what it forwards (browsers, public keys)
+        # with X-Backplane-Ingest: proxy; such records never count as audit.
+        include_metadata: true
+extensions:
+  file_storage/audit:
+    directory: /var/lib/otelcol/audit
+    create_directory: true
+processors:
+  attributes/ingest:
+    actions:
+      - key: backplane.ingest
+        from_context: metadata.x-backplane-ingest
+        action: upsert
+  filter/audit:
+    error_mode: ignore
+    logs:
+      log_record:
+        - 'attributes["backplane.audit"] != true'
+        - 'attributes["backplane.ingest"] == "proxy"'
+exporters:
+  otlp_grpc/audit:
+    endpoint: backplane:4317
+    tls: {insecure: true}
+    # With BACKPLANE_AUDIT_KEYS set on backplane:
+    # headers: {authorization: "Bearer ${env:BACKPLANE_AUDIT_KEY}"}
+    timeout: 10s
+    retry_on_failure: {enabled: true, max_elapsed_time: 0}
+    sending_queue: {enabled: true, storage: file_storage/audit}
+service:
+  extensions: [file_storage/audit]
+  pipelines:
+    logs/audit:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/ingest, filter/audit]
+      exporters: [otlp_grpc/audit]

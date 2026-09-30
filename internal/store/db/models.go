@@ -108,3 +108,21 @@ type BackplaneAuditOutbox struct {
 	Attempts    int64
 	PublishedAt *time.Time
 }
+
+type BackplaneAppAudit struct {
+	ID         uuid.UUID
+	Key        []byte
+	Time       time.Time
+	ReceivedAt time.Time
+	Service    string
+	Action     string
+	Actor      string
+	Subject    string
+	Outcome    string
+	Severity   string
+	Body       string
+	Attributes json.RawMessage
+	Resource   json.RawMessage
+	TraceID    string
+	SpanID     string
+}

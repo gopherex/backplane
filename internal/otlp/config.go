@@ -27,6 +27,14 @@ type Config struct {
 
 const minKeyBytes = 16
 
+// IngestHeader carries IngestProxy on every request the proxy forwards: the
+// Collector (include_metadata) turns it into the backplane.ingest attribute
+// its audit pipeline drops.
+const (
+	IngestHeader = "X-Backplane-Ingest"
+	IngestProxy  = "proxy"
+)
+
 // ErrConfig indicates an unsafe or incomplete admission configuration.
 var ErrConfig = errors.New("invalid OTLP admission configuration")
 

@@ -19,27 +19,35 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AuditService_ListAudit_FullMethodName  = "/backplane.console.v1.AuditService/ListAudit"
-	AuditService_WatchAudit_FullMethodName = "/backplane.console.v1.AuditService/WatchAudit"
+	AuditService_SearchAudit_FullMethodName    = "/backplane.console.v1.AuditService/SearchAudit"
+	AuditService_AuditHistogram_FullMethodName = "/backplane.console.v1.AuditService/AuditHistogram"
+	AuditService_AuditFields_FullMethodName    = "/backplane.console.v1.AuditService/AuditFields"
+	AuditService_AuditFacets_FullMethodName    = "/backplane.console.v1.AuditService/AuditFacets"
 )
 
 // AuditServiceClient is the client API for AuditService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// Durable control audit. Cookie authentication matches the other console APIs.
-// Reads are retry-safe and are not themselves audit entries. InvalidArgument:
-// bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
-// Unavailable: database unavailable. A stream is canceled with its caller.
+// AuditService reads one audit feed from two sources: the platform's control
+// audit (operators' changes and commands, written with them) and application
+// audit (log records services and third parties mark backplane.audit=true,
+// forwarded by the deployment's Collector). Both are filtered alike: fixed
+// fields and attributes (a platform entry's detail, an application record's
+// attributes). Cookie authentication matches the other console APIs; reads
+// are not audited. A live view repeats SearchAudit's first page. InvalidArgument:
+// a bad filter, limit or cursor; Unavailable: the database is down.
 type AuditServiceClient interface {
-	// Newest first. The first page also supplies a watch cursor representing its
-	// committed snapshot. Subsequent pages retain that snapshot's upper bound.
-	ListAudit(ctx context.Context, in *ListAuditRequest, opts ...grpc.CallOption) (*ListAuditResponse, error)
-	// Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
-	// Never coalesces entries. Empty batches advance the cursor over nonmatching
-	// entries; save each returned cursor. Slow readers are bounded by database
-	// retention, not an in-memory backlog. Reconnect using the last saved cursor.
-	WatchAudit(ctx context.Context, in *WatchAuditRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAuditResponse], error)
+	// Newest first by time, then id.
+	SearchAudit(ctx context.Context, in *SearchAuditRequest, opts ...grpc.CallOption) (*SearchAuditResponse, error)
+	// Records over time: buckets of equal width across the filter's range
+	// (from the first matching record when it has no start).
+	AuditHistogram(ctx context.Context, in *AuditHistogramRequest, opts ...grpc.CallOption) (*AuditHistogramResponse, error)
+	// Attribute keys of the matching records, most frequent first.
+	AuditFields(ctx context.Context, in *AuditFieldsRequest, opts ...grpc.CallOption) (*AuditFieldsResponse, error)
+	// The most frequent values of fields over the matching records. A field's
+	// own conditions are left out of its values, so the other choices show.
+	AuditFacets(ctx context.Context, in *AuditFacetsRequest, opts ...grpc.CallOption) (*AuditFacetsResponse, error)
 }
 
 type auditServiceClient struct {
@@ -50,52 +58,69 @@ func NewAuditServiceClient(cc grpc.ClientConnInterface) AuditServiceClient {
 	return &auditServiceClient{cc}
 }
 
-func (c *auditServiceClient) ListAudit(ctx context.Context, in *ListAuditRequest, opts ...grpc.CallOption) (*ListAuditResponse, error) {
+func (c *auditServiceClient) SearchAudit(ctx context.Context, in *SearchAuditRequest, opts ...grpc.CallOption) (*SearchAuditResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ListAuditResponse)
-	err := c.cc.Invoke(ctx, AuditService_ListAudit_FullMethodName, in, out, cOpts...)
+	out := new(SearchAuditResponse)
+	err := c.cc.Invoke(ctx, AuditService_SearchAudit_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *auditServiceClient) WatchAudit(ctx context.Context, in *WatchAuditRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchAuditResponse], error) {
+func (c *auditServiceClient) AuditHistogram(ctx context.Context, in *AuditHistogramRequest, opts ...grpc.CallOption) (*AuditHistogramResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AuditService_ServiceDesc.Streams[0], AuditService_WatchAudit_FullMethodName, cOpts...)
+	out := new(AuditHistogramResponse)
+	err := c.cc.Invoke(ctx, AuditService_AuditHistogram_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[WatchAuditRequest, WatchAuditResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
+	return out, nil
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AuditService_WatchAuditClient = grpc.ServerStreamingClient[WatchAuditResponse]
+func (c *auditServiceClient) AuditFields(ctx context.Context, in *AuditFieldsRequest, opts ...grpc.CallOption) (*AuditFieldsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuditFieldsResponse)
+	err := c.cc.Invoke(ctx, AuditService_AuditFields_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *auditServiceClient) AuditFacets(ctx context.Context, in *AuditFacetsRequest, opts ...grpc.CallOption) (*AuditFacetsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuditFacetsResponse)
+	err := c.cc.Invoke(ctx, AuditService_AuditFacets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 // AuditServiceServer is the server API for AuditService service.
 // All implementations must embed UnimplementedAuditServiceServer
 // for forward compatibility.
 //
-// Durable control audit. Cookie authentication matches the other console APIs.
-// Reads are retry-safe and are not themselves audit entries. InvalidArgument:
-// bad filters/limits/cursors; OutOfRange: expired cursor (refetch the first page);
-// Unavailable: database unavailable. A stream is canceled with its caller.
+// AuditService reads one audit feed from two sources: the platform's control
+// audit (operators' changes and commands, written with them) and application
+// audit (log records services and third parties mark backplane.audit=true,
+// forwarded by the deployment's Collector). Both are filtered alike: fixed
+// fields and attributes (a platform entry's detail, an application record's
+// attributes). Cookie authentication matches the other console APIs; reads
+// are not audited. A live view repeats SearchAudit's first page. InvalidArgument:
+// a bad filter, limit or cursor; Unavailable: the database is down.
 type AuditServiceServer interface {
-	// Newest first. The first page also supplies a watch cursor representing its
-	// committed snapshot. Subsequent pages retain that snapshot's upper bound.
-	ListAudit(context.Context, *ListAuditRequest) (*ListAuditResponse, error)
-	// Resumes strictly after a cursor from ListAudit/WatchAudit, oldest first.
-	// Never coalesces entries. Empty batches advance the cursor over nonmatching
-	// entries; save each returned cursor. Slow readers are bounded by database
-	// retention, not an in-memory backlog. Reconnect using the last saved cursor.
-	WatchAudit(*WatchAuditRequest, grpc.ServerStreamingServer[WatchAuditResponse]) error
+	// Newest first by time, then id.
+	SearchAudit(context.Context, *SearchAuditRequest) (*SearchAuditResponse, error)
+	// Records over time: buckets of equal width across the filter's range
+	// (from the first matching record when it has no start).
+	AuditHistogram(context.Context, *AuditHistogramRequest) (*AuditHistogramResponse, error)
+	// Attribute keys of the matching records, most frequent first.
+	AuditFields(context.Context, *AuditFieldsRequest) (*AuditFieldsResponse, error)
+	// The most frequent values of fields over the matching records. A field's
+	// own conditions are left out of its values, so the other choices show.
+	AuditFacets(context.Context, *AuditFacetsRequest) (*AuditFacetsResponse, error)
 	mustEmbedUnimplementedAuditServiceServer()
 }
 
@@ -106,11 +131,17 @@ type AuditServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAuditServiceServer struct{}
 
-func (UnimplementedAuditServiceServer) ListAudit(context.Context, *ListAuditRequest) (*ListAuditResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ListAudit not implemented")
+func (UnimplementedAuditServiceServer) SearchAudit(context.Context, *SearchAuditRequest) (*SearchAuditResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SearchAudit not implemented")
 }
-func (UnimplementedAuditServiceServer) WatchAudit(*WatchAuditRequest, grpc.ServerStreamingServer[WatchAuditResponse]) error {
-	return status.Error(codes.Unimplemented, "method WatchAudit not implemented")
+func (UnimplementedAuditServiceServer) AuditHistogram(context.Context, *AuditHistogramRequest) (*AuditHistogramResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AuditHistogram not implemented")
+}
+func (UnimplementedAuditServiceServer) AuditFields(context.Context, *AuditFieldsRequest) (*AuditFieldsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AuditFields not implemented")
+}
+func (UnimplementedAuditServiceServer) AuditFacets(context.Context, *AuditFacetsRequest) (*AuditFacetsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method AuditFacets not implemented")
 }
 func (UnimplementedAuditServiceServer) mustEmbedUnimplementedAuditServiceServer() {}
 func (UnimplementedAuditServiceServer) testEmbeddedByValue()                      {}
@@ -133,34 +164,77 @@ func RegisterAuditServiceServer(s grpc.ServiceRegistrar, srv AuditServiceServer)
 	s.RegisterService(&AuditService_ServiceDesc, srv)
 }
 
-func _AuditService_ListAudit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ListAuditRequest)
+func _AuditService_SearchAudit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchAuditRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(AuditServiceServer).ListAudit(ctx, in)
+		return srv.(AuditServiceServer).SearchAudit(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: AuditService_ListAudit_FullMethodName,
+		FullMethod: AuditService_SearchAudit_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuditServiceServer).ListAudit(ctx, req.(*ListAuditRequest))
+		return srv.(AuditServiceServer).SearchAudit(ctx, req.(*SearchAuditRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _AuditService_WatchAudit_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(WatchAuditRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
+func _AuditService_AuditHistogram_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuditHistogramRequest)
+	if err := dec(in); err != nil {
+		return nil, err
 	}
-	return srv.(AuditServiceServer).WatchAudit(m, &grpc.GenericServerStream[WatchAuditRequest, WatchAuditResponse]{ServerStream: stream})
+	if interceptor == nil {
+		return srv.(AuditServiceServer).AuditHistogram(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuditService_AuditHistogram_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuditServiceServer).AuditHistogram(ctx, req.(*AuditHistogramRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AuditService_WatchAuditServer = grpc.ServerStreamingServer[WatchAuditResponse]
+func _AuditService_AuditFields_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuditFieldsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuditServiceServer).AuditFields(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuditService_AuditFields_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuditServiceServer).AuditFields(ctx, req.(*AuditFieldsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuditService_AuditFacets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuditFacetsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuditServiceServer).AuditFacets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuditService_AuditFacets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuditServiceServer).AuditFacets(ctx, req.(*AuditFacetsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 // AuditService_ServiceDesc is the grpc.ServiceDesc for AuditService service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -170,16 +244,22 @@ var AuditService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*AuditServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "ListAudit",
-			Handler:    _AuditService_ListAudit_Handler,
+			MethodName: "SearchAudit",
+			Handler:    _AuditService_SearchAudit_Handler,
 		},
-	},
-	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "WatchAudit",
-			Handler:       _AuditService_WatchAudit_Handler,
-			ServerStreams: true,
+			MethodName: "AuditHistogram",
+			Handler:    _AuditService_AuditHistogram_Handler,
+		},
+		{
+			MethodName: "AuditFields",
+			Handler:    _AuditService_AuditFields_Handler,
+		},
+		{
+			MethodName: "AuditFacets",
+			Handler:    _AuditService_AuditFacets_Handler,
 		},
 	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "backplanepb/console/v1/audit.proto",
 }

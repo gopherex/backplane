@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AuditFeed, AutomationPanel, ConfigurationPanel, EventStreams, ExplorePanel, ServiceCatalog, ServiceInspector, ServiceOperations, WiringWorkspace, WorkflowRuns, SchedulesPanel, type WiringState } from '@gopherex/backplane-platform-ui';
+import { AuditExplorer, AutomationPanel, ConfigurationPanel, EventStreams, ExplorePanel, ServiceCatalog, ServiceInspector, ServiceOperations, WiringWorkspace, WorkflowRuns, SchedulesPanel, type WiringState, defaultAuditState } from '@gopherex/backplane-platform-ui';
 import { PageHeader, Panel, TabBar } from '@gopherex/backplane-ui';
 
 const views = ['services', 'configuration', 'operations', 'wiring', 'automation', 'events', 'runs', 'schedules', 'audit', 'explore'] as const;
@@ -21,7 +21,12 @@ export default function Development({ mode }: { mode: 'dark' | 'light' }) {
     {view === 'events' && <EventStreams service={service} mode={mode} />}
     {view === 'runs' && <WorkflowRuns service={service} mode={mode} />}
     {view === 'schedules' && <SchedulesPanel service={service} mode={mode} />}
-    {view === 'audit' && <AuditFeed mode={mode} />}
+    {view === 'audit' && <AuditLocal mode={mode} />}
     {view === 'explore' && <ExplorePanel mode={mode} />}
   </section>;
+}
+
+function AuditLocal({ mode }: { mode: 'dark' | 'light' }) {
+  const [state, setState] = useState(defaultAuditState);
+  return <AuditExplorer mode={mode} state={state} onStateChange={setState} />;
 }

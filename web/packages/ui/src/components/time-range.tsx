@@ -9,6 +9,8 @@ export interface TimeRangeValue {
 }
 export interface TimeRangeControlProps {
   value: TimeRangeValue; onChange: (value: TimeRangeValue) => void; mode: 'dark' | 'light'; label: string;
+  /** Also pick the week's first day (calendar views); off by default. */
+  weekStartPicker?: boolean;
 }
 const Picker = lazy(() => import('./time-range.grafana.js'));
 export function TimeRangeControl(props: TimeRangeControlProps) {
@@ -42,4 +44,59 @@ export function RefreshControl({ interval, onIntervalChange, onRefresh, disabled
       <option value={0}>{t('off')}</option>{[5000, 10000, 30000, 60000].map((value) => <option key={value} value={value}>{value / 1000} s</option>)}
     </NativeSelect>{failed && <span role="alert">{t('refreshFailed')}</span>}
   </div>;
+}
+
+const units: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+
+/**
+ * A Grafana date-math instant (now, now-15m, now-1d/d, now/w) or an ISO
+ * instant as epoch milliseconds; roundUp ends a /unit at the unit's end (for
+ * a range's to). Rounds in UTC for the utc time zone, else locally.
+ */
+export function dateMath(text: string, now: number, roundUp = false, utc = false): number | undefined {
+  const value = text.trim();
+  if (!value.startsWith('now')) { const at = Date.parse(value); return Number.isNaN(at) ? undefined : at; }
+  let at = new Date(now), rest = value.slice(3);
+  while (rest) {
+    const step = /^([+-])(\d+)([smhdwMy])/.exec(rest);
+    if (step) {
+      const n = Number(step[2]) * (step[1] === '-' ? -1 : 1), unit = step[3]!;
+      if (unit === 'M' || unit === 'y') { const d = new Date(at); if (utc) d.setUTCMonth(d.getUTCMonth() + n * (unit === 'y' ? 12 : 1)); else d.setMonth(d.getMonth() + n * (unit === 'y' ? 12 : 1)); at = d; }
+      else at = new Date(at.getTime() + n * units[unit]!);
+      rest = rest.slice(step[0].length); continue;
+    }
+    const round = /^\/([smhdwMy])/.exec(rest);
+    if (!round) return undefined;
+    at = roundTo(at, round[1]!, roundUp, utc); rest = rest.slice(round[0].length);
+  }
+  return at.getTime();
+}
+
+type Field = 'FullYear' | 'Month' | 'Date' | 'Hours' | 'Minutes' | 'Seconds' | 'Milliseconds';
+const roundOrder = ['y', 'M', 'w', 'd', 'h', 'm', 's'];
+const unitField: Record<string, Field> = { y: 'FullYear', M: 'Month', w: 'Date', d: 'Date', h: 'Hours', m: 'Minutes', s: 'Seconds' };
+
+/** at rounded down to the start of unit, or up to its last millisecond. */
+function roundTo(at: Date, unit: string, up: boolean, utc: boolean): Date {
+  const d = new Date(at);
+  const get = (field: Field | 'Day') => (utc ? d[`getUTC${field}`] : d[`get${field}`]).call(d);
+  const set = (field: Field, v: number) => { (utc ? d[`setUTC${field}`] : d[`set${field}`]).call(d, v); };
+  const level = roundOrder.indexOf(unit);
+  if (level <= 0) set('Month', 0);
+  if (level <= 1) set('Date', 1);
+  if (unit === 'w') set('Date', get('Date') - ((get('Day') + 6) % 7)); // weeks start on Monday
+  if (level <= 3) set('Hours', 0);
+  if (level <= 4) set('Minutes', 0);
+  if (level <= 5) set('Seconds', 0);
+  set('Milliseconds', 0);
+  if (!up) return d;
+  const field = unitField[unit]!;
+  set(field, get(field) + (unit === 'w' ? 7 : 1));
+  return new Date(d.getTime() - 1);
+}
+
+/** A time range as epoch milliseconds; undefined when it does not parse or is empty. */
+export function resolveTimeRange(value: TimeRangeValue, now = Date.now()): { from: number; to: number } | undefined {
+  const utc = value.timeZone === 'utc', from = dateMath(value.from, now, false, utc), to = dateMath(value.to, now, true, utc);
+  return from !== undefined && to !== undefined && from < to ? { from, to } : undefined;
 }

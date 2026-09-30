@@ -5,10 +5,11 @@ import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { AppWindow, Box, Clock, Cpu, RefreshCw, Server, Tag } from 'lucide-react';
 import { CatalogServiceClient, GetServiceRequestSchema, type ServiceSummary } from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
-import { AuditFeed, AutomationPanel, ConfigurationPanel, EventStreams, ServiceInspector, ServiceOperations, WorkflowsPanel, usePlatformQuery } from '@gopherex/backplane-platform-ui';
+import { AutomationPanel, ConfigurationPanel, EventStreams, ServiceInspector, ServiceOperations, WorkflowsPanel, usePlatformQuery } from '@gopherex/backplane-platform-ui';
 import { Button, Duration, EntityHeader, MetaItem, MetaList, StatusBadge, TabBar, TabItem } from '@gopherex/backplane-ui';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import { healthLabel, healthTone } from '../services/model';
+import { AuditRoute } from '../AuditRoute';
 import { isServiceTab, serviceTabs } from './tabs';
 import { NotFound } from '../shell/NotFound';
 import { ExploreRoute } from '../ExploreRoute';
@@ -45,7 +46,7 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
       {tab === 'events' && <EventStreams service={service} mode={mode} />}
       {tab === 'workflows' && <WorkflowsPanel service={service} mode={mode} />}
       {tab === 'telemetry' && <ExploreRoute service={service} mode={mode} defaultSignal="metrics" />}
-      {tab === 'audit' && <AuditFeed service={service} mode={mode} />}
+      {tab === 'audit' && <AuditRoute service={service} mode={mode} />}
     </div>
   </>;
 }

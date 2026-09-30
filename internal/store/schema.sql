@@ -138,6 +138,8 @@ CREATE TABLE backplane.audit_entry (
 CREATE INDEX audit_entry_created_at_idx ON backplane.audit_entry (created_at);
 CREATE INDEX audit_entry_service_idx ON backplane.audit_entry (service, sequence);
 CREATE INDEX audit_entry_operation_id_idx ON backplane.audit_entry (operation_id);
+-- The audit feed filters a platform entry's detail as its attributes.
+CREATE INDEX audit_entry_detail_idx ON backplane.audit_entry USING gin (detail jsonb_path_ops);
 
 -- Entries and delivery work are inserted with the control mutation. Leases
 -- fence acknowledgments after a crash; event delivery remains at least once.
@@ -152,3 +154,49 @@ CREATE TABLE backplane.audit_outbox (
 
 CREATE INDEX audit_outbox_pending_idx ON backplane.audit_outbox (available_at, leased_until)
 WHERE published_at IS NULL;
+
+-- Application audit: OTLP log records marked backplane.audit=true that the
+-- deployment's Collector forwards (services and third parties alike). Kept
+-- until deleted by hand: backplane expires none. key deduplicates the
+-- Collector's retries: backplane.audit.id when the record has one, else a
+-- hash of the record and its resource.
+CREATE TABLE backplane.app_audit (
+  id uuid PRIMARY KEY,
+  key bytea NOT NULL UNIQUE,
+  -- The record's time, else its observed time, else received_at.
+  time timestamptz NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  -- Resource service.name.
+  service text NOT NULL,
+  -- event.name, else the record's event_name, else its body (cut).
+  action text NOT NULL,
+  actor text NOT NULL DEFAULT '',
+  subject text NOT NULL DEFAULT '',
+  outcome text NOT NULL DEFAULT '',
+  severity text NOT NULL DEFAULT '',
+  body text NOT NULL DEFAULT '',
+  attributes jsonb NOT NULL DEFAULT '{}',
+  resource jsonb NOT NULL DEFAULT '{}',
+  trace_id text NOT NULL DEFAULT '',
+  span_id text NOT NULL DEFAULT ''
+);
+
+CREATE INDEX app_audit_time_idx ON backplane.app_audit (time, id);
+CREATE INDEX app_audit_service_idx ON backplane.app_audit (service, time);
+CREATE INDEX app_audit_action_idx ON backplane.app_audit (action, time);
+CREATE INDEX app_audit_actor_idx ON backplane.app_audit (actor, time);
+CREATE INDEX app_audit_subject_idx ON backplane.app_audit (subject, time);
+CREATE INDEX app_audit_attributes_idx ON backplane.app_audit USING gin (attributes jsonb_path_ops);
+
+
+-- The audit feed: platform entries and application records alike, a
+-- platform entry's detail as its attributes.
+CREATE VIEW backplane.audit_feed AS
+  SELECT 'platform'::text AS source, e.id, e.created_at AS time, e.created_at AS received_at, e.service, e.actor,
+    e.action, e.subject, e.outcome, ''::text AS message, e.operation_id::text AS operation, e.sequence,
+    e.detail AS attributes, '{}'::jsonb AS resource, ''::text AS severity, ''::text AS trace_id, ''::text AS span_id
+  FROM backplane.audit_entry e
+  UNION ALL
+  SELECT 'application'::text, a.id, a.time, a.received_at, a.service, a.actor, a.action, a.subject, a.outcome,
+    a.body, ''::text, 0::bigint, a.attributes, a.resource, a.severity, a.trace_id, a.span_id
+  FROM backplane.app_audit a;

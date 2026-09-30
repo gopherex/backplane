@@ -156,6 +156,15 @@ export const platformEnglish = {
   maxItems: 'Max items', maxItemsHelp: 'more fails the step (default {{count}})', bodyResult: 'Item result', bodyResultHelp: 'CEL over the body\'s steps: one element of the list',
   newBinding: 'New binding', newBindingHelp: 'A binding implements a hook a service declares. Pick the hook; you write its steps next.',
   unboundHooks: 'Hooks without a binding', boundHooks: 'Already bound', allHooksBound: 'Every declared hook is bound. A new hook comes from a service manifest.',
+  platformAudit: 'Platform', applicationAudit: 'Applications', failedRecords: 'Failed', auditOverTime: 'Over time', auditFields: 'Fields',
+  searchText: 'Search text', removeFilter: 'Remove {{name}}', receivedAt: 'Received', liveRefresh: 'Refresh',
+  newFilter: 'Filter', filterField: 'Field', filterOperator: 'Operator', filterValue: 'Value', filterValueHint: 'value ↵ (more than one: any of)', filterNumber: 'number',
+  applyFilter: 'Apply', filterFor: 'Keep {{name}}', filterOut: 'Exclude {{name}}', facetHelp: 'Click to keep, Alt+click to exclude',
+  auditEmptyHelp: 'Operators\' changes appear here; applications add records by marking log records backplane.audit=true (the Collector forwards them).',
+  auditField_source: 'Source', auditField_service: 'Service', auditField_action: 'Action', auditField_actor: 'Actor', auditField_subject: 'Subject',
+  auditField_outcome: 'Outcome', auditField_operation: 'Operation', auditField_severity: 'Severity', auditField_trace_id: 'Trace ID',
+  auditOp_is: 'is', auditOp_is_not: 'is not', auditOp_contains: 'contains', auditOp_not_contains: 'does not contain', auditOp_prefix: 'starts with',
+  auditOp_exists: 'exists', auditOp_not_exists: 'does not exist', auditOp_gt: '>', auditOp_gte: '≥', auditOp_lt: '<', auditOp_lte: '≤',
   itemType: 'Item type', makeForEach: 'Run for each item…', stopForEach: 'Run once', inLoop: 'in {{name}}', itemN: 'item {{item}}', items_one: '{{count}} item', items_other: '{{count}} items',
 } as const;
 type PlatformKey = keyof typeof platformEnglish extends infer K ? K extends `${infer B}_${'one' | 'other'}` ? B : K : never;

@@ -66,6 +66,10 @@ func TestForwardSignalsAndPartialSuccess(t *testing.T) {
 			t.Errorf("upstream payload/path: %s %s", r.URL, body)
 		}
 
+		if r.Header.Get(otlp.IngestHeader) != otlp.IngestProxy {
+			t.Errorf("ingest header %q", r.Header.Get(otlp.IngestHeader))
+		}
+
 		for _, header := range []string{"Authorization", "Cookie", "Baggage", "Proxy-Authorization", "X-Forwarded-For", "X-Api-Key", "Content-Encoding"} {
 			if r.Header.Get(header) != "" {
 				t.Errorf("forwarded %s", header)
@@ -80,7 +84,8 @@ func TestForwardSignalsAndPartialSuccess(t *testing.T) {
 	handler := admission(t, settings(upstream.URL+"/collector"))
 	for _, signal := range []string{"logs", "metrics", "traces"} {
 		result := send(handler, "/v1/"+signal+"?token=discard", `{}`,
-			"Authorization", "Bearer browser", "Cookie", "bp_session=discard", "Baggage", "discard", "X-Api-Key", "discard")
+			"Authorization", "Bearer browser", "Cookie", "bp_session=discard", "Baggage", "discard", "X-Api-Key", "discard",
+			otlp.IngestHeader, "direct")
 		if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "rejectedLogRecords") || result.Header().Get("Set-Cookie") != "" {
 			t.Fatalf("response: %d %s", result.Code, result.Body)
 		}

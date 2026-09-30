@@ -5,6 +5,8 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +27,34 @@ type Queries struct {
 func New(db DBTX) *Queries { return &Queries{db: db} }
 
 func (q *Queries) WithTx(tx pgx.Tx) *Queries { return &Queries{db: tx} }
+
+const insertApplicationAuditSQL = `INSERT INTO backplane.app_audit (id, key, time, service, action, actor, subject, outcome, severity, body,
+  attributes, resource, trace_id, span_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+  $11, $12, $13, $14)
+ON CONFLICT (key) DO NOTHING;`
+
+type InsertApplicationAuditParams struct {
+	ID         uuid.UUID
+	Key        []byte
+	Time       time.Time
+	Service    string
+	Action     string
+	Actor      string
+	Subject    string
+	Outcome    string
+	Severity   string
+	Body       string
+	Attributes json.RawMessage
+	Resource   json.RawMessage
+	TraceID    string
+	SpanID     string
+}
+
+func (q *Queries) InsertApplicationAudit(ctx context.Context, arg InsertApplicationAuditParams) (int64, error) {
+	tag, err := q.db.Exec(ctx, insertApplicationAuditSQL, arg.ID, arg.Key, arg.Time, arg.Service, arg.Action, arg.Actor, arg.Subject, arg.Outcome, arg.Severity, arg.Body, arg.Attributes, arg.Resource, arg.TraceID, arg.SpanID)
+	return tag.RowsAffected(), err
+}
 
 const createAuditClockSQL = `INSERT INTO backplane.audit_clock (singleton) VALUES (true) ON CONFLICT DO NOTHING;`
 
@@ -125,67 +155,6 @@ func (q *Queries) GetAuditEntry(ctx context.Context, sequence int64) (GetAuditEn
 	var i GetAuditEntryRow
 	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail, &i.Service)
 	return i, err
-}
-
-const listAuditEntriesSQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
-FROM backplane.audit_entry
-WHERE sequence > $1 AND sequence <= $2
-  AND ($3::text = '' OR actor = $3)
-  AND ($4::text = '' OR action = $4)
-  AND ($5::text = '' OR subject = $5)
-  AND ($6::text = '' OR outcome = $6)
-  AND ($7::text = '' OR operation_id::text = $7)
-  AND ($8::text = '' OR service = $8)
-  AND created_at >= $9 AND created_at < $10
-ORDER BY CASE WHEN $11::boolean THEN sequence END DESC, sequence ASC
-LIMIT $12;`
-
-type ListAuditEntriesParams struct {
-	AfterSequence   int64
-	ThroughSequence int64
-	Actor           string
-	Action          string
-	Subject         string
-	Outcome         string
-	OperationID     string
-	Service         string
-	StartAt         time.Time
-	EndAt           time.Time
-	Descending      bool
-	PageSize        int64
-}
-
-type ListAuditEntriesRow struct {
-	Sequence    int64
-	ID          uuid.UUID
-	CreatedAt   time.Time
-	Actor       string
-	Action      string
-	Subject     string
-	Outcome     string
-	OperationID uuid.UUID
-	Detail      json.RawMessage
-	Service     string
-}
-
-func (q *Queries) ListAuditEntries(ctx context.Context, arg ListAuditEntriesParams) ([]ListAuditEntriesRow, error) {
-	rows, err := q.db.Query(ctx, listAuditEntriesSQL, arg.AfterSequence, arg.ThroughSequence, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.Service, arg.StartAt, arg.EndAt, arg.Descending, arg.PageSize)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListAuditEntriesRow
-	for rows.Next() {
-		var i ListAuditEntriesRow
-		if err := rows.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail, &i.Service); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const claimAuditOutboxSQL = `UPDATE backplane.audit_outbox SET lease = $1,
@@ -1102,4 +1071,1347 @@ func (q *Queries) GetInstallation(ctx context.Context) (GetInstallationRow, erro
 	var i GetInstallationRow
 	err := row.Scan(&i.ID, &i.CreatedAt)
 	return i, err
+}
+
+type SearchAuditParams struct {
+	StartAt        *time.Time
+	EndAt          *time.Time
+	Sources        []string
+	Services       []string
+	Actions        []string
+	Actors         []string
+	Subjects       []string
+	Outcomes       []string
+	Operations     []string
+	Severities     []string
+	TraceIds       []string
+	AttributesMust *json.RawMessage
+	Text           *string
+	Conditions     *json.RawMessage
+	BeforeTime     *time.Time
+	BeforeID       *uuid.UUID
+	PageSize       int64
+}
+
+type SearchAuditRow struct {
+	Source     string
+	ID         uuid.UUID
+	Time       time.Time
+	ReceivedAt time.Time
+	Service    string
+	Actor      string
+	Action     string
+	Subject    string
+	Outcome    string
+	Message    string
+	Operation  string
+	Sequence   int64
+	Attributes json.RawMessage
+	Resource   json.RawMessage
+	Severity   string
+	TraceID    string
+	SpanID     string
+}
+
+func (q *Queries) SearchAudit(ctx context.Context, arg SearchAuditParams) ([]SearchAuditRow, error) {
+	var b strings.Builder
+	var args []any
+	positions := make(map[uint32]int)
+	b.WriteString("SELECT f.source, f.id, f.time, f.received_at, f.service, f.actor, f.action, f.subject, f.outcome, f.message,\n  f.operation, f.sequence, f.attributes, f.resource, f.severity, f.trace_id, f.span_id\nFROM backplane.audit_feed f")
+	var cond0 string
+	var cond0Parts []string
+	var cond1 string
+	if arg.StartAt != nil {
+		if positions[1] == 0 {
+			args = append(args, *arg.StartAt)
+			positions[1] = len(args)
+		}
+		cond1 = fmt.Sprintf("f.time >= $%d::timestamptz", positions[1])
+	}
+	if cond1 != "" {
+		cond0Parts = append(cond0Parts, cond1)
+	}
+	var cond2 string
+	if arg.EndAt != nil {
+		if positions[2] == 0 {
+			args = append(args, *arg.EndAt)
+			positions[2] = len(args)
+		}
+		cond2 = fmt.Sprintf("f.time < $%d::timestamptz", positions[2])
+	}
+	if cond2 != "" {
+		cond0Parts = append(cond0Parts, cond2)
+	}
+	var cond3 string
+	if arg.Sources != nil {
+		if positions[3] == 0 {
+			args = append(args, arg.Sources)
+			positions[3] = len(args)
+		}
+		cond3 = fmt.Sprintf("f.source = ANY($%d::text[])", positions[3])
+	}
+	if cond3 != "" {
+		cond0Parts = append(cond0Parts, cond3)
+	}
+	var cond4 string
+	if arg.Services != nil {
+		if positions[4] == 0 {
+			args = append(args, arg.Services)
+			positions[4] = len(args)
+		}
+		cond4 = fmt.Sprintf("f.service = ANY($%d::text[])", positions[4])
+	}
+	if cond4 != "" {
+		cond0Parts = append(cond0Parts, cond4)
+	}
+	var cond5 string
+	if arg.Actions != nil {
+		if positions[5] == 0 {
+			args = append(args, arg.Actions)
+			positions[5] = len(args)
+		}
+		cond5 = fmt.Sprintf("f.action = ANY($%d::text[])", positions[5])
+	}
+	if cond5 != "" {
+		cond0Parts = append(cond0Parts, cond5)
+	}
+	var cond6 string
+	if arg.Actors != nil {
+		if positions[6] == 0 {
+			args = append(args, arg.Actors)
+			positions[6] = len(args)
+		}
+		cond6 = fmt.Sprintf("f.actor = ANY($%d::text[])", positions[6])
+	}
+	if cond6 != "" {
+		cond0Parts = append(cond0Parts, cond6)
+	}
+	var cond7 string
+	if arg.Subjects != nil {
+		if positions[7] == 0 {
+			args = append(args, arg.Subjects)
+			positions[7] = len(args)
+		}
+		cond7 = fmt.Sprintf("f.subject = ANY($%d::text[])", positions[7])
+	}
+	if cond7 != "" {
+		cond0Parts = append(cond0Parts, cond7)
+	}
+	var cond8 string
+	if arg.Outcomes != nil {
+		if positions[8] == 0 {
+			args = append(args, arg.Outcomes)
+			positions[8] = len(args)
+		}
+		cond8 = fmt.Sprintf("f.outcome = ANY($%d::text[])", positions[8])
+	}
+	if cond8 != "" {
+		cond0Parts = append(cond0Parts, cond8)
+	}
+	var cond9 string
+	if arg.Operations != nil {
+		if positions[9] == 0 {
+			args = append(args, arg.Operations)
+			positions[9] = len(args)
+		}
+		cond9 = fmt.Sprintf("f.operation = ANY($%d::text[])", positions[9])
+	}
+	if cond9 != "" {
+		cond0Parts = append(cond0Parts, cond9)
+	}
+	var cond10 string
+	if arg.Severities != nil {
+		if positions[10] == 0 {
+			args = append(args, arg.Severities)
+			positions[10] = len(args)
+		}
+		cond10 = fmt.Sprintf("f.severity = ANY($%d::text[])", positions[10])
+	}
+	if cond10 != "" {
+		cond0Parts = append(cond0Parts, cond10)
+	}
+	var cond11 string
+	if arg.TraceIds != nil {
+		if positions[11] == 0 {
+			args = append(args, arg.TraceIds)
+			positions[11] = len(args)
+		}
+		cond11 = fmt.Sprintf("f.trace_id = ANY($%d::text[])", positions[11])
+	}
+	if cond11 != "" {
+		cond0Parts = append(cond0Parts, cond11)
+	}
+	var cond12 string
+	if arg.AttributesMust != nil {
+		if positions[12] == 0 {
+			args = append(args, *arg.AttributesMust)
+			positions[12] = len(args)
+		}
+		cond12 = fmt.Sprintf("f.attributes @> $%d::jsonb", positions[12])
+	}
+	if cond12 != "" {
+		cond0Parts = append(cond0Parts, cond12)
+	}
+	var cond13 string
+	var cond13Parts []string
+	var cond14 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond14 = fmt.Sprintf("f.message ILIKE $%d::text", positions[13])
+	}
+	if cond14 != "" {
+		cond13Parts = append(cond13Parts, cond14)
+	}
+	var cond15 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond15 = fmt.Sprintf("f.action ILIKE $%d::text", positions[13])
+	}
+	if cond15 != "" {
+		cond13Parts = append(cond13Parts, cond15)
+	}
+	var cond16 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond16 = fmt.Sprintf("f.subject ILIKE $%d::text", positions[13])
+	}
+	if cond16 != "" {
+		cond13Parts = append(cond13Parts, cond16)
+	}
+	var cond17 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond17 = fmt.Sprintf("f.attributes::text ILIKE $%d::text", positions[13])
+	}
+	if cond17 != "" {
+		cond13Parts = append(cond13Parts, cond17)
+	}
+	if len(cond13Parts) > 0 {
+		cond13 = "(" + strings.Join(cond13Parts, " OR ") + ")"
+	}
+	if cond13 != "" {
+		cond0Parts = append(cond0Parts, cond13)
+	}
+	var cond18 string
+	var cond18Parts []string
+	var cond19 string
+	if arg.Conditions != nil {
+		if positions[14] == 0 {
+			args = append(args, *arg.Conditions)
+			positions[14] = len(args)
+		}
+		cond19 = fmt.Sprintf("EXISTS (\n    SELECT 1 FROM jsonb_array_elements($%d::jsonb) AS c,\n      LATERAL (SELECT COALESCE(to_jsonb(f) -> (c->>'field'), f.attributes -> (c->>'key')) AS v) AS t\n    WHERE NOT COALESCE(CASE c->>'op'\n      WHEN 'is' THEN t.v IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'is_not' THEN t.v IS NULL OR t.v NOT IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'contains' THEN (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'not_contains' THEN t.v IS NULL OR NOT (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'prefix' THEN (t.v #>> '{}') LIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'exists' THEN t.v IS NOT NULL AND t.v <> '\"\"'::jsonb\n      WHEN 'not_exists' THEN t.v IS NULL OR t.v = '\"\"'::jsonb\n      WHEN 'gt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric > (c->>'number')::numeric\n      WHEN 'gte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric >= (c->>'number')::numeric\n      WHEN 'lt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric < (c->>'number')::numeric\n      WHEN 'lte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric <= (c->>'number')::numeric\n    END, false))", positions[14])
+	}
+	if cond19 != "" {
+		cond18Parts = append(cond18Parts, cond19)
+	}
+	if len(cond18Parts) > 0 {
+		cond18 = "NOT (" + cond18Parts[0] + ")"
+	}
+	if cond18 != "" {
+		cond0Parts = append(cond0Parts, cond18)
+	}
+	var cond20 string
+	if arg.BeforeTime != nil && arg.BeforeID != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.BeforeTime)
+			positions[15] = len(args)
+		}
+		if positions[16] == 0 {
+			args = append(args, *arg.BeforeID)
+			positions[16] = len(args)
+		}
+		cond20 = fmt.Sprintf("(f.time, f.id) < ($%d::timestamptz, $%d::uuid)", positions[15], positions[16])
+	}
+	if cond20 != "" {
+		cond0Parts = append(cond0Parts, cond20)
+	}
+	if len(cond0Parts) > 0 {
+		cond0 = "(" + strings.Join(cond0Parts, " AND ") + ")"
+	}
+	if cond0 != "" {
+		b.WriteString("\nWHERE " + cond0)
+	}
+	if positions[17] == 0 {
+		args = append(args, arg.PageSize)
+		positions[17] = len(args)
+	}
+	b.WriteString(fmt.Sprintf("\nORDER BY f.time DESC, f.id DESC\nLIMIT $%d", positions[17]))
+	rows, err := q.db.Query(ctx, b.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchAuditRow
+	for rows.Next() {
+		var i SearchAuditRow
+		if err := rows.Scan(&i.Source, &i.ID, &i.Time, &i.ReceivedAt, &i.Service, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.Message, &i.Operation, &i.Sequence, &i.Attributes, &i.Resource, &i.Severity, &i.TraceID, &i.SpanID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+type AuditFirstTimeParams struct {
+	StartAt        *time.Time
+	EndAt          *time.Time
+	Sources        []string
+	Services       []string
+	Actions        []string
+	Actors         []string
+	Subjects       []string
+	Outcomes       []string
+	Operations     []string
+	Severities     []string
+	TraceIds       []string
+	AttributesMust *json.RawMessage
+	Text           *string
+	Conditions     *json.RawMessage
+}
+
+type AuditFirstTimeRow struct {
+	First *time.Time
+}
+
+func (q *Queries) AuditFirstTime(ctx context.Context, arg AuditFirstTimeParams) (AuditFirstTimeRow, error) {
+	var b strings.Builder
+	var args []any
+	positions := make(map[uint32]int)
+	b.WriteString("SELECT min(f.time)::timestamptz AS first\nFROM backplane.audit_feed f")
+	var cond0 string
+	var cond0Parts []string
+	var cond1 string
+	if arg.StartAt != nil {
+		if positions[1] == 0 {
+			args = append(args, *arg.StartAt)
+			positions[1] = len(args)
+		}
+		cond1 = fmt.Sprintf("f.time >= $%d::timestamptz", positions[1])
+	}
+	if cond1 != "" {
+		cond0Parts = append(cond0Parts, cond1)
+	}
+	var cond2 string
+	if arg.EndAt != nil {
+		if positions[2] == 0 {
+			args = append(args, *arg.EndAt)
+			positions[2] = len(args)
+		}
+		cond2 = fmt.Sprintf("f.time < $%d::timestamptz", positions[2])
+	}
+	if cond2 != "" {
+		cond0Parts = append(cond0Parts, cond2)
+	}
+	var cond3 string
+	if arg.Sources != nil {
+		if positions[3] == 0 {
+			args = append(args, arg.Sources)
+			positions[3] = len(args)
+		}
+		cond3 = fmt.Sprintf("f.source = ANY($%d::text[])", positions[3])
+	}
+	if cond3 != "" {
+		cond0Parts = append(cond0Parts, cond3)
+	}
+	var cond4 string
+	if arg.Services != nil {
+		if positions[4] == 0 {
+			args = append(args, arg.Services)
+			positions[4] = len(args)
+		}
+		cond4 = fmt.Sprintf("f.service = ANY($%d::text[])", positions[4])
+	}
+	if cond4 != "" {
+		cond0Parts = append(cond0Parts, cond4)
+	}
+	var cond5 string
+	if arg.Actions != nil {
+		if positions[5] == 0 {
+			args = append(args, arg.Actions)
+			positions[5] = len(args)
+		}
+		cond5 = fmt.Sprintf("f.action = ANY($%d::text[])", positions[5])
+	}
+	if cond5 != "" {
+		cond0Parts = append(cond0Parts, cond5)
+	}
+	var cond6 string
+	if arg.Actors != nil {
+		if positions[6] == 0 {
+			args = append(args, arg.Actors)
+			positions[6] = len(args)
+		}
+		cond6 = fmt.Sprintf("f.actor = ANY($%d::text[])", positions[6])
+	}
+	if cond6 != "" {
+		cond0Parts = append(cond0Parts, cond6)
+	}
+	var cond7 string
+	if arg.Subjects != nil {
+		if positions[7] == 0 {
+			args = append(args, arg.Subjects)
+			positions[7] = len(args)
+		}
+		cond7 = fmt.Sprintf("f.subject = ANY($%d::text[])", positions[7])
+	}
+	if cond7 != "" {
+		cond0Parts = append(cond0Parts, cond7)
+	}
+	var cond8 string
+	if arg.Outcomes != nil {
+		if positions[8] == 0 {
+			args = append(args, arg.Outcomes)
+			positions[8] = len(args)
+		}
+		cond8 = fmt.Sprintf("f.outcome = ANY($%d::text[])", positions[8])
+	}
+	if cond8 != "" {
+		cond0Parts = append(cond0Parts, cond8)
+	}
+	var cond9 string
+	if arg.Operations != nil {
+		if positions[9] == 0 {
+			args = append(args, arg.Operations)
+			positions[9] = len(args)
+		}
+		cond9 = fmt.Sprintf("f.operation = ANY($%d::text[])", positions[9])
+	}
+	if cond9 != "" {
+		cond0Parts = append(cond0Parts, cond9)
+	}
+	var cond10 string
+	if arg.Severities != nil {
+		if positions[10] == 0 {
+			args = append(args, arg.Severities)
+			positions[10] = len(args)
+		}
+		cond10 = fmt.Sprintf("f.severity = ANY($%d::text[])", positions[10])
+	}
+	if cond10 != "" {
+		cond0Parts = append(cond0Parts, cond10)
+	}
+	var cond11 string
+	if arg.TraceIds != nil {
+		if positions[11] == 0 {
+			args = append(args, arg.TraceIds)
+			positions[11] = len(args)
+		}
+		cond11 = fmt.Sprintf("f.trace_id = ANY($%d::text[])", positions[11])
+	}
+	if cond11 != "" {
+		cond0Parts = append(cond0Parts, cond11)
+	}
+	var cond12 string
+	if arg.AttributesMust != nil {
+		if positions[12] == 0 {
+			args = append(args, *arg.AttributesMust)
+			positions[12] = len(args)
+		}
+		cond12 = fmt.Sprintf("f.attributes @> $%d::jsonb", positions[12])
+	}
+	if cond12 != "" {
+		cond0Parts = append(cond0Parts, cond12)
+	}
+	var cond13 string
+	var cond13Parts []string
+	var cond14 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond14 = fmt.Sprintf("f.message ILIKE $%d::text", positions[13])
+	}
+	if cond14 != "" {
+		cond13Parts = append(cond13Parts, cond14)
+	}
+	var cond15 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond15 = fmt.Sprintf("f.action ILIKE $%d::text", positions[13])
+	}
+	if cond15 != "" {
+		cond13Parts = append(cond13Parts, cond15)
+	}
+	var cond16 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond16 = fmt.Sprintf("f.subject ILIKE $%d::text", positions[13])
+	}
+	if cond16 != "" {
+		cond13Parts = append(cond13Parts, cond16)
+	}
+	var cond17 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond17 = fmt.Sprintf("f.attributes::text ILIKE $%d::text", positions[13])
+	}
+	if cond17 != "" {
+		cond13Parts = append(cond13Parts, cond17)
+	}
+	if len(cond13Parts) > 0 {
+		cond13 = "(" + strings.Join(cond13Parts, " OR ") + ")"
+	}
+	if cond13 != "" {
+		cond0Parts = append(cond0Parts, cond13)
+	}
+	var cond18 string
+	var cond18Parts []string
+	var cond19 string
+	if arg.Conditions != nil {
+		if positions[14] == 0 {
+			args = append(args, *arg.Conditions)
+			positions[14] = len(args)
+		}
+		cond19 = fmt.Sprintf("EXISTS (\n    SELECT 1 FROM jsonb_array_elements($%d::jsonb) AS c,\n      LATERAL (SELECT COALESCE(to_jsonb(f) -> (c->>'field'), f.attributes -> (c->>'key')) AS v) AS t\n    WHERE NOT COALESCE(CASE c->>'op'\n      WHEN 'is' THEN t.v IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'is_not' THEN t.v IS NULL OR t.v NOT IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'contains' THEN (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'not_contains' THEN t.v IS NULL OR NOT (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'prefix' THEN (t.v #>> '{}') LIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'exists' THEN t.v IS NOT NULL AND t.v <> '\"\"'::jsonb\n      WHEN 'not_exists' THEN t.v IS NULL OR t.v = '\"\"'::jsonb\n      WHEN 'gt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric > (c->>'number')::numeric\n      WHEN 'gte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric >= (c->>'number')::numeric\n      WHEN 'lt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric < (c->>'number')::numeric\n      WHEN 'lte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric <= (c->>'number')::numeric\n    END, false))", positions[14])
+	}
+	if cond19 != "" {
+		cond18Parts = append(cond18Parts, cond19)
+	}
+	if len(cond18Parts) > 0 {
+		cond18 = "NOT (" + cond18Parts[0] + ")"
+	}
+	if cond18 != "" {
+		cond0Parts = append(cond0Parts, cond18)
+	}
+	if len(cond0Parts) > 0 {
+		cond0 = "(" + strings.Join(cond0Parts, " AND ") + ")"
+	}
+	if cond0 != "" {
+		b.WriteString("\nWHERE " + cond0)
+	}
+	row := q.db.QueryRow(ctx, b.String(), args...)
+	var i AuditFirstTimeRow
+	err := row.Scan(&i.First)
+	return i, err
+}
+
+type AuditHistogramParams struct {
+	StepSeconds    float64
+	Origin         time.Time
+	StartAt        *time.Time
+	EndAt          *time.Time
+	Sources        []string
+	Services       []string
+	Actions        []string
+	Actors         []string
+	Subjects       []string
+	Outcomes       []string
+	Operations     []string
+	Severities     []string
+	TraceIds       []string
+	AttributesMust *json.RawMessage
+	Text           *string
+	Conditions     *json.RawMessage
+}
+
+type AuditHistogramRow struct {
+	Bucket      *time.Time
+	Platform    int64
+	Application int64
+	Failed      int64
+}
+
+func (q *Queries) AuditHistogram(ctx context.Context, arg AuditHistogramParams) ([]AuditHistogramRow, error) {
+	var b strings.Builder
+	var args []any
+	positions := make(map[uint32]int)
+	if positions[1] == 0 {
+		args = append(args, arg.StepSeconds)
+		positions[1] = len(args)
+	}
+	if positions[2] == 0 {
+		args = append(args, arg.Origin)
+		positions[2] = len(args)
+	}
+	b.WriteString(fmt.Sprintf("SELECT date_bin($%d::float8 * interval '1 second', f.time, $%d::timestamptz)::timestamptz AS bucket,\n  count(*) FILTER (WHERE f.source = 'platform') AS platform,\n  count(*) FILTER (WHERE f.source = 'application') AS application,\n  count(*) FILTER (WHERE f.outcome IN ('failed', 'rejected', 'partial', 'unknown')) AS failed\nFROM backplane.audit_feed f", positions[1], positions[2]))
+	var cond0 string
+	var cond0Parts []string
+	var cond1 string
+	if arg.StartAt != nil {
+		if positions[3] == 0 {
+			args = append(args, *arg.StartAt)
+			positions[3] = len(args)
+		}
+		cond1 = fmt.Sprintf("f.time >= $%d::timestamptz", positions[3])
+	}
+	if cond1 != "" {
+		cond0Parts = append(cond0Parts, cond1)
+	}
+	var cond2 string
+	if arg.EndAt != nil {
+		if positions[4] == 0 {
+			args = append(args, *arg.EndAt)
+			positions[4] = len(args)
+		}
+		cond2 = fmt.Sprintf("f.time < $%d::timestamptz", positions[4])
+	}
+	if cond2 != "" {
+		cond0Parts = append(cond0Parts, cond2)
+	}
+	var cond3 string
+	if arg.Sources != nil {
+		if positions[5] == 0 {
+			args = append(args, arg.Sources)
+			positions[5] = len(args)
+		}
+		cond3 = fmt.Sprintf("f.source = ANY($%d::text[])", positions[5])
+	}
+	if cond3 != "" {
+		cond0Parts = append(cond0Parts, cond3)
+	}
+	var cond4 string
+	if arg.Services != nil {
+		if positions[6] == 0 {
+			args = append(args, arg.Services)
+			positions[6] = len(args)
+		}
+		cond4 = fmt.Sprintf("f.service = ANY($%d::text[])", positions[6])
+	}
+	if cond4 != "" {
+		cond0Parts = append(cond0Parts, cond4)
+	}
+	var cond5 string
+	if arg.Actions != nil {
+		if positions[7] == 0 {
+			args = append(args, arg.Actions)
+			positions[7] = len(args)
+		}
+		cond5 = fmt.Sprintf("f.action = ANY($%d::text[])", positions[7])
+	}
+	if cond5 != "" {
+		cond0Parts = append(cond0Parts, cond5)
+	}
+	var cond6 string
+	if arg.Actors != nil {
+		if positions[8] == 0 {
+			args = append(args, arg.Actors)
+			positions[8] = len(args)
+		}
+		cond6 = fmt.Sprintf("f.actor = ANY($%d::text[])", positions[8])
+	}
+	if cond6 != "" {
+		cond0Parts = append(cond0Parts, cond6)
+	}
+	var cond7 string
+	if arg.Subjects != nil {
+		if positions[9] == 0 {
+			args = append(args, arg.Subjects)
+			positions[9] = len(args)
+		}
+		cond7 = fmt.Sprintf("f.subject = ANY($%d::text[])", positions[9])
+	}
+	if cond7 != "" {
+		cond0Parts = append(cond0Parts, cond7)
+	}
+	var cond8 string
+	if arg.Outcomes != nil {
+		if positions[10] == 0 {
+			args = append(args, arg.Outcomes)
+			positions[10] = len(args)
+		}
+		cond8 = fmt.Sprintf("f.outcome = ANY($%d::text[])", positions[10])
+	}
+	if cond8 != "" {
+		cond0Parts = append(cond0Parts, cond8)
+	}
+	var cond9 string
+	if arg.Operations != nil {
+		if positions[11] == 0 {
+			args = append(args, arg.Operations)
+			positions[11] = len(args)
+		}
+		cond9 = fmt.Sprintf("f.operation = ANY($%d::text[])", positions[11])
+	}
+	if cond9 != "" {
+		cond0Parts = append(cond0Parts, cond9)
+	}
+	var cond10 string
+	if arg.Severities != nil {
+		if positions[12] == 0 {
+			args = append(args, arg.Severities)
+			positions[12] = len(args)
+		}
+		cond10 = fmt.Sprintf("f.severity = ANY($%d::text[])", positions[12])
+	}
+	if cond10 != "" {
+		cond0Parts = append(cond0Parts, cond10)
+	}
+	var cond11 string
+	if arg.TraceIds != nil {
+		if positions[13] == 0 {
+			args = append(args, arg.TraceIds)
+			positions[13] = len(args)
+		}
+		cond11 = fmt.Sprintf("f.trace_id = ANY($%d::text[])", positions[13])
+	}
+	if cond11 != "" {
+		cond0Parts = append(cond0Parts, cond11)
+	}
+	var cond12 string
+	if arg.AttributesMust != nil {
+		if positions[14] == 0 {
+			args = append(args, *arg.AttributesMust)
+			positions[14] = len(args)
+		}
+		cond12 = fmt.Sprintf("f.attributes @> $%d::jsonb", positions[14])
+	}
+	if cond12 != "" {
+		cond0Parts = append(cond0Parts, cond12)
+	}
+	var cond13 string
+	var cond13Parts []string
+	var cond14 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond14 = fmt.Sprintf("f.message ILIKE $%d::text", positions[15])
+	}
+	if cond14 != "" {
+		cond13Parts = append(cond13Parts, cond14)
+	}
+	var cond15 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond15 = fmt.Sprintf("f.action ILIKE $%d::text", positions[15])
+	}
+	if cond15 != "" {
+		cond13Parts = append(cond13Parts, cond15)
+	}
+	var cond16 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond16 = fmt.Sprintf("f.subject ILIKE $%d::text", positions[15])
+	}
+	if cond16 != "" {
+		cond13Parts = append(cond13Parts, cond16)
+	}
+	var cond17 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond17 = fmt.Sprintf("f.attributes::text ILIKE $%d::text", positions[15])
+	}
+	if cond17 != "" {
+		cond13Parts = append(cond13Parts, cond17)
+	}
+	if len(cond13Parts) > 0 {
+		cond13 = "(" + strings.Join(cond13Parts, " OR ") + ")"
+	}
+	if cond13 != "" {
+		cond0Parts = append(cond0Parts, cond13)
+	}
+	var cond18 string
+	var cond18Parts []string
+	var cond19 string
+	if arg.Conditions != nil {
+		if positions[16] == 0 {
+			args = append(args, *arg.Conditions)
+			positions[16] = len(args)
+		}
+		cond19 = fmt.Sprintf("EXISTS (\n    SELECT 1 FROM jsonb_array_elements($%d::jsonb) AS c,\n      LATERAL (SELECT COALESCE(to_jsonb(f) -> (c->>'field'), f.attributes -> (c->>'key')) AS v) AS t\n    WHERE NOT COALESCE(CASE c->>'op'\n      WHEN 'is' THEN t.v IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'is_not' THEN t.v IS NULL OR t.v NOT IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'contains' THEN (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'not_contains' THEN t.v IS NULL OR NOT (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'prefix' THEN (t.v #>> '{}') LIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'exists' THEN t.v IS NOT NULL AND t.v <> '\"\"'::jsonb\n      WHEN 'not_exists' THEN t.v IS NULL OR t.v = '\"\"'::jsonb\n      WHEN 'gt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric > (c->>'number')::numeric\n      WHEN 'gte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric >= (c->>'number')::numeric\n      WHEN 'lt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric < (c->>'number')::numeric\n      WHEN 'lte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric <= (c->>'number')::numeric\n    END, false))", positions[16])
+	}
+	if cond19 != "" {
+		cond18Parts = append(cond18Parts, cond19)
+	}
+	if len(cond18Parts) > 0 {
+		cond18 = "NOT (" + cond18Parts[0] + ")"
+	}
+	if cond18 != "" {
+		cond0Parts = append(cond0Parts, cond18)
+	}
+	if len(cond0Parts) > 0 {
+		cond0 = "(" + strings.Join(cond0Parts, " AND ") + ")"
+	}
+	if cond0 != "" {
+		b.WriteString("\nWHERE " + cond0)
+	}
+	b.WriteString("\nGROUP BY bucket\nORDER BY bucket")
+	rows, err := q.db.Query(ctx, b.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditHistogramRow
+	for rows.Next() {
+		var i AuditHistogramRow
+		if err := rows.Scan(&i.Bucket, &i.Platform, &i.Application, &i.Failed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+type AuditFieldsParams struct {
+	StartAt        *time.Time
+	EndAt          *time.Time
+	Sources        []string
+	Services       []string
+	Actions        []string
+	Actors         []string
+	Subjects       []string
+	Outcomes       []string
+	Operations     []string
+	Severities     []string
+	TraceIds       []string
+	AttributesMust *json.RawMessage
+	Text           *string
+	Conditions     *json.RawMessage
+	LimitFields    int64
+}
+
+type AuditFieldsRow struct {
+	Attribute *string
+	Count     int64
+}
+
+func (q *Queries) AuditFields(ctx context.Context, arg AuditFieldsParams) ([]AuditFieldsRow, error) {
+	var b strings.Builder
+	var args []any
+	positions := make(map[uint32]int)
+	b.WriteString("SELECT k.key::text AS attribute, count(*) AS count\nFROM backplane.audit_feed f, LATERAL jsonb_object_keys(f.attributes) AS k(key)")
+	var cond0 string
+	var cond0Parts []string
+	var cond1 string
+	if arg.StartAt != nil {
+		if positions[1] == 0 {
+			args = append(args, *arg.StartAt)
+			positions[1] = len(args)
+		}
+		cond1 = fmt.Sprintf("f.time >= $%d::timestamptz", positions[1])
+	}
+	if cond1 != "" {
+		cond0Parts = append(cond0Parts, cond1)
+	}
+	var cond2 string
+	if arg.EndAt != nil {
+		if positions[2] == 0 {
+			args = append(args, *arg.EndAt)
+			positions[2] = len(args)
+		}
+		cond2 = fmt.Sprintf("f.time < $%d::timestamptz", positions[2])
+	}
+	if cond2 != "" {
+		cond0Parts = append(cond0Parts, cond2)
+	}
+	var cond3 string
+	if arg.Sources != nil {
+		if positions[3] == 0 {
+			args = append(args, arg.Sources)
+			positions[3] = len(args)
+		}
+		cond3 = fmt.Sprintf("f.source = ANY($%d::text[])", positions[3])
+	}
+	if cond3 != "" {
+		cond0Parts = append(cond0Parts, cond3)
+	}
+	var cond4 string
+	if arg.Services != nil {
+		if positions[4] == 0 {
+			args = append(args, arg.Services)
+			positions[4] = len(args)
+		}
+		cond4 = fmt.Sprintf("f.service = ANY($%d::text[])", positions[4])
+	}
+	if cond4 != "" {
+		cond0Parts = append(cond0Parts, cond4)
+	}
+	var cond5 string
+	if arg.Actions != nil {
+		if positions[5] == 0 {
+			args = append(args, arg.Actions)
+			positions[5] = len(args)
+		}
+		cond5 = fmt.Sprintf("f.action = ANY($%d::text[])", positions[5])
+	}
+	if cond5 != "" {
+		cond0Parts = append(cond0Parts, cond5)
+	}
+	var cond6 string
+	if arg.Actors != nil {
+		if positions[6] == 0 {
+			args = append(args, arg.Actors)
+			positions[6] = len(args)
+		}
+		cond6 = fmt.Sprintf("f.actor = ANY($%d::text[])", positions[6])
+	}
+	if cond6 != "" {
+		cond0Parts = append(cond0Parts, cond6)
+	}
+	var cond7 string
+	if arg.Subjects != nil {
+		if positions[7] == 0 {
+			args = append(args, arg.Subjects)
+			positions[7] = len(args)
+		}
+		cond7 = fmt.Sprintf("f.subject = ANY($%d::text[])", positions[7])
+	}
+	if cond7 != "" {
+		cond0Parts = append(cond0Parts, cond7)
+	}
+	var cond8 string
+	if arg.Outcomes != nil {
+		if positions[8] == 0 {
+			args = append(args, arg.Outcomes)
+			positions[8] = len(args)
+		}
+		cond8 = fmt.Sprintf("f.outcome = ANY($%d::text[])", positions[8])
+	}
+	if cond8 != "" {
+		cond0Parts = append(cond0Parts, cond8)
+	}
+	var cond9 string
+	if arg.Operations != nil {
+		if positions[9] == 0 {
+			args = append(args, arg.Operations)
+			positions[9] = len(args)
+		}
+		cond9 = fmt.Sprintf("f.operation = ANY($%d::text[])", positions[9])
+	}
+	if cond9 != "" {
+		cond0Parts = append(cond0Parts, cond9)
+	}
+	var cond10 string
+	if arg.Severities != nil {
+		if positions[10] == 0 {
+			args = append(args, arg.Severities)
+			positions[10] = len(args)
+		}
+		cond10 = fmt.Sprintf("f.severity = ANY($%d::text[])", positions[10])
+	}
+	if cond10 != "" {
+		cond0Parts = append(cond0Parts, cond10)
+	}
+	var cond11 string
+	if arg.TraceIds != nil {
+		if positions[11] == 0 {
+			args = append(args, arg.TraceIds)
+			positions[11] = len(args)
+		}
+		cond11 = fmt.Sprintf("f.trace_id = ANY($%d::text[])", positions[11])
+	}
+	if cond11 != "" {
+		cond0Parts = append(cond0Parts, cond11)
+	}
+	var cond12 string
+	if arg.AttributesMust != nil {
+		if positions[12] == 0 {
+			args = append(args, *arg.AttributesMust)
+			positions[12] = len(args)
+		}
+		cond12 = fmt.Sprintf("f.attributes @> $%d::jsonb", positions[12])
+	}
+	if cond12 != "" {
+		cond0Parts = append(cond0Parts, cond12)
+	}
+	var cond13 string
+	var cond13Parts []string
+	var cond14 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond14 = fmt.Sprintf("f.message ILIKE $%d::text", positions[13])
+	}
+	if cond14 != "" {
+		cond13Parts = append(cond13Parts, cond14)
+	}
+	var cond15 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond15 = fmt.Sprintf("f.action ILIKE $%d::text", positions[13])
+	}
+	if cond15 != "" {
+		cond13Parts = append(cond13Parts, cond15)
+	}
+	var cond16 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond16 = fmt.Sprintf("f.subject ILIKE $%d::text", positions[13])
+	}
+	if cond16 != "" {
+		cond13Parts = append(cond13Parts, cond16)
+	}
+	var cond17 string
+	if arg.Text != nil {
+		if positions[13] == 0 {
+			args = append(args, *arg.Text)
+			positions[13] = len(args)
+		}
+		cond17 = fmt.Sprintf("f.attributes::text ILIKE $%d::text", positions[13])
+	}
+	if cond17 != "" {
+		cond13Parts = append(cond13Parts, cond17)
+	}
+	if len(cond13Parts) > 0 {
+		cond13 = "(" + strings.Join(cond13Parts, " OR ") + ")"
+	}
+	if cond13 != "" {
+		cond0Parts = append(cond0Parts, cond13)
+	}
+	var cond18 string
+	var cond18Parts []string
+	var cond19 string
+	if arg.Conditions != nil {
+		if positions[14] == 0 {
+			args = append(args, *arg.Conditions)
+			positions[14] = len(args)
+		}
+		cond19 = fmt.Sprintf("EXISTS (\n    SELECT 1 FROM jsonb_array_elements($%d::jsonb) AS c,\n      LATERAL (SELECT COALESCE(to_jsonb(f) -> (c->>'field'), f.attributes -> (c->>'key')) AS v) AS t\n    WHERE NOT COALESCE(CASE c->>'op'\n      WHEN 'is' THEN t.v IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'is_not' THEN t.v IS NULL OR t.v NOT IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'contains' THEN (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'not_contains' THEN t.v IS NULL OR NOT (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'prefix' THEN (t.v #>> '{}') LIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'exists' THEN t.v IS NOT NULL AND t.v <> '\"\"'::jsonb\n      WHEN 'not_exists' THEN t.v IS NULL OR t.v = '\"\"'::jsonb\n      WHEN 'gt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric > (c->>'number')::numeric\n      WHEN 'gte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric >= (c->>'number')::numeric\n      WHEN 'lt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric < (c->>'number')::numeric\n      WHEN 'lte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric <= (c->>'number')::numeric\n    END, false))", positions[14])
+	}
+	if cond19 != "" {
+		cond18Parts = append(cond18Parts, cond19)
+	}
+	if len(cond18Parts) > 0 {
+		cond18 = "NOT (" + cond18Parts[0] + ")"
+	}
+	if cond18 != "" {
+		cond0Parts = append(cond0Parts, cond18)
+	}
+	if len(cond0Parts) > 0 {
+		cond0 = "(" + strings.Join(cond0Parts, " AND ") + ")"
+	}
+	if cond0 != "" {
+		b.WriteString("\nWHERE " + cond0)
+	}
+	if positions[15] == 0 {
+		args = append(args, arg.LimitFields)
+		positions[15] = len(args)
+	}
+	b.WriteString(fmt.Sprintf("\nGROUP BY k.key\nORDER BY count(*) DESC, k.key\nLIMIT $%d", positions[15]))
+	rows, err := q.db.Query(ctx, b.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditFieldsRow
+	for rows.Next() {
+		var i AuditFieldsRow
+		if err := rows.Scan(&i.Attribute, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
+}
+
+type AuditFacetParams struct {
+	TargetField    *string
+	TargetKey      *string
+	StartAt        *time.Time
+	EndAt          *time.Time
+	Sources        []string
+	Services       []string
+	Actions        []string
+	Actors         []string
+	Subjects       []string
+	Outcomes       []string
+	Operations     []string
+	Severities     []string
+	TraceIds       []string
+	AttributesMust *json.RawMessage
+	Text           *string
+	Conditions     *json.RawMessage
+	LimitValues    int64
+}
+
+type AuditFacetRow struct {
+	Value json.RawMessage
+	Count int64
+	Total *int64
+}
+
+func (q *Queries) AuditFacet(ctx context.Context, arg AuditFacetParams) ([]AuditFacetRow, error) {
+	var b strings.Builder
+	var args []any
+	positions := make(map[uint32]int)
+	if positions[1] == 0 {
+		args = append(args, arg.TargetField)
+		positions[1] = len(args)
+	}
+	if positions[2] == 0 {
+		args = append(args, arg.TargetKey)
+		positions[2] = len(args)
+	}
+	b.WriteString(fmt.Sprintf("SELECT t.value, count(*) AS count, sum(count(*)) OVER ()::bigint AS total\nFROM backplane.audit_feed f,\n  LATERAL (SELECT COALESCE(to_jsonb(f) -> $%d::text, f.attributes -> $%d::text)::jsonb AS value) AS t", positions[1], positions[2]))
+	var cond0 string
+	var cond0Parts []string
+	var cond1 string
+	if arg.StartAt != nil {
+		if positions[3] == 0 {
+			args = append(args, *arg.StartAt)
+			positions[3] = len(args)
+		}
+		cond1 = fmt.Sprintf("f.time >= $%d::timestamptz", positions[3])
+	}
+	if cond1 != "" {
+		cond0Parts = append(cond0Parts, cond1)
+	}
+	var cond2 string
+	if arg.EndAt != nil {
+		if positions[4] == 0 {
+			args = append(args, *arg.EndAt)
+			positions[4] = len(args)
+		}
+		cond2 = fmt.Sprintf("f.time < $%d::timestamptz", positions[4])
+	}
+	if cond2 != "" {
+		cond0Parts = append(cond0Parts, cond2)
+	}
+	var cond3 string
+	if arg.Sources != nil {
+		if positions[5] == 0 {
+			args = append(args, arg.Sources)
+			positions[5] = len(args)
+		}
+		cond3 = fmt.Sprintf("f.source = ANY($%d::text[])", positions[5])
+	}
+	if cond3 != "" {
+		cond0Parts = append(cond0Parts, cond3)
+	}
+	var cond4 string
+	if arg.Services != nil {
+		if positions[6] == 0 {
+			args = append(args, arg.Services)
+			positions[6] = len(args)
+		}
+		cond4 = fmt.Sprintf("f.service = ANY($%d::text[])", positions[6])
+	}
+	if cond4 != "" {
+		cond0Parts = append(cond0Parts, cond4)
+	}
+	var cond5 string
+	if arg.Actions != nil {
+		if positions[7] == 0 {
+			args = append(args, arg.Actions)
+			positions[7] = len(args)
+		}
+		cond5 = fmt.Sprintf("f.action = ANY($%d::text[])", positions[7])
+	}
+	if cond5 != "" {
+		cond0Parts = append(cond0Parts, cond5)
+	}
+	var cond6 string
+	if arg.Actors != nil {
+		if positions[8] == 0 {
+			args = append(args, arg.Actors)
+			positions[8] = len(args)
+		}
+		cond6 = fmt.Sprintf("f.actor = ANY($%d::text[])", positions[8])
+	}
+	if cond6 != "" {
+		cond0Parts = append(cond0Parts, cond6)
+	}
+	var cond7 string
+	if arg.Subjects != nil {
+		if positions[9] == 0 {
+			args = append(args, arg.Subjects)
+			positions[9] = len(args)
+		}
+		cond7 = fmt.Sprintf("f.subject = ANY($%d::text[])", positions[9])
+	}
+	if cond7 != "" {
+		cond0Parts = append(cond0Parts, cond7)
+	}
+	var cond8 string
+	if arg.Outcomes != nil {
+		if positions[10] == 0 {
+			args = append(args, arg.Outcomes)
+			positions[10] = len(args)
+		}
+		cond8 = fmt.Sprintf("f.outcome = ANY($%d::text[])", positions[10])
+	}
+	if cond8 != "" {
+		cond0Parts = append(cond0Parts, cond8)
+	}
+	var cond9 string
+	if arg.Operations != nil {
+		if positions[11] == 0 {
+			args = append(args, arg.Operations)
+			positions[11] = len(args)
+		}
+		cond9 = fmt.Sprintf("f.operation = ANY($%d::text[])", positions[11])
+	}
+	if cond9 != "" {
+		cond0Parts = append(cond0Parts, cond9)
+	}
+	var cond10 string
+	if arg.Severities != nil {
+		if positions[12] == 0 {
+			args = append(args, arg.Severities)
+			positions[12] = len(args)
+		}
+		cond10 = fmt.Sprintf("f.severity = ANY($%d::text[])", positions[12])
+	}
+	if cond10 != "" {
+		cond0Parts = append(cond0Parts, cond10)
+	}
+	var cond11 string
+	if arg.TraceIds != nil {
+		if positions[13] == 0 {
+			args = append(args, arg.TraceIds)
+			positions[13] = len(args)
+		}
+		cond11 = fmt.Sprintf("f.trace_id = ANY($%d::text[])", positions[13])
+	}
+	if cond11 != "" {
+		cond0Parts = append(cond0Parts, cond11)
+	}
+	var cond12 string
+	if arg.AttributesMust != nil {
+		if positions[14] == 0 {
+			args = append(args, *arg.AttributesMust)
+			positions[14] = len(args)
+		}
+		cond12 = fmt.Sprintf("f.attributes @> $%d::jsonb", positions[14])
+	}
+	if cond12 != "" {
+		cond0Parts = append(cond0Parts, cond12)
+	}
+	var cond13 string
+	var cond13Parts []string
+	var cond14 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond14 = fmt.Sprintf("f.message ILIKE $%d::text", positions[15])
+	}
+	if cond14 != "" {
+		cond13Parts = append(cond13Parts, cond14)
+	}
+	var cond15 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond15 = fmt.Sprintf("f.action ILIKE $%d::text", positions[15])
+	}
+	if cond15 != "" {
+		cond13Parts = append(cond13Parts, cond15)
+	}
+	var cond16 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond16 = fmt.Sprintf("f.subject ILIKE $%d::text", positions[15])
+	}
+	if cond16 != "" {
+		cond13Parts = append(cond13Parts, cond16)
+	}
+	var cond17 string
+	if arg.Text != nil {
+		if positions[15] == 0 {
+			args = append(args, *arg.Text)
+			positions[15] = len(args)
+		}
+		cond17 = fmt.Sprintf("f.attributes::text ILIKE $%d::text", positions[15])
+	}
+	if cond17 != "" {
+		cond13Parts = append(cond13Parts, cond17)
+	}
+	if len(cond13Parts) > 0 {
+		cond13 = "(" + strings.Join(cond13Parts, " OR ") + ")"
+	}
+	if cond13 != "" {
+		cond0Parts = append(cond0Parts, cond13)
+	}
+	var cond18 string
+	var cond18Parts []string
+	var cond19 string
+	if arg.Conditions != nil {
+		if positions[16] == 0 {
+			args = append(args, *arg.Conditions)
+			positions[16] = len(args)
+		}
+		cond19 = fmt.Sprintf("EXISTS (\n    SELECT 1 FROM jsonb_array_elements($%d::jsonb) AS c,\n      LATERAL (SELECT COALESCE(to_jsonb(f) -> (c->>'field'), f.attributes -> (c->>'key')) AS v) AS t\n    WHERE NOT COALESCE(CASE c->>'op'\n      WHEN 'is' THEN t.v IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'is_not' THEN t.v IS NULL OR t.v NOT IN (SELECT jsonb_array_elements(c->'values'))\n      WHEN 'contains' THEN (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'not_contains' THEN t.v IS NULL OR NOT (t.v #>> '{}') ILIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'prefix' THEN (t.v #>> '{}') LIKE ANY (SELECT jsonb_array_elements_text(c->'patterns'))\n      WHEN 'exists' THEN t.v IS NOT NULL AND t.v <> '\"\"'::jsonb\n      WHEN 'not_exists' THEN t.v IS NULL OR t.v = '\"\"'::jsonb\n      WHEN 'gt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric > (c->>'number')::numeric\n      WHEN 'gte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric >= (c->>'number')::numeric\n      WHEN 'lt' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric < (c->>'number')::numeric\n      WHEN 'lte' THEN jsonb_typeof(t.v) = 'number' AND t.v::numeric <= (c->>'number')::numeric\n    END, false))", positions[16])
+	}
+	if cond19 != "" {
+		cond18Parts = append(cond18Parts, cond19)
+	}
+	if len(cond18Parts) > 0 {
+		cond18 = "NOT (" + cond18Parts[0] + ")"
+	}
+	if cond18 != "" {
+		cond0Parts = append(cond0Parts, cond18)
+	}
+	var cond20 string
+	cond20 = "t.value IS NOT NULL"
+	if cond20 != "" {
+		cond0Parts = append(cond0Parts, cond20)
+	}
+	var cond21 string
+	cond21 = "t.value <> '\"\"'::jsonb"
+	if cond21 != "" {
+		cond0Parts = append(cond0Parts, cond21)
+	}
+	if len(cond0Parts) > 0 {
+		cond0 = "(" + strings.Join(cond0Parts, " AND ") + ")"
+	}
+	if cond0 != "" {
+		b.WriteString("\nWHERE " + cond0)
+	}
+	if positions[17] == 0 {
+		args = append(args, arg.LimitValues)
+		positions[17] = len(args)
+	}
+	b.WriteString(fmt.Sprintf("\nGROUP BY t.value\nORDER BY count(*) DESC, t.value\nLIMIT $%d", positions[17]))
+	rows, err := q.db.Query(ctx, b.String(), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AuditFacetRow
+	for rows.Next() {
+		var i AuditFacetRow
+		if err := rows.Scan(&i.Value, &i.Count, &i.Total); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	return items, rows.Err()
 }

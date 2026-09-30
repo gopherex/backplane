@@ -5,7 +5,7 @@ import { ThemeContext, TimeRangePicker, WeekStartPicker } from '@grafana/ui';
 import { createGrafanaTheme } from '@gopherex/backplane-theme';
 import type { TimeRangeControlProps } from './time-range.js';
 
-export default function GrafanaTimeRange({ value, onChange, mode, label }: TimeRangeControlProps) {
+export default function GrafanaTimeRange({ value, onChange, mode, label, weekStartPicker }: TimeRangeControlProps) {
   const { t } = useTranslation('backplane.ui');
   const weekId = useId();
   const theme = useMemo(() => createGrafanaTheme(mode), [mode]);
@@ -27,6 +27,6 @@ export default function GrafanaTimeRange({ value, onChange, mode, label }: TimeR
     <TimeRangePicker value={range} timeZone={value.timeZone} weekStart={value.weekStart} onChange={change}
       onChangeTimeZone={(timeZone) => onChange({ ...value, timeZone })} onMoveBackward={() => move(-1)} onMoveForward={() => move(1)}
       onZoom={() => { const span = range.to.valueOf() - range.from.valueOf(); const from = dateTime(range.from.valueOf() - span / 2), to = dateTime(range.to.valueOf() + span / 2); change({ from, to, raw: { from, to } }); }} />
-    <label htmlFor={weekId}>{t('weekStart')}</label><WeekStartPicker inputId={weekId} value={value.weekStart ?? 'monday'} onChange={(weekStart) => onChange({ ...value, weekStart })} />
+    {weekStartPicker && <><label htmlFor={weekId}>{t('weekStart')}</label><WeekStartPicker inputId={weekId} value={value.weekStart ?? 'monday'} onChange={(weekStart) => onChange({ ...value, weekStart })} /></>}
   </section></ThemeContext.Provider>;
 }

@@ -160,7 +160,7 @@ func (c Config) ports() []error {
 	}
 
 	for _, l := range []struct{ name, addr string }{
-		{"xds.listen", c.XDS.Listen}, {"console.listen", c.Console.Listen},
+		{"xds.listen", c.XDS.Listen}, {"console.listen", c.Console.Listen}, {"audit.listen", c.Audit.Listen},
 	} {
 		port, err := listenPort(l.addr)
 		if err != nil {

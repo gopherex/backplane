@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { CircleAlert, LoaderCircle, PlugZap, WifiOff } from 'lucide-react';
 import { Button, EmptyState, ErrorBoundary, PageHeader, Skeleton, TooltipProvider } from '@gopherex/backplane-ui';
 import { PluginProvider } from '@gopherex/backplane-plugin-sdk';
-import { AuditFeed } from '@gopherex/backplane-platform-ui';
 import { ExploreRoute } from './ExploreRoute';
 import { WiringRoute } from './WiringRoute';
+import { AuditRoute } from './AuditRoute';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import Sidebar from './Sidebar';
 import type { useRegistry, ModuleEntry } from './registry';
@@ -63,7 +63,7 @@ export default function Console({ mode, onThemeChange, onLogout, registry }: { m
           <Route path="/services/:service/:tab?" element={<ServicePage mode={mode} services={services} index={index} />} />
           <Route path="/wiring" element={<><PageHeader title={t('wiring')} description={t('wiringDescription')} /><div className="console-fill"><WiringRoute mode={mode} /></div></>} />
           <Route path="/explore" element={<><PageHeader title={t('explore')} description={t('exploreDescription')} /><div className="console-fill"><ExploreRoute mode={mode} /></div></>} />
-          <Route path="/audit" element={<><PageHeader title={t('audit')} description={t('auditDescription')} /><div className="console-fill"><AuditFeed mode={mode} /></div></>} />
+          <Route path="/audit" element={<><PageHeader title={t('audit')} description={t('auditDescription')} /><div className="console-fill"><AuditRoute mode={mode} /></div></>} />
           <Route path="/s/:service/*" element={<div className="console-scroll"><ModulePage modules={registry.modules} mode={mode} retry={registry.retry} loading={registry.descriptors.loading} /></div>} />
           <Route path="/dev" element={<div className="console-scroll"><Suspense fallback={<p role="status"><LoaderCircle size={16} className="animate-spin" /></p>}><Development mode={mode} /></Suspense></div>} />
           <Route path="*" element={<NotFound />} />

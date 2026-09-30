@@ -15,7 +15,11 @@ not implemented. The server process still has its ordinary startup dependencies.
 
 The proxy treats signal payloads as opaque bytes. It never parses or re-encodes
 OTLP messages, reserves attribute names, injects storage metadata, duplicates
-records or archives metric points. Gzip is decoded only to enforce the body
+records or archives metric points. It marks every forwarded request with the
+header `X-Backplane-Ingest: proxy` (replacing any the client sent): the
+Collector's application audit pipeline drops audit records that came this way,
+so browsers and public ingest keys cannot write audit
+([audit-api.md](audit-api.md#application-audit)). Gzip is decoded only to enforce the body
 budget; the uncompressed payload is forwarded unchanged. Protocol validation,
 redaction, enrichment, batching and export belong to the external OTel pipeline.
 

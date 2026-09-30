@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 
+	"google.golang.org/protobuf/types/known/structpb"
+
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	"github.com/gopherex/backplane/internal/audit"
 )
@@ -13,13 +15,13 @@ import (
 func (w *replicaWorld) auditDelivered(t *testing.T) {
 	t.Helper()
 
-	var history consolev1.ListAuditResponse
-	w.call(t, "/backplane.console.v1.AuditService/ListAudit", &consolev1.ListAuditRequest{PageSize: 500}, &history)
+	var history consolev1.SearchAuditResponse
+	w.call(t, "/backplane.console.v1.AuditService/SearchAudit", &consolev1.SearchAuditRequest{PageSize: 500, Filter: platformOnly()}, &history)
 
-	wanted := make(map[string]*consolev1.AuditEntry)
+	wanted := make(map[string]*consolev1.AuditRecord)
 	actions := make(map[string]bool)
 
-	for _, entry := range history.GetEntries() {
+	for _, entry := range history.GetRecords() {
 		wanted[entry.GetId()] = entry
 		actions[entry.GetAction()] = true
 	}
@@ -65,4 +67,12 @@ func (w *replicaWorld) auditDelivered(t *testing.T) {
 
 		return len(wanted) == 0, fmt.Sprintf("%d audit events pending", len(wanted))
 	})
+}
+
+// platformOnly is the audit feed's platform entries.
+func platformOnly() *consolev1.AuditFilter {
+	return &consolev1.AuditFilter{Conditions: []*consolev1.AuditCondition{{
+		Target: &consolev1.AuditCondition_Field{Field: consolev1.AuditField_AUDIT_FIELD_SOURCE},
+		Op:     consolev1.AuditOperator_AUDIT_OPERATOR_IS, Values: []*structpb.Value{structpb.NewStringValue("platform")},
+	}}}
 }

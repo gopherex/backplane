@@ -9,6 +9,7 @@ package consolev1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -22,42 +23,259 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type AuditEntry struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Sequence  uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
-	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	Actor     string                 `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
-	Action    string                 `protobuf:"bytes,5,opt,name=action,proto3" json:"action,omitempty"`
-	Subject   string                 `protobuf:"bytes,6,opt,name=subject,proto3" json:"subject,omitempty"`
-	// succeeded (database control change), intent, succeeded/failed/partial/rejected/unknown
-	// (external command result). Intent without a result has an unknown outcome;
-	// never replay the command merely because its result entry is missing.
-	Outcome     string       `protobuf:"bytes,7,opt,name=outcome,proto3" json:"outcome,omitempty"`
-	OperationId string       `protobuf:"bytes,8,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Detail      *AuditDetail `protobuf:"bytes,9,opt,name=detail,proto3" json:"detail,omitempty"`
-	// The service the entry is about: its configuration, the binding of one of
-	// its hooks, a rule on one of its events or a command addressed to it.
-	// Empty for installation-wide entries (sessions).
-	Service       string `protobuf:"bytes,10,opt,name=service,proto3" json:"service,omitempty"`
+type AuditSource int32
+
+const (
+	AuditSource_AUDIT_SOURCE_UNSPECIFIED AuditSource = 0
+	// Operators' changes and commands (console sessions, admin).
+	AuditSource_AUDIT_SOURCE_PLATFORM AuditSource = 1
+	// Records marked backplane.audit=true by services and third parties.
+	AuditSource_AUDIT_SOURCE_APPLICATION AuditSource = 2
+)
+
+// Enum value maps for AuditSource.
+var (
+	AuditSource_name = map[int32]string{
+		0: "AUDIT_SOURCE_UNSPECIFIED",
+		1: "AUDIT_SOURCE_PLATFORM",
+		2: "AUDIT_SOURCE_APPLICATION",
+	}
+	AuditSource_value = map[string]int32{
+		"AUDIT_SOURCE_UNSPECIFIED": 0,
+		"AUDIT_SOURCE_PLATFORM":    1,
+		"AUDIT_SOURCE_APPLICATION": 2,
+	}
+)
+
+func (x AuditSource) Enum() *AuditSource {
+	p := new(AuditSource)
+	*p = x
+	return p
+}
+
+func (x AuditSource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AuditSource) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_console_v1_audit_proto_enumTypes[0].Descriptor()
+}
+
+func (AuditSource) Type() protoreflect.EnumType {
+	return &file_backplanepb_console_v1_audit_proto_enumTypes[0]
+}
+
+func (x AuditSource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AuditSource.Descriptor instead.
+func (AuditSource) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{0}
+}
+
+// AuditField is a fixed field of a record.
+type AuditField int32
+
+const (
+	AuditField_AUDIT_FIELD_UNSPECIFIED AuditField = 0
+	// "platform" or "application".
+	AuditField_AUDIT_FIELD_SOURCE    AuditField = 1
+	AuditField_AUDIT_FIELD_SERVICE   AuditField = 2
+	AuditField_AUDIT_FIELD_ACTION    AuditField = 3
+	AuditField_AUDIT_FIELD_ACTOR     AuditField = 4
+	AuditField_AUDIT_FIELD_SUBJECT   AuditField = 5
+	AuditField_AUDIT_FIELD_OUTCOME   AuditField = 6
+	AuditField_AUDIT_FIELD_OPERATION AuditField = 7
+	AuditField_AUDIT_FIELD_SEVERITY  AuditField = 8
+	AuditField_AUDIT_FIELD_TRACE_ID  AuditField = 9
+)
+
+// Enum value maps for AuditField.
+var (
+	AuditField_name = map[int32]string{
+		0: "AUDIT_FIELD_UNSPECIFIED",
+		1: "AUDIT_FIELD_SOURCE",
+		2: "AUDIT_FIELD_SERVICE",
+		3: "AUDIT_FIELD_ACTION",
+		4: "AUDIT_FIELD_ACTOR",
+		5: "AUDIT_FIELD_SUBJECT",
+		6: "AUDIT_FIELD_OUTCOME",
+		7: "AUDIT_FIELD_OPERATION",
+		8: "AUDIT_FIELD_SEVERITY",
+		9: "AUDIT_FIELD_TRACE_ID",
+	}
+	AuditField_value = map[string]int32{
+		"AUDIT_FIELD_UNSPECIFIED": 0,
+		"AUDIT_FIELD_SOURCE":      1,
+		"AUDIT_FIELD_SERVICE":     2,
+		"AUDIT_FIELD_ACTION":      3,
+		"AUDIT_FIELD_ACTOR":       4,
+		"AUDIT_FIELD_SUBJECT":     5,
+		"AUDIT_FIELD_OUTCOME":     6,
+		"AUDIT_FIELD_OPERATION":   7,
+		"AUDIT_FIELD_SEVERITY":    8,
+		"AUDIT_FIELD_TRACE_ID":    9,
+	}
+)
+
+func (x AuditField) Enum() *AuditField {
+	p := new(AuditField)
+	*p = x
+	return p
+}
+
+func (x AuditField) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AuditField) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_console_v1_audit_proto_enumTypes[1].Descriptor()
+}
+
+func (AuditField) Type() protoreflect.EnumType {
+	return &file_backplanepb_console_v1_audit_proto_enumTypes[1]
+}
+
+func (x AuditField) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AuditField.Descriptor instead.
+func (AuditField) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{1}
+}
+
+type AuditOperator int32
+
+const (
+	AuditOperator_AUDIT_OPERATOR_UNSPECIFIED AuditOperator = 0
+	// Equals any of the values.
+	AuditOperator_AUDIT_OPERATOR_IS     AuditOperator = 1
+	AuditOperator_AUDIT_OPERATOR_IS_NOT AuditOperator = 2
+	// Contains any of the values, case-insensitive.
+	AuditOperator_AUDIT_OPERATOR_CONTAINS     AuditOperator = 3
+	AuditOperator_AUDIT_OPERATOR_NOT_CONTAINS AuditOperator = 4
+	// Starts with any of the values.
+	AuditOperator_AUDIT_OPERATOR_PREFIX AuditOperator = 5
+	// Set (a field: not empty); no values.
+	AuditOperator_AUDIT_OPERATOR_EXISTS     AuditOperator = 6
+	AuditOperator_AUDIT_OPERATOR_NOT_EXISTS AuditOperator = 7
+	// Numeric comparison with one value (attributes holding numbers only).
+	AuditOperator_AUDIT_OPERATOR_GT  AuditOperator = 8
+	AuditOperator_AUDIT_OPERATOR_GTE AuditOperator = 9
+	AuditOperator_AUDIT_OPERATOR_LT  AuditOperator = 10
+	AuditOperator_AUDIT_OPERATOR_LTE AuditOperator = 11
+)
+
+// Enum value maps for AuditOperator.
+var (
+	AuditOperator_name = map[int32]string{
+		0:  "AUDIT_OPERATOR_UNSPECIFIED",
+		1:  "AUDIT_OPERATOR_IS",
+		2:  "AUDIT_OPERATOR_IS_NOT",
+		3:  "AUDIT_OPERATOR_CONTAINS",
+		4:  "AUDIT_OPERATOR_NOT_CONTAINS",
+		5:  "AUDIT_OPERATOR_PREFIX",
+		6:  "AUDIT_OPERATOR_EXISTS",
+		7:  "AUDIT_OPERATOR_NOT_EXISTS",
+		8:  "AUDIT_OPERATOR_GT",
+		9:  "AUDIT_OPERATOR_GTE",
+		10: "AUDIT_OPERATOR_LT",
+		11: "AUDIT_OPERATOR_LTE",
+	}
+	AuditOperator_value = map[string]int32{
+		"AUDIT_OPERATOR_UNSPECIFIED":  0,
+		"AUDIT_OPERATOR_IS":           1,
+		"AUDIT_OPERATOR_IS_NOT":       2,
+		"AUDIT_OPERATOR_CONTAINS":     3,
+		"AUDIT_OPERATOR_NOT_CONTAINS": 4,
+		"AUDIT_OPERATOR_PREFIX":       5,
+		"AUDIT_OPERATOR_EXISTS":       6,
+		"AUDIT_OPERATOR_NOT_EXISTS":   7,
+		"AUDIT_OPERATOR_GT":           8,
+		"AUDIT_OPERATOR_GTE":          9,
+		"AUDIT_OPERATOR_LT":           10,
+		"AUDIT_OPERATOR_LTE":          11,
+	}
+)
+
+func (x AuditOperator) Enum() *AuditOperator {
+	p := new(AuditOperator)
+	*p = x
+	return p
+}
+
+func (x AuditOperator) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AuditOperator) Descriptor() protoreflect.EnumDescriptor {
+	return file_backplanepb_console_v1_audit_proto_enumTypes[2].Descriptor()
+}
+
+func (AuditOperator) Type() protoreflect.EnumType {
+	return &file_backplanepb_console_v1_audit_proto_enumTypes[2]
+}
+
+func (x AuditOperator) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AuditOperator.Descriptor instead.
+func (AuditOperator) EnumDescriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{2}
+}
+
+// AuditRecord is one entry of the feed.
+type AuditRecord struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Id     string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Source AuditSource            `protobuf:"varint,2,opt,name=source,proto3,enum=backplane.console.v1.AuditSource" json:"source,omitempty"`
+	// When it happened: the platform entry's commit, the application record's
+	// time (else its observed time, else its arrival).
+	Time       *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=time,proto3" json:"time,omitempty"`
+	ReceivedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=received_at,json=receivedAt,proto3" json:"received_at,omitempty"`
+	// The service it is about; empty for installation-wide platform entries.
+	Service string `protobuf:"bytes,5,opt,name=service,proto3" json:"service,omitempty"`
+	Actor   string `protobuf:"bytes,6,opt,name=actor,proto3" json:"actor,omitempty"`
+	Action  string `protobuf:"bytes,7,opt,name=action,proto3" json:"action,omitempty"`
+	Subject string `protobuf:"bytes,8,opt,name=subject,proto3" json:"subject,omitempty"`
+	// Platform: succeeded, intent, failed, partial, rejected, unknown.
+	// Application: backplane.audit.outcome as sent.
+	Outcome string `protobuf:"bytes,9,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	// Application: the record's body. Platform: empty.
+	Message string `protobuf:"bytes,10,opt,name=message,proto3" json:"message,omitempty"`
+	// Platform: the operation id shared by a command's intent and result.
+	OperationId string `protobuf:"bytes,11,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// Platform: the entry's sequence (commit order). Application: 0.
+	Sequence uint64 `protobuf:"varint,12,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	// Platform: the entry's detail (revision, keys, workflow_id, run_id, ...).
+	// Application: the record's attributes.
+	Attributes *structpb.Struct `protobuf:"bytes,13,opt,name=attributes,proto3" json:"attributes,omitempty"`
+	// Application: the resource's attributes.
+	Resource      *structpb.Struct `protobuf:"bytes,14,opt,name=resource,proto3" json:"resource,omitempty"`
+	Severity      string           `protobuf:"bytes,15,opt,name=severity,proto3" json:"severity,omitempty"`
+	TraceId       string           `protobuf:"bytes,16,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
+	SpanId        string           `protobuf:"bytes,17,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuditEntry) Reset() {
-	*x = AuditEntry{}
+func (x *AuditRecord) Reset() {
+	*x = AuditRecord{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuditEntry) String() string {
+func (x *AuditRecord) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuditEntry) ProtoMessage() {}
+func (*AuditRecord) ProtoMessage() {}
 
-func (x *AuditEntry) ProtoReflect() protoreflect.Message {
+func (x *AuditRecord) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -69,119 +287,160 @@ func (x *AuditEntry) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuditEntry.ProtoReflect.Descriptor instead.
-func (*AuditEntry) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuditRecord.ProtoReflect.Descriptor instead.
+func (*AuditRecord) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *AuditEntry) GetId() string {
+func (x *AuditRecord) GetId() string {
 	if x != nil {
 		return x.Id
 	}
 	return ""
 }
 
-func (x *AuditEntry) GetSequence() uint64 {
+func (x *AuditRecord) GetSource() AuditSource {
 	if x != nil {
-		return x.Sequence
+		return x.Source
 	}
-	return 0
+	return AuditSource_AUDIT_SOURCE_UNSPECIFIED
 }
 
-func (x *AuditEntry) GetCreatedAt() *timestamppb.Timestamp {
+func (x *AuditRecord) GetTime() *timestamppb.Timestamp {
 	if x != nil {
-		return x.CreatedAt
-	}
-	return nil
-}
-
-func (x *AuditEntry) GetActor() string {
-	if x != nil {
-		return x.Actor
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetAction() string {
-	if x != nil {
-		return x.Action
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetSubject() string {
-	if x != nil {
-		return x.Subject
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetOutcome() string {
-	if x != nil {
-		return x.Outcome
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetOperationId() string {
-	if x != nil {
-		return x.OperationId
-	}
-	return ""
-}
-
-func (x *AuditEntry) GetDetail() *AuditDetail {
-	if x != nil {
-		return x.Detail
+		return x.Time
 	}
 	return nil
 }
 
-func (x *AuditEntry) GetService() string {
+func (x *AuditRecord) GetReceivedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ReceivedAt
+	}
+	return nil
+}
+
+func (x *AuditRecord) GetService() string {
 	if x != nil {
 		return x.Service
 	}
 	return ""
 }
 
-// Safe control metadata only. No request payload, arbitrary error text,
-// configuration values, revision comments, credentials or session tokens.
-// The operator's words on a run or schedule command are kept, bounded to
-// 256 characters: signal names, termination reasons, pause/resume notes.
-type AuditDetail struct {
-	state      protoimpl.MessageState `protogen:"open.v1"`
-	Revision   uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
-	RollbackOf uint64                 `protobuf:"varint,2,opt,name=rollback_of,json=rollbackOf,proto3" json:"rollback_of,omitempty"`
-	Keys       []string               `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
-	Paused     *bool                  `protobuf:"varint,4,opt,name=paused,proto3,oneof" json:"paused,omitempty"`
-	Code       string                 `protobuf:"bytes,5,opt,name=code,proto3" json:"code,omitempty"`
-	WorkflowId string                 `protobuf:"bytes,6,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
-	RunId      string                 `protobuf:"bytes,7,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Affected   uint64                 `protobuf:"varint,8,opt,name=affected,proto3" json:"affected,omitempty"`
-	// SignalRun: the signal's name (never its argument).
-	Signal string `protobuf:"bytes,9,opt,name=signal,proto3" json:"signal,omitempty"`
-	// TerminateRun: the reason the operator typed.
-	Reason string `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
-	// PauseSchedule, UnpauseSchedule: the note the operator typed.
-	Note          string `protobuf:"bytes,11,opt,name=note,proto3" json:"note,omitempty"`
+func (x *AuditRecord) GetActor() string {
+	if x != nil {
+		return x.Actor
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *AuditRecord) GetAttributes() *structpb.Struct {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+func (x *AuditRecord) GetResource() *structpb.Struct {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *AuditRecord) GetSeverity() string {
+	if x != nil {
+		return x.Severity
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetTraceId() string {
+	if x != nil {
+		return x.TraceId
+	}
+	return ""
+}
+
+func (x *AuditRecord) GetSpanId() string {
+	if x != nil {
+		return x.SpanId
+	}
+	return ""
+}
+
+// AuditCondition is one condition: a field or attribute, an operator, values.
+type AuditCondition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Target:
+	//
+	//	*AuditCondition_Field
+	//	*AuditCondition_Attribute
+	Target isAuditCondition_Target `protobuf_oneof:"target"`
+	Op     AuditOperator           `protobuf:"varint,3,opt,name=op,proto3,enum=backplane.console.v1.AuditOperator" json:"op,omitempty"`
+	// IS and IS_NOT compare JSON values exactly (an attribute holding 3 is 3,
+	// not "3"); a field compares text.
+	Values        []*structpb.Value `protobuf:"bytes,4,rep,name=values,proto3" json:"values,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AuditDetail) Reset() {
-	*x = AuditDetail{}
+func (x *AuditCondition) Reset() {
+	*x = AuditCondition{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AuditDetail) String() string {
+func (x *AuditCondition) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AuditDetail) ProtoMessage() {}
+func (*AuditCondition) ProtoMessage() {}
 
-func (x *AuditDetail) ProtoReflect() protoreflect.Message {
+func (x *AuditCondition) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -193,100 +452,76 @@ func (x *AuditDetail) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AuditDetail.ProtoReflect.Descriptor instead.
-func (*AuditDetail) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuditCondition.ProtoReflect.Descriptor instead.
+func (*AuditCondition) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AuditDetail) GetRevision() uint64 {
+func (x *AuditCondition) GetTarget() isAuditCondition_Target {
 	if x != nil {
-		return x.Revision
-	}
-	return 0
-}
-
-func (x *AuditDetail) GetRollbackOf() uint64 {
-	if x != nil {
-		return x.RollbackOf
-	}
-	return 0
-}
-
-func (x *AuditDetail) GetKeys() []string {
-	if x != nil {
-		return x.Keys
+		return x.Target
 	}
 	return nil
 }
 
-func (x *AuditDetail) GetPaused() bool {
-	if x != nil && x.Paused != nil {
-		return *x.Paused
+func (x *AuditCondition) GetField() AuditField {
+	if x != nil {
+		if x, ok := x.Target.(*AuditCondition_Field); ok {
+			return x.Field
+		}
 	}
-	return false
+	return AuditField_AUDIT_FIELD_UNSPECIFIED
 }
 
-func (x *AuditDetail) GetCode() string {
+func (x *AuditCondition) GetAttribute() string {
 	if x != nil {
-		return x.Code
+		if x, ok := x.Target.(*AuditCondition_Attribute); ok {
+			return x.Attribute
+		}
 	}
 	return ""
 }
 
-func (x *AuditDetail) GetWorkflowId() string {
+func (x *AuditCondition) GetOp() AuditOperator {
 	if x != nil {
-		return x.WorkflowId
+		return x.Op
 	}
-	return ""
+	return AuditOperator_AUDIT_OPERATOR_UNSPECIFIED
 }
 
-func (x *AuditDetail) GetRunId() string {
+func (x *AuditCondition) GetValues() []*structpb.Value {
 	if x != nil {
-		return x.RunId
+		return x.Values
 	}
-	return ""
+	return nil
 }
 
-func (x *AuditDetail) GetAffected() uint64 {
-	if x != nil {
-		return x.Affected
-	}
-	return 0
+type isAuditCondition_Target interface {
+	isAuditCondition_Target()
 }
 
-func (x *AuditDetail) GetSignal() string {
-	if x != nil {
-		return x.Signal
-	}
-	return ""
+type AuditCondition_Field struct {
+	Field AuditField `protobuf:"varint,1,opt,name=field,proto3,enum=backplane.console.v1.AuditField,oneof"`
 }
 
-func (x *AuditDetail) GetReason() string {
-	if x != nil {
-		return x.Reason
-	}
-	return ""
+type AuditCondition_Attribute struct {
+	// An attribute key as is ("tenant", "event.name", "workflow_id").
+	Attribute string `protobuf:"bytes,2,opt,name=attribute,proto3,oneof"`
 }
 
-func (x *AuditDetail) GetNote() string {
-	if x != nil {
-		return x.Note
-	}
-	return ""
-}
+func (*AuditCondition_Field) isAuditCondition_Target() {}
 
+func (*AuditCondition_Attribute) isAuditCondition_Target() {}
+
+// AuditFilter: every condition holds, and the text, and the time range.
 type AuditFilter struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Actor       string                 `protobuf:"bytes,1,opt,name=actor,proto3" json:"actor,omitempty"`
-	Action      string                 `protobuf:"bytes,2,opt,name=action,proto3" json:"action,omitempty"`
-	Subject     string                 `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
-	Outcome     string                 `protobuf:"bytes,4,opt,name=outcome,proto3" json:"outcome,omitempty"`
-	OperationId string                 `protobuf:"bytes,5,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	// Inclusive start, exclusive end. Absent = unbounded.
-	Start *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=start,proto3" json:"start,omitempty"`
-	End   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=end,proto3" json:"end,omitempty"`
-	// Only entries about this service (AuditEntry.service).
-	Service       string `protobuf:"bytes,8,opt,name=service,proto3" json:"service,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Inclusive start, exclusive end of the record's time. Absent: unbounded.
+	Start      *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	End        *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=end,proto3" json:"end,omitempty"`
+	Conditions []*AuditCondition      `protobuf:"bytes,3,rep,name=conditions,proto3" json:"conditions,omitempty"`
+	// Case-insensitive substring of the message, action, subject or attributes.
+	Text          string `protobuf:"bytes,4,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -321,41 +556,6 @@ func (*AuditFilter) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *AuditFilter) GetActor() string {
-	if x != nil {
-		return x.Actor
-	}
-	return ""
-}
-
-func (x *AuditFilter) GetAction() string {
-	if x != nil {
-		return x.Action
-	}
-	return ""
-}
-
-func (x *AuditFilter) GetSubject() string {
-	if x != nil {
-		return x.Subject
-	}
-	return ""
-}
-
-func (x *AuditFilter) GetOutcome() string {
-	if x != nil {
-		return x.Outcome
-	}
-	return ""
-}
-
-func (x *AuditFilter) GetOperationId() string {
-	if x != nil {
-		return x.OperationId
-	}
-	return ""
-}
-
 func (x *AuditFilter) GetStart() *timestamppb.Timestamp {
 	if x != nil {
 		return x.Start
@@ -370,14 +570,21 @@ func (x *AuditFilter) GetEnd() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *AuditFilter) GetService() string {
+func (x *AuditFilter) GetConditions() []*AuditCondition {
 	if x != nil {
-		return x.Service
+		return x.Conditions
+	}
+	return nil
+}
+
+func (x *AuditFilter) GetText() string {
+	if x != nil {
+		return x.Text
 	}
 	return ""
 }
 
-type ListAuditRequest struct {
+type SearchAuditRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Filter *AuditFilter           `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
 	// 0 = 100; maximum 500.
@@ -388,20 +595,20 @@ type ListAuditRequest struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ListAuditRequest) Reset() {
-	*x = ListAuditRequest{}
+func (x *SearchAuditRequest) Reset() {
+	*x = SearchAuditRequest{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListAuditRequest) String() string {
+func (x *SearchAuditRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListAuditRequest) ProtoMessage() {}
+func (*SearchAuditRequest) ProtoMessage() {}
 
-func (x *ListAuditRequest) ProtoReflect() protoreflect.Message {
+func (x *SearchAuditRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -413,56 +620,55 @@ func (x *ListAuditRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListAuditRequest.ProtoReflect.Descriptor instead.
-func (*ListAuditRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use SearchAuditRequest.ProtoReflect.Descriptor instead.
+func (*SearchAuditRequest) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ListAuditRequest) GetFilter() *AuditFilter {
+func (x *SearchAuditRequest) GetFilter() *AuditFilter {
 	if x != nil {
 		return x.Filter
 	}
 	return nil
 }
 
-func (x *ListAuditRequest) GetPageSize() uint32 {
+func (x *SearchAuditRequest) GetPageSize() uint32 {
 	if x != nil {
 		return x.PageSize
 	}
 	return 0
 }
 
-func (x *ListAuditRequest) GetPageCursor() string {
+func (x *SearchAuditRequest) GetPageCursor() string {
 	if x != nil {
 		return x.PageCursor
 	}
 	return ""
 }
 
-type ListAuditResponse struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Entries        []*AuditEntry          `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	NextPageCursor string                 `protobuf:"bytes,2,opt,name=next_page_cursor,json=nextPageCursor,proto3" json:"next_page_cursor,omitempty"`
-	// Starts a delta stream after the first page's consistent snapshot.
-	WatchCursor   string `protobuf:"bytes,3,opt,name=watch_cursor,json=watchCursor,proto3" json:"watch_cursor,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+type SearchAuditResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Records []*AuditRecord         `protobuf:"bytes,1,rep,name=records,proto3" json:"records,omitempty"`
+	// Empty on the last page.
+	NextPageCursor string `protobuf:"bytes,2,opt,name=next_page_cursor,json=nextPageCursor,proto3" json:"next_page_cursor,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
-func (x *ListAuditResponse) Reset() {
-	*x = ListAuditResponse{}
+func (x *SearchAuditResponse) Reset() {
+	*x = SearchAuditResponse{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ListAuditResponse) String() string {
+func (x *SearchAuditResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ListAuditResponse) ProtoMessage() {}
+func (*SearchAuditResponse) ProtoMessage() {}
 
-func (x *ListAuditResponse) ProtoReflect() protoreflect.Message {
+func (x *SearchAuditResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -474,55 +680,48 @@ func (x *ListAuditResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ListAuditResponse.ProtoReflect.Descriptor instead.
-func (*ListAuditResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use SearchAuditResponse.ProtoReflect.Descriptor instead.
+func (*SearchAuditResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{4}
 }
 
-func (x *ListAuditResponse) GetEntries() []*AuditEntry {
+func (x *SearchAuditResponse) GetRecords() []*AuditRecord {
 	if x != nil {
-		return x.Entries
+		return x.Records
 	}
 	return nil
 }
 
-func (x *ListAuditResponse) GetNextPageCursor() string {
+func (x *SearchAuditResponse) GetNextPageCursor() string {
 	if x != nil {
 		return x.NextPageCursor
 	}
 	return ""
 }
 
-func (x *ListAuditResponse) GetWatchCursor() string {
-	if x != nil {
-		return x.WatchCursor
-	}
-	return ""
-}
-
-type WatchAuditRequest struct {
+type AuditHistogramRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Filter *AuditFilter           `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
-	// Required. Bound to installation and filter; expired cursors fail explicitly.
-	AfterCursor   string `protobuf:"bytes,2,opt,name=after_cursor,json=afterCursor,proto3" json:"after_cursor,omitempty"`
+	// 0 = 60; at most 240.
+	Buckets       uint32 `protobuf:"varint,2,opt,name=buckets,proto3" json:"buckets,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *WatchAuditRequest) Reset() {
-	*x = WatchAuditRequest{}
+func (x *AuditHistogramRequest) Reset() {
+	*x = AuditHistogramRequest{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WatchAuditRequest) String() string {
+func (x *AuditHistogramRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WatchAuditRequest) ProtoMessage() {}
+func (*AuditHistogramRequest) ProtoMessage() {}
 
-func (x *WatchAuditRequest) ProtoReflect() protoreflect.Message {
+func (x *AuditHistogramRequest) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -534,47 +733,48 @@ func (x *WatchAuditRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WatchAuditRequest.ProtoReflect.Descriptor instead.
-func (*WatchAuditRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuditHistogramRequest.ProtoReflect.Descriptor instead.
+func (*AuditHistogramRequest) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *WatchAuditRequest) GetFilter() *AuditFilter {
+func (x *AuditHistogramRequest) GetFilter() *AuditFilter {
 	if x != nil {
 		return x.Filter
 	}
 	return nil
 }
 
-func (x *WatchAuditRequest) GetAfterCursor() string {
+func (x *AuditHistogramRequest) GetBuckets() uint32 {
 	if x != nil {
-		return x.AfterCursor
+		return x.Buckets
 	}
-	return ""
+	return 0
 }
 
-type WatchAuditResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Entries       []*AuditEntry          `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
-	Cursor        string                 `protobuf:"bytes,2,opt,name=cursor,proto3" json:"cursor,omitempty"`
+type AuditHistogramResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Buckets []*AuditBucket         `protobuf:"bytes,1,rep,name=buckets,proto3" json:"buckets,omitempty"`
+	// Width of every bucket.
+	StepSeconds   int64 `protobuf:"varint,2,opt,name=step_seconds,json=stepSeconds,proto3" json:"step_seconds,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *WatchAuditResponse) Reset() {
-	*x = WatchAuditResponse{}
+func (x *AuditHistogramResponse) Reset() {
+	*x = AuditHistogramResponse{}
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *WatchAuditResponse) String() string {
+func (x *AuditHistogramResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*WatchAuditResponse) ProtoMessage() {}
+func (*AuditHistogramResponse) ProtoMessage() {}
 
-func (x *WatchAuditResponse) ProtoReflect() protoreflect.Message {
+func (x *AuditHistogramResponse) ProtoReflect() protoreflect.Message {
 	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -586,88 +786,570 @@ func (x *WatchAuditResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use WatchAuditResponse.ProtoReflect.Descriptor instead.
-func (*WatchAuditResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use AuditHistogramResponse.ProtoReflect.Descriptor instead.
+func (*AuditHistogramResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *WatchAuditResponse) GetEntries() []*AuditEntry {
+func (x *AuditHistogramResponse) GetBuckets() []*AuditBucket {
 	if x != nil {
-		return x.Entries
+		return x.Buckets
 	}
 	return nil
 }
 
-func (x *WatchAuditResponse) GetCursor() string {
+func (x *AuditHistogramResponse) GetStepSeconds() int64 {
 	if x != nil {
-		return x.Cursor
+		return x.StepSeconds
+	}
+	return 0
+}
+
+type AuditBucket struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Start       *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start,proto3" json:"start,omitempty"`
+	Platform    uint64                 `protobuf:"varint,2,opt,name=platform,proto3" json:"platform,omitempty"`
+	Application uint64                 `protobuf:"varint,3,opt,name=application,proto3" json:"application,omitempty"`
+	// Of both: outcome failed, rejected, partial or unknown.
+	Failed        uint64 `protobuf:"varint,4,opt,name=failed,proto3" json:"failed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditBucket) Reset() {
+	*x = AuditBucket{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditBucket) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditBucket) ProtoMessage() {}
+
+func (x *AuditBucket) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditBucket.ProtoReflect.Descriptor instead.
+func (*AuditBucket) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AuditBucket) GetStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Start
+	}
+	return nil
+}
+
+func (x *AuditBucket) GetPlatform() uint64 {
+	if x != nil {
+		return x.Platform
+	}
+	return 0
+}
+
+func (x *AuditBucket) GetApplication() uint64 {
+	if x != nil {
+		return x.Application
+	}
+	return 0
+}
+
+func (x *AuditBucket) GetFailed() uint64 {
+	if x != nil {
+		return x.Failed
+	}
+	return 0
+}
+
+type AuditFieldsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Filter        *AuditFilter           `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFieldsRequest) Reset() {
+	*x = AuditFieldsRequest{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFieldsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFieldsRequest) ProtoMessage() {}
+
+func (x *AuditFieldsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFieldsRequest.ProtoReflect.Descriptor instead.
+func (*AuditFieldsRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AuditFieldsRequest) GetFilter() *AuditFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+type AuditFieldsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// At most 200.
+	Fields        []*AuditFieldCount `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFieldsResponse) Reset() {
+	*x = AuditFieldsResponse{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFieldsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFieldsResponse) ProtoMessage() {}
+
+func (x *AuditFieldsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFieldsResponse.ProtoReflect.Descriptor instead.
+func (*AuditFieldsResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *AuditFieldsResponse) GetFields() []*AuditFieldCount {
+	if x != nil {
+		return x.Fields
+	}
+	return nil
+}
+
+type AuditFieldCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Attribute     string                 `protobuf:"bytes,1,opt,name=attribute,proto3" json:"attribute,omitempty"`
+	Count         uint64                 `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFieldCount) Reset() {
+	*x = AuditFieldCount{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFieldCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFieldCount) ProtoMessage() {}
+
+func (x *AuditFieldCount) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFieldCount.ProtoReflect.Descriptor instead.
+func (*AuditFieldCount) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *AuditFieldCount) GetAttribute() string {
+	if x != nil {
+		return x.Attribute
 	}
 	return ""
+}
+
+func (x *AuditFieldCount) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+type AuditFacetsRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Filter *AuditFilter           `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	// Each a field or an attribute.
+	Targets []*AuditCondition `protobuf:"bytes,2,rep,name=targets,proto3" json:"targets,omitempty"`
+	// Values per target: 0 = 10; at most 50.
+	Limit         uint32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFacetsRequest) Reset() {
+	*x = AuditFacetsRequest{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFacetsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFacetsRequest) ProtoMessage() {}
+
+func (x *AuditFacetsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFacetsRequest.ProtoReflect.Descriptor instead.
+func (*AuditFacetsRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *AuditFacetsRequest) GetFilter() *AuditFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return nil
+}
+
+func (x *AuditFacetsRequest) GetTargets() []*AuditCondition {
+	if x != nil {
+		return x.Targets
+	}
+	return nil
+}
+
+func (x *AuditFacetsRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type AuditFacetsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// In the order of the targets.
+	Facets        []*AuditFacet `protobuf:"bytes,1,rep,name=facets,proto3" json:"facets,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFacetsResponse) Reset() {
+	*x = AuditFacetsResponse{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFacetsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFacetsResponse) ProtoMessage() {}
+
+func (x *AuditFacetsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFacetsResponse.ProtoReflect.Descriptor instead.
+func (*AuditFacetsResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AuditFacetsResponse) GetFacets() []*AuditFacet {
+	if x != nil {
+		return x.Facets
+	}
+	return nil
+}
+
+type AuditFacet struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Target *AuditCondition        `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	Values []*AuditFacetValue     `protobuf:"bytes,2,rep,name=values,proto3" json:"values,omitempty"`
+	// Matching records the target is set in.
+	Total         uint64 `protobuf:"varint,3,opt,name=total,proto3" json:"total,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFacet) Reset() {
+	*x = AuditFacet{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFacet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFacet) ProtoMessage() {}
+
+func (x *AuditFacet) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFacet.ProtoReflect.Descriptor instead.
+func (*AuditFacet) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AuditFacet) GetTarget() *AuditCondition {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *AuditFacet) GetValues() []*AuditFacetValue {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+func (x *AuditFacet) GetTotal() uint64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+type AuditFacetValue struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Value         *structpb.Value        `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Count         uint64                 `protobuf:"varint,2,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuditFacetValue) Reset() {
+	*x = AuditFacetValue{}
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuditFacetValue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuditFacetValue) ProtoMessage() {}
+
+func (x *AuditFacetValue) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_audit_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuditFacetValue.ProtoReflect.Descriptor instead.
+func (*AuditFacetValue) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_audit_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AuditFacetValue) GetValue() *structpb.Value {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *AuditFacetValue) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
 }
 
 var File_backplanepb_console_v1_audit_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\n" +
-	"\"backplanepb/console/v1/audit.proto\x12\x14backplane.console.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcd\x02\n" +
+	"\"backplanepb/console/v1/audit.proto\x12\x14backplane.console.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xd8\x04\n" +
+	"\vAuditRecord\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
+	"\x06source\x18\x02 \x01(\x0e2!.backplane.console.v1.AuditSourceR\x06source\x12.\n" +
+	"\x04time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12;\n" +
+	"\vreceived_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"receivedAt\x12\x18\n" +
+	"\aservice\x18\x05 \x01(\tR\aservice\x12\x14\n" +
+	"\x05actor\x18\x06 \x01(\tR\x05actor\x12\x16\n" +
+	"\x06action\x18\a \x01(\tR\x06action\x12\x18\n" +
+	"\asubject\x18\b \x01(\tR\asubject\x12\x18\n" +
+	"\aoutcome\x18\t \x01(\tR\aoutcome\x12\x18\n" +
+	"\amessage\x18\n" +
+	" \x01(\tR\amessage\x12!\n" +
+	"\foperation_id\x18\v \x01(\tR\voperationId\x12\x1a\n" +
+	"\bsequence\x18\f \x01(\x04R\bsequence\x127\n" +
 	"\n" +
-	"AuditEntry\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
-	"\bsequence\x18\x02 \x01(\x04R\bsequence\x129\n" +
+	"attributes\x18\r \x01(\v2\x17.google.protobuf.StructR\n" +
+	"attributes\x123\n" +
+	"\bresource\x18\x0e \x01(\v2\x17.google.protobuf.StructR\bresource\x12\x1a\n" +
+	"\bseverity\x18\x0f \x01(\tR\bseverity\x12\x19\n" +
+	"\btrace_id\x18\x10 \x01(\tR\atraceId\x12\x17\n" +
+	"\aspan_id\x18\x11 \x01(\tR\x06spanId\"\xd9\x01\n" +
+	"\x0eAuditCondition\x128\n" +
+	"\x05field\x18\x01 \x01(\x0e2 .backplane.console.v1.AuditFieldH\x00R\x05field\x12\x1e\n" +
+	"\tattribute\x18\x02 \x01(\tH\x00R\tattribute\x123\n" +
+	"\x02op\x18\x03 \x01(\x0e2#.backplane.console.v1.AuditOperatorR\x02op\x12.\n" +
+	"\x06values\x18\x04 \x03(\v2\x16.google.protobuf.ValueR\x06valuesB\b\n" +
+	"\x06target\"\xc7\x01\n" +
+	"\vAuditFilter\x120\n" +
+	"\x05start\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
+	"\x03end\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x03end\x12D\n" +
 	"\n" +
-	"created_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x14\n" +
-	"\x05actor\x18\x04 \x01(\tR\x05actor\x12\x16\n" +
-	"\x06action\x18\x05 \x01(\tR\x06action\x12\x18\n" +
-	"\asubject\x18\x06 \x01(\tR\asubject\x12\x18\n" +
-	"\aoutcome\x18\a \x01(\tR\aoutcome\x12!\n" +
-	"\foperation_id\x18\b \x01(\tR\voperationId\x129\n" +
-	"\x06detail\x18\t \x01(\v2!.backplane.console.v1.AuditDetailR\x06detail\x12\x18\n" +
-	"\aservice\x18\n" +
-	" \x01(\tR\aservice\"\xb2\x02\n" +
-	"\vAuditDetail\x12\x1a\n" +
-	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1f\n" +
-	"\vrollback_of\x18\x02 \x01(\x04R\n" +
-	"rollbackOf\x12\x12\n" +
-	"\x04keys\x18\x03 \x03(\tR\x04keys\x12\x1b\n" +
-	"\x06paused\x18\x04 \x01(\bH\x00R\x06paused\x88\x01\x01\x12\x12\n" +
-	"\x04code\x18\x05 \x01(\tR\x04code\x12\x1f\n" +
-	"\vworkflow_id\x18\x06 \x01(\tR\n" +
-	"workflowId\x12\x15\n" +
-	"\x06run_id\x18\a \x01(\tR\x05runId\x12\x1a\n" +
-	"\baffected\x18\b \x01(\x04R\baffected\x12\x16\n" +
-	"\x06signal\x18\t \x01(\tR\x06signal\x12\x16\n" +
-	"\x06reason\x18\n" +
-	" \x01(\tR\x06reason\x12\x12\n" +
-	"\x04note\x18\v \x01(\tR\x04noteB\t\n" +
-	"\a_paused\"\x8c\x02\n" +
-	"\vAuditFilter\x12\x14\n" +
-	"\x05actor\x18\x01 \x01(\tR\x05actor\x12\x16\n" +
-	"\x06action\x18\x02 \x01(\tR\x06action\x12\x18\n" +
-	"\asubject\x18\x03 \x01(\tR\asubject\x12\x18\n" +
-	"\aoutcome\x18\x04 \x01(\tR\aoutcome\x12!\n" +
-	"\foperation_id\x18\x05 \x01(\tR\voperationId\x120\n" +
-	"\x05start\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
-	"\x03end\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x03end\x12\x18\n" +
-	"\aservice\x18\b \x01(\tR\aservice\"\x8b\x01\n" +
-	"\x10ListAuditRequest\x129\n" +
+	"conditions\x18\x03 \x03(\v2$.backplane.console.v1.AuditConditionR\n" +
+	"conditions\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text\"\x8d\x01\n" +
+	"\x12SearchAuditRequest\x129\n" +
 	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\rR\bpageSize\x12\x1f\n" +
 	"\vpage_cursor\x18\x03 \x01(\tR\n" +
-	"pageCursor\"\x9c\x01\n" +
-	"\x11ListAuditResponse\x12:\n" +
-	"\aentries\x18\x01 \x03(\v2 .backplane.console.v1.AuditEntryR\aentries\x12(\n" +
-	"\x10next_page_cursor\x18\x02 \x01(\tR\x0enextPageCursor\x12!\n" +
-	"\fwatch_cursor\x18\x03 \x01(\tR\vwatchCursor\"q\n" +
-	"\x11WatchAuditRequest\x129\n" +
-	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\x12!\n" +
-	"\fafter_cursor\x18\x02 \x01(\tR\vafterCursor\"h\n" +
-	"\x12WatchAuditResponse\x12:\n" +
-	"\aentries\x18\x01 \x03(\v2 .backplane.console.v1.AuditEntryR\aentries\x12\x16\n" +
-	"\x06cursor\x18\x02 \x01(\tR\x06cursor2\xcf\x01\n" +
-	"\fAuditService\x12\\\n" +
-	"\tListAudit\x12&.backplane.console.v1.ListAuditRequest\x1a'.backplane.console.v1.ListAuditResponse\x12a\n" +
+	"pageCursor\"|\n" +
+	"\x13SearchAuditResponse\x12;\n" +
+	"\arecords\x18\x01 \x03(\v2!.backplane.console.v1.AuditRecordR\arecords\x12(\n" +
+	"\x10next_page_cursor\x18\x02 \x01(\tR\x0enextPageCursor\"l\n" +
+	"\x15AuditHistogramRequest\x129\n" +
+	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\x12\x18\n" +
+	"\abuckets\x18\x02 \x01(\rR\abuckets\"x\n" +
+	"\x16AuditHistogramResponse\x12;\n" +
+	"\abuckets\x18\x01 \x03(\v2!.backplane.console.v1.AuditBucketR\abuckets\x12!\n" +
+	"\fstep_seconds\x18\x02 \x01(\x03R\vstepSeconds\"\x95\x01\n" +
+	"\vAuditBucket\x120\n" +
+	"\x05start\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12\x1a\n" +
+	"\bplatform\x18\x02 \x01(\x04R\bplatform\x12 \n" +
+	"\vapplication\x18\x03 \x01(\x04R\vapplication\x12\x16\n" +
+	"\x06failed\x18\x04 \x01(\x04R\x06failed\"O\n" +
+	"\x12AuditFieldsRequest\x129\n" +
+	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\"T\n" +
+	"\x13AuditFieldsResponse\x12=\n" +
+	"\x06fields\x18\x01 \x03(\v2%.backplane.console.v1.AuditFieldCountR\x06fields\"E\n" +
+	"\x0fAuditFieldCount\x12\x1c\n" +
+	"\tattribute\x18\x01 \x01(\tR\tattribute\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x04R\x05count\"\xa5\x01\n" +
+	"\x12AuditFacetsRequest\x129\n" +
+	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\x12>\n" +
+	"\atargets\x18\x02 \x03(\v2$.backplane.console.v1.AuditConditionR\atargets\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\rR\x05limit\"O\n" +
+	"\x13AuditFacetsResponse\x128\n" +
+	"\x06facets\x18\x01 \x03(\v2 .backplane.console.v1.AuditFacetR\x06facets\"\x9f\x01\n" +
 	"\n" +
-	"WatchAudit\x12'.backplane.console.v1.WatchAuditRequest\x1a(.backplane.console.v1.WatchAuditResponse0\x01B@Z>github.com/gopherex/backplane/backplanepb/console/v1;consolev1b\x06proto3"
+	"AuditFacet\x12<\n" +
+	"\x06target\x18\x01 \x01(\v2$.backplane.console.v1.AuditConditionR\x06target\x12=\n" +
+	"\x06values\x18\x02 \x03(\v2%.backplane.console.v1.AuditFacetValueR\x06values\x12\x14\n" +
+	"\x05total\x18\x03 \x01(\x04R\x05total\"U\n" +
+	"\x0fAuditFacetValue\x12,\n" +
+	"\x05value\x18\x01 \x01(\v2\x16.google.protobuf.ValueR\x05value\x12\x14\n" +
+	"\x05count\x18\x02 \x01(\x04R\x05count*d\n" +
+	"\vAuditSource\x12\x1c\n" +
+	"\x18AUDIT_SOURCE_UNSPECIFIED\x10\x00\x12\x19\n" +
+	"\x15AUDIT_SOURCE_PLATFORM\x10\x01\x12\x1c\n" +
+	"\x18AUDIT_SOURCE_APPLICATION\x10\x02*\x8a\x02\n" +
+	"\n" +
+	"AuditField\x12\x1b\n" +
+	"\x17AUDIT_FIELD_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12AUDIT_FIELD_SOURCE\x10\x01\x12\x17\n" +
+	"\x13AUDIT_FIELD_SERVICE\x10\x02\x12\x16\n" +
+	"\x12AUDIT_FIELD_ACTION\x10\x03\x12\x15\n" +
+	"\x11AUDIT_FIELD_ACTOR\x10\x04\x12\x17\n" +
+	"\x13AUDIT_FIELD_SUBJECT\x10\x05\x12\x17\n" +
+	"\x13AUDIT_FIELD_OUTCOME\x10\x06\x12\x19\n" +
+	"\x15AUDIT_FIELD_OPERATION\x10\a\x12\x18\n" +
+	"\x14AUDIT_FIELD_SEVERITY\x10\b\x12\x18\n" +
+	"\x14AUDIT_FIELD_TRACE_ID\x10\t*\xd2\x02\n" +
+	"\rAuditOperator\x12\x1e\n" +
+	"\x1aAUDIT_OPERATOR_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11AUDIT_OPERATOR_IS\x10\x01\x12\x19\n" +
+	"\x15AUDIT_OPERATOR_IS_NOT\x10\x02\x12\x1b\n" +
+	"\x17AUDIT_OPERATOR_CONTAINS\x10\x03\x12\x1f\n" +
+	"\x1bAUDIT_OPERATOR_NOT_CONTAINS\x10\x04\x12\x19\n" +
+	"\x15AUDIT_OPERATOR_PREFIX\x10\x05\x12\x19\n" +
+	"\x15AUDIT_OPERATOR_EXISTS\x10\x06\x12\x1d\n" +
+	"\x19AUDIT_OPERATOR_NOT_EXISTS\x10\a\x12\x15\n" +
+	"\x11AUDIT_OPERATOR_GT\x10\b\x12\x16\n" +
+	"\x12AUDIT_OPERATOR_GTE\x10\t\x12\x15\n" +
+	"\x11AUDIT_OPERATOR_LT\x10\n" +
+	"\x12\x16\n" +
+	"\x12AUDIT_OPERATOR_LTE\x10\v2\xa7\x03\n" +
+	"\fAuditService\x12b\n" +
+	"\vSearchAudit\x12(.backplane.console.v1.SearchAuditRequest\x1a).backplane.console.v1.SearchAuditResponse\x12k\n" +
+	"\x0eAuditHistogram\x12+.backplane.console.v1.AuditHistogramRequest\x1a,.backplane.console.v1.AuditHistogramResponse\x12b\n" +
+	"\vAuditFields\x12(.backplane.console.v1.AuditFieldsRequest\x1a).backplane.console.v1.AuditFieldsResponse\x12b\n" +
+	"\vAuditFacets\x12(.backplane.console.v1.AuditFacetsRequest\x1a).backplane.console.v1.AuditFacetsResponseB@Z>github.com/gopherex/backplane/backplanepb/console/v1;consolev1b\x06proto3"
 
 var (
 	file_backplanepb_console_v1_audit_proto_rawDescOnce sync.Once
@@ -681,35 +1363,69 @@ func file_backplanepb_console_v1_audit_proto_rawDescGZIP() []byte {
 	return file_backplanepb_console_v1_audit_proto_rawDescData
 }
 
-var file_backplanepb_console_v1_audit_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_backplanepb_console_v1_audit_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_backplanepb_console_v1_audit_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_backplanepb_console_v1_audit_proto_goTypes = []any{
-	(*AuditEntry)(nil),            // 0: backplane.console.v1.AuditEntry
-	(*AuditDetail)(nil),           // 1: backplane.console.v1.AuditDetail
-	(*AuditFilter)(nil),           // 2: backplane.console.v1.AuditFilter
-	(*ListAuditRequest)(nil),      // 3: backplane.console.v1.ListAuditRequest
-	(*ListAuditResponse)(nil),     // 4: backplane.console.v1.ListAuditResponse
-	(*WatchAuditRequest)(nil),     // 5: backplane.console.v1.WatchAuditRequest
-	(*WatchAuditResponse)(nil),    // 6: backplane.console.v1.WatchAuditResponse
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
+	(AuditSource)(0),               // 0: backplane.console.v1.AuditSource
+	(AuditField)(0),                // 1: backplane.console.v1.AuditField
+	(AuditOperator)(0),             // 2: backplane.console.v1.AuditOperator
+	(*AuditRecord)(nil),            // 3: backplane.console.v1.AuditRecord
+	(*AuditCondition)(nil),         // 4: backplane.console.v1.AuditCondition
+	(*AuditFilter)(nil),            // 5: backplane.console.v1.AuditFilter
+	(*SearchAuditRequest)(nil),     // 6: backplane.console.v1.SearchAuditRequest
+	(*SearchAuditResponse)(nil),    // 7: backplane.console.v1.SearchAuditResponse
+	(*AuditHistogramRequest)(nil),  // 8: backplane.console.v1.AuditHistogramRequest
+	(*AuditHistogramResponse)(nil), // 9: backplane.console.v1.AuditHistogramResponse
+	(*AuditBucket)(nil),            // 10: backplane.console.v1.AuditBucket
+	(*AuditFieldsRequest)(nil),     // 11: backplane.console.v1.AuditFieldsRequest
+	(*AuditFieldsResponse)(nil),    // 12: backplane.console.v1.AuditFieldsResponse
+	(*AuditFieldCount)(nil),        // 13: backplane.console.v1.AuditFieldCount
+	(*AuditFacetsRequest)(nil),     // 14: backplane.console.v1.AuditFacetsRequest
+	(*AuditFacetsResponse)(nil),    // 15: backplane.console.v1.AuditFacetsResponse
+	(*AuditFacet)(nil),             // 16: backplane.console.v1.AuditFacet
+	(*AuditFacetValue)(nil),        // 17: backplane.console.v1.AuditFacetValue
+	(*timestamppb.Timestamp)(nil),  // 18: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),        // 19: google.protobuf.Struct
+	(*structpb.Value)(nil),         // 20: google.protobuf.Value
 }
 var file_backplanepb_console_v1_audit_proto_depIdxs = []int32{
-	7,  // 0: backplane.console.v1.AuditEntry.created_at:type_name -> google.protobuf.Timestamp
-	1,  // 1: backplane.console.v1.AuditEntry.detail:type_name -> backplane.console.v1.AuditDetail
-	7,  // 2: backplane.console.v1.AuditFilter.start:type_name -> google.protobuf.Timestamp
-	7,  // 3: backplane.console.v1.AuditFilter.end:type_name -> google.protobuf.Timestamp
-	2,  // 4: backplane.console.v1.ListAuditRequest.filter:type_name -> backplane.console.v1.AuditFilter
-	0,  // 5: backplane.console.v1.ListAuditResponse.entries:type_name -> backplane.console.v1.AuditEntry
-	2,  // 6: backplane.console.v1.WatchAuditRequest.filter:type_name -> backplane.console.v1.AuditFilter
-	0,  // 7: backplane.console.v1.WatchAuditResponse.entries:type_name -> backplane.console.v1.AuditEntry
-	3,  // 8: backplane.console.v1.AuditService.ListAudit:input_type -> backplane.console.v1.ListAuditRequest
-	5,  // 9: backplane.console.v1.AuditService.WatchAudit:input_type -> backplane.console.v1.WatchAuditRequest
-	4,  // 10: backplane.console.v1.AuditService.ListAudit:output_type -> backplane.console.v1.ListAuditResponse
-	6,  // 11: backplane.console.v1.AuditService.WatchAudit:output_type -> backplane.console.v1.WatchAuditResponse
-	10, // [10:12] is the sub-list for method output_type
-	8,  // [8:10] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	0,  // 0: backplane.console.v1.AuditRecord.source:type_name -> backplane.console.v1.AuditSource
+	18, // 1: backplane.console.v1.AuditRecord.time:type_name -> google.protobuf.Timestamp
+	18, // 2: backplane.console.v1.AuditRecord.received_at:type_name -> google.protobuf.Timestamp
+	19, // 3: backplane.console.v1.AuditRecord.attributes:type_name -> google.protobuf.Struct
+	19, // 4: backplane.console.v1.AuditRecord.resource:type_name -> google.protobuf.Struct
+	1,  // 5: backplane.console.v1.AuditCondition.field:type_name -> backplane.console.v1.AuditField
+	2,  // 6: backplane.console.v1.AuditCondition.op:type_name -> backplane.console.v1.AuditOperator
+	20, // 7: backplane.console.v1.AuditCondition.values:type_name -> google.protobuf.Value
+	18, // 8: backplane.console.v1.AuditFilter.start:type_name -> google.protobuf.Timestamp
+	18, // 9: backplane.console.v1.AuditFilter.end:type_name -> google.protobuf.Timestamp
+	4,  // 10: backplane.console.v1.AuditFilter.conditions:type_name -> backplane.console.v1.AuditCondition
+	5,  // 11: backplane.console.v1.SearchAuditRequest.filter:type_name -> backplane.console.v1.AuditFilter
+	3,  // 12: backplane.console.v1.SearchAuditResponse.records:type_name -> backplane.console.v1.AuditRecord
+	5,  // 13: backplane.console.v1.AuditHistogramRequest.filter:type_name -> backplane.console.v1.AuditFilter
+	10, // 14: backplane.console.v1.AuditHistogramResponse.buckets:type_name -> backplane.console.v1.AuditBucket
+	18, // 15: backplane.console.v1.AuditBucket.start:type_name -> google.protobuf.Timestamp
+	5,  // 16: backplane.console.v1.AuditFieldsRequest.filter:type_name -> backplane.console.v1.AuditFilter
+	13, // 17: backplane.console.v1.AuditFieldsResponse.fields:type_name -> backplane.console.v1.AuditFieldCount
+	5,  // 18: backplane.console.v1.AuditFacetsRequest.filter:type_name -> backplane.console.v1.AuditFilter
+	4,  // 19: backplane.console.v1.AuditFacetsRequest.targets:type_name -> backplane.console.v1.AuditCondition
+	16, // 20: backplane.console.v1.AuditFacetsResponse.facets:type_name -> backplane.console.v1.AuditFacet
+	4,  // 21: backplane.console.v1.AuditFacet.target:type_name -> backplane.console.v1.AuditCondition
+	17, // 22: backplane.console.v1.AuditFacet.values:type_name -> backplane.console.v1.AuditFacetValue
+	20, // 23: backplane.console.v1.AuditFacetValue.value:type_name -> google.protobuf.Value
+	6,  // 24: backplane.console.v1.AuditService.SearchAudit:input_type -> backplane.console.v1.SearchAuditRequest
+	8,  // 25: backplane.console.v1.AuditService.AuditHistogram:input_type -> backplane.console.v1.AuditHistogramRequest
+	11, // 26: backplane.console.v1.AuditService.AuditFields:input_type -> backplane.console.v1.AuditFieldsRequest
+	14, // 27: backplane.console.v1.AuditService.AuditFacets:input_type -> backplane.console.v1.AuditFacetsRequest
+	7,  // 28: backplane.console.v1.AuditService.SearchAudit:output_type -> backplane.console.v1.SearchAuditResponse
+	9,  // 29: backplane.console.v1.AuditService.AuditHistogram:output_type -> backplane.console.v1.AuditHistogramResponse
+	12, // 30: backplane.console.v1.AuditService.AuditFields:output_type -> backplane.console.v1.AuditFieldsResponse
+	15, // 31: backplane.console.v1.AuditService.AuditFacets:output_type -> backplane.console.v1.AuditFacetsResponse
+	28, // [28:32] is the sub-list for method output_type
+	24, // [24:28] is the sub-list for method input_type
+	24, // [24:24] is the sub-list for extension type_name
+	24, // [24:24] is the sub-list for extension extendee
+	0,  // [0:24] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_console_v1_audit_proto_init() }
@@ -717,19 +1433,23 @@ func file_backplanepb_console_v1_audit_proto_init() {
 	if File_backplanepb_console_v1_audit_proto != nil {
 		return
 	}
-	file_backplanepb_console_v1_audit_proto_msgTypes[1].OneofWrappers = []any{}
+	file_backplanepb_console_v1_audit_proto_msgTypes[1].OneofWrappers = []any{
+		(*AuditCondition_Field)(nil),
+		(*AuditCondition_Attribute)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_console_v1_audit_proto_rawDesc), len(file_backplanepb_console_v1_audit_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   7,
+			NumEnums:      3,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_backplanepb_console_v1_audit_proto_goTypes,
 		DependencyIndexes: file_backplanepb_console_v1_audit_proto_depIdxs,
+		EnumInfos:         file_backplanepb_console_v1_audit_proto_enumTypes,
 		MessageInfos:      file_backplanepb_console_v1_audit_proto_msgTypes,
 	}.Build()
 	File_backplanepb_console_v1_audit_proto = out.File

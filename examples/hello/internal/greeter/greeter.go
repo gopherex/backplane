@@ -21,6 +21,7 @@ import (
 
 	"github.com/gopherex/backplane/examples/hello/internal/store"
 	hellov1 "github.com/gopherex/backplane/examples/hello/proto/hello/v1"
+	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/event"
@@ -151,9 +152,16 @@ func (g *Greeter) Text(ctx context.Context, name string) (string, error) {
 func (g *Greeter) Record(ctx context.Context, name, text string) {
 	count := g.db.Get().Inc(ctx, name)
 	g.greetings.Add(ctx, 1)
+	id := g.boot + "-" + name + "-" + strconv.FormatUint(count, 10)
+
+	// Application audit: the Collector forwards it to backplane (§14).
+	g.Log().Ctx().Info(ctx, "greeting delivered", backplane.Audit(),
+		xlog.String("event.name", "greeting.delivered"), xlog.String(backplane.AuditID, id),
+		xlog.String(backplane.AuditSubject, "name/"+name), xlog.String(backplane.AuditOutcome, "succeeded"),
+		xlog.Uint64("count", count))
 
 	err := g.greeted.Publish(ctx, Greeted{Name: name, Count: count, Text: text},
-		event.Key(name), event.ID(g.boot+"-"+name+"-"+strconv.FormatUint(count, 10)),
+		event.Key(name), event.ID(id),
 		event.Header("excited", strconv.FormatBool(g.cfg.Excited.Get())))
 	if err != nil {
 		g.Log().Ctx().Debug(ctx, "greeted not published", xlog.Err(err))

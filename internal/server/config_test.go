@@ -40,7 +40,7 @@ func TestConfigFromEnv(t *testing.T) {
 		t.Fatalf("env: %+v", cfg)
 	}
 
-	if cfg.XDS.Listen != ":18000" || cfg.Console.Listen != ":8081" || cfg.InternalPort != 9400 {
+	if cfg.XDS.Listen != ":18000" || cfg.Console.Listen != ":8081" || cfg.Audit.Listen != ":4317" || cfg.InternalPort != 9400 {
 		t.Fatalf("defaults: xds %q console %q internal %d", cfg.XDS.Listen, cfg.Console.Listen, cfg.InternalPort)
 	}
 
@@ -80,7 +80,7 @@ func TestValidate(t *testing.T) {
 		c.Consul.Addr = "consul:8500"
 		c.AdminToken = "admin-token-0123456789"
 		c.InternalPort, c.PublicPort = 9400, 8080
-		c.XDS.Listen, c.Console.Listen = ":18000", ":8081"
+		c.XDS.Listen, c.Console.Listen, c.Audit.Listen = ":18000", ":8081", ":4317"
 
 		return c
 	}
@@ -107,6 +107,7 @@ func TestValidate(t *testing.T) {
 		"origin scheme":     {func(c *server.Config) { c.Console.Origins = []string{"c.example.com"} }, server.ErrOrigin},
 		"proxy":             {func(c *server.Config) { c.Console.TrustedProxies = []string{"10.0.0.0/33"} }, server.ErrProxy},
 		"obs not a url":     {func(c *server.Config) { c.Obs.TracesURL = "tempo:3200" }, server.ErrURL},
+		"audit on xds":      {func(c *server.Config) { c.Audit.Listen = ":18000" }, server.ErrPortTaken},
 	}
 
 	for name, tc := range cases {

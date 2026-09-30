@@ -6,7 +6,7 @@ export interface ChartProps {
   label: string; series: readonly ChartSeries[]; mode: 'dark' | 'light'; kind?: 'line' | 'bars' | 'histogram';
   height?: number; maxPoints?: number; timeZone?: string; loading?: boolean; error?: string; partial?: boolean;
   onRangeChange?: (range: { from: number; to: number }) => void;
-  /** Series toggles and the data table under the plot; off when the caller renders its own legend. */
+  /** Series toggles, the data table and the typed range form under the plot (dragging still selects a range); off when the caller renders its own legend and range picker. */
   controls?: boolean;
 }
 export interface Threshold { value: number; color: string }

@@ -1,8 +1,16 @@
-# Durable control audit
+# Durable control audit and application audit
 
 `backplane.console.v1.AuditService` uses the console cookie and ws-proto transport.
-It records platform control operations, not telemetry, arbitrary relay traffic,
-reads, watches or automatic application workflow steps. Execution details remain
+It serves two separate histories:
+
+- **Control audit** (most of this document): platform control operations, not
+  telemetry, arbitrary relay traffic, reads, watches or automatic application
+  workflow steps.
+- **Application audit** ([below](#application-audit)): log records services and
+  third parties mark `backplane.audit=true`, forwarded by the deployment's
+  Collector and kept by backplane.
+
+The control audit records platform control operations only. Execution details remain
 in Temporal and event payloads remain in JetStream.
 
 ## Persistence and coverage
@@ -84,33 +92,45 @@ removes pending records or rolls back a committed control mutation.
 
 ## Methods
 
-`ListAudit(filter?, page_size?, page_cursor?)` returns newest first. Default page
-size is 100, maximum 500. Filters are exact actor, action, subject, outcome,
-operation UUID, service and inclusive-start/exclusive-end timestamps. Each text filter
-is limited to 2048 bytes. Its first response supplies a committed snapshot and
-`watch_cursor`. Continue history with `next_page_cursor` and the identical filter;
-later commits do not shift that snapshot. Empty next cursor means no older
-retained matching entries.
+The console reads one feed: platform entries and application records alike
+(`AuditRecord.source`), a platform entry's detail as its `attributes`. Every
+method takes the same `AuditFilter`: an inclusive-start/exclusive-end range,
+a text (case-insensitive substring of the message, action, subject or
+attributes) and conditions that must all hold. A condition targets a fixed
+field (source, service, action, actor, subject, outcome, operation, severity,
+trace id) or an attribute key, with an operator: `IS`/`IS_NOT` (any of the
+values; attributes compare JSON values exactly), `CONTAINS`/`NOT_CONTAINS`,
+`PREFIX`, `EXISTS`/`NOT_EXISTS`, and `GT`/`GTE`/`LT`/`LTE` for attributes
+holding numbers. At most 32 conditions of 64 values, 2048 bytes each.
 
-`WatchAudit(filter?, after_cursor)` resumes strictly after a saved watch cursor,
-oldest first, in batches of at most 100. The cursor is mandatory. Save the cursor
-even on empty heartbeat batches: they advance past nonmatching entries. Entries
-are not coalesced; no unbounded per-subscriber queue is maintained. Polling is
-every 500 ms, with immediate continuation for full batches. Cancel/unmount closes
-the stream. Reconnect with the last processed cursor; deduplicate by entry ID if
-the UI received data before persisting its cursor.
+- `SearchAudit(filter, page_size?, page_cursor?)` — newest first by time, then
+  id; 100 per page, 500 at most. `next_page_cursor` continues with the
+  identical filter and is empty on the last page. A live view repeats the
+  first page and merges it over what it shows.
+- `AuditHistogram(filter, buckets?)` — counts of platform, application and
+  failed (failed, rejected, partial, unknown) records per bucket; 60 buckets
+  by default, 240 at most, of a round width over the range (from the first
+  matching record when it has no start, until now when it has no end).
+- `AuditFields(filter)` — the attribute keys of the matching records with
+  counts, 200 at most: the choices of the filter builder.
+- `AuditFacets(filter, targets, limit?)` — each target's most frequent values
+  (10 by default, 50 at most) and how many records set it. A target's own
+  conditions are left out, so the other choices stay visible.
 
-Cursors are opaque, versioned and bound to installation, filter and stream/page
-kind. They are pagination state, not authorization credentials. All reads require
-the same authenticated console session independently of the cursor.
+The queries are sqld typed dynamic queries over the view `backplane.audit_feed`
+(`internal/store/queries/audit_feed.sql`): unset parts of the filter drop
+their condition; equality on fields runs on indexes, single-valued attribute
+equality on the GIN index, the other conditions on the range's rows.
+
+Cursors are opaque, versioned and bound to installation and filter. They are
+pagination state, not authorization credentials. All reads require the same
+authenticated console session independently of the cursor.
 
 | Code | Handling |
 | --- | --- |
-| `InvalidArgument` | Correct the filter, UUID, range, limit or mismatched/malformed cursor. |
-| `OutOfRange` | Cursor fell outside retained history; refetch the first page and restart the watch. |
-| `Unavailable` | Retry the read after the database recovers; preserve the last processed cursor. |
+| `InvalidArgument` | Correct the filter, range, limit or mismatched/malformed cursor. |
+| `Unavailable` | Retry the read after the database recovers. |
 | `Canceled` / `DeadlineExceeded` | Stop or reconnect according to the caller's lifecycle. |
-| `Internal` | Stored metadata cannot be decoded; show the failure, do not treat it as empty history. |
 
 Session authentication/revocation follows the common console contract.
 
@@ -120,9 +140,79 @@ Session authentication/revocation follows the common console contract.
 enables hourly cleanup, at most 5000 entries per pass. Only a contiguous delivered
 prefix older than the cutoff is removed; an undelivered entry blocks removal of
 later entries. Entries, outbox and cursor floor change in one transaction.
-Retention is neither editable nor displayed in UI.
+Retention is neither editable nor displayed in UI. It applies to the control
+audit only: application audit is never expired by backplane.
+
+## Application audit
+
+An application audits what happens in it by writing an ordinary OpenTelemetry
+log record with the attribute `backplane.audit=true` (a boolean). The log goes
+wherever logs go; the deployment's Collector also forwards every marked record
+to backplane, which keeps it in PostgreSQL with no expiry. Nothing is required
+of the application beyond the label, so third-party services (an identity
+server's audit log, say) are audited by labelling their records in the
+Collector.
+
+| Attribute | Meaning |
+| --- | --- |
+| `backplane.audit` | `true`: the record is audit. Required; anything else is not stored. |
+| `event.name` | The action (`identity.deleted`); else the record's `event_name`, else its body cut to 256 characters. |
+| `backplane.audit.actor` | Who did it (`user:7`). |
+| `backplane.audit.subject` | What it was done to (`identity/42`). |
+| `backplane.audit.outcome` | `succeeded`, `failed`, `rejected` by convention. |
+| `backplane.audit.id` | Deduplicates retries within the service; without it the record's content (with its resource) does. |
+
+Every other attribute, the resource, severity, body and trace/span ids are kept
+as sent and are filterable. The Go SDK names these keys (`backplane.AuditLabel`,
+`AuditActor`, …) and `backplane.Audit()` is the label as an `xlog` field:
+
+```go
+log.Info("identity deleted", backplane.Audit(),
+    xlog.String("event.name", "identity.deleted"),
+    xlog.String(backplane.AuditSubject, "identity/"+id))
+```
+
+### Delivery
+
+The Collector's audit pipeline (`deployments/otel-collector.audit.yaml`, merged
+with the main configuration) keeps the marked records and exports them over
+OTLP/gRPC (`opentelemetry.proto.collector.logs.v1.LogsService/Export`) to
+backplane's audit listener, `BACKPLANE_AUDIT_LISTEN` (`:4317`). It is internal:
+never publish it through Envoy. With `BACKPLANE_AUDIT_KEYS` (a JSON array of
+keys, each at least 16 characters) the listener requires one as
+`authorization: Bearer <key>`.
+
+A call returns after the records are committed; any failure is `Unavailable`,
+and the Collector's persistent queue (`file_storage`, retries without a time
+limit) keeps them until backplane is back. Retries are deduplicated. Records
+without the label or over 64 KiB are counted in `partial_success.rejected`
+and not stored: a Collector filter that forwards everything shows up there and
+in the metric `backplane.audit.ingest.records{outcome=stored|duplicate|rejected}`.
+The pipeline needs the `filter` and `attributes` processors and the
+`file_storage` extension (otelcol-contrib or a custom build).
+
+Backplane's public OTLP proxy adds `X-Backplane-Ingest: proxy` to everything
+it forwards (browsers, ingest keys that are public by nature). The audit
+pipeline receives it as client metadata (`include_metadata`), sets it as the
+`backplane.ingest` attribute and drops marked records carrying `proxy`: a
+browser cannot write audit. Services that send to the Collector directly are
+trusted as the Collector trusts them; restricting who can reach the
+Collector is the deployment's.
+
+### Reading
+
+Application records are part of the feed ([Methods](#methods)): filter
+`source is application`, an attribute (`tenant is acme`), a service. The
+console's Audit page shows both sources in one table with a histogram, value
+counts per field and a record drawer with a link to the record's trace.
 
 ## Acceptance
+
+`TestRecords` and `TestAuditFeedLive` (internal/audit, against PostgreSQL):
+labels, action fallbacks, keys, deduplication of retries, both sources in one
+feed, every operator on fields and attributes (a platform entry's detail
+too), text, range, pages, facets, fields and the histogram. `make test-dev` reads a greeting
+hello audits through the Collector in the console.
 
 `make test-audit`: rollback atomicity, commit ordering across replicas, durable
 intent before dispatch, metadata exclusion/outcome handling, failed publisher

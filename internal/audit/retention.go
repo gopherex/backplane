@@ -7,25 +7,49 @@ import (
 	"time"
 
 	"github.com/gopherex/xlog"
+
+	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
-const cleanupBatch = 5000
+const (
+	cleanupBatch = 5000
+	maxKeys      = 64
+	minKeyBytes  = 16
+)
 
 var (
 	errRetention = errors.New("audit.retention must be nonnegative")
 	errClock     = errors.New("audit expiry clock is missing")
 )
 
-// Settings is deployment-only; zero retention keeps all audit records. Entries
-// awaiting event delivery are never expired. No UI exposes these settings.
+// Settings is deployment-only; zero retention keeps all control audit
+// records. Entries awaiting event delivery are never expired. Application
+// audit is never expired. No UI exposes these settings.
 type Settings struct {
 	Retention time.Duration `json:"retention" schemapb:"default=0s;gte=0"`
+	// Listen is the OTLP audit listener (gRPC LogsService) the Collector's
+	// audit pipeline exports to: BACKPLANE_AUDIT_LISTEN.
+	Listen string `json:"listen" schemapb:"default=:4317"`
+	// Keys the Collector presents as a bearer token; empty: none required
+	// (the listener is internal): BACKPLANE_AUDIT_KEYS, a JSON array.
+	Keys []config.Secret `json:"keys,omitempty"`
 }
 
-// Validate rejects negative retention without imposing a deletion policy.
+// Validate rejects negative retention without imposing a deletion policy,
+// and short keys.
 func (s Settings) Validate() error {
 	if s.Retention < 0 {
 		return errRetention
+	}
+
+	if len(s.Keys) > maxKeys {
+		return errIngestKeys
+	}
+
+	for _, key := range s.Keys {
+		if len(key.Reveal()) < minKeyBytes {
+			return errIngestKeys
+		}
 	}
 
 	return nil

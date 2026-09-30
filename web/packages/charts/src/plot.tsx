@@ -47,7 +47,7 @@ export default function Plot({ label, series, mode, kind = 'line', height = 280,
     <div ref={host} role="img" aria-label={label} style={{ minWidth: 0 }} />
     {controls && <div role="group" aria-label={text('series')} style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{prepared.series.map((series) => <Button key={series.id} type="button" variant="outline" aria-pressed={!hidden.has(series.id)} onClick={() => setHidden((previous) => { const next = new Set(previous); if (next.has(series.id)) next.delete(series.id); else next.add(series.id); return next; })}>{series.label}</Button>)}</div>}
     {cursor !== undefined && <output aria-label={text('value')} style={{ fontSize: 11, fontFamily: typography.fontFamilyMonospace, color: 'var(--muted-foreground)' }}>{prepared.series.map((series, index) => `${series.label}: ${exact(prepared.values[index].get(prepared.x[cursor]) ?? null)}`).join(' · ')}</output>}
-    {onRangeChange && <form style={{ display: 'flex', gap: 8 }} onSubmit={(event) => {
+    {onRangeChange && controls && <form style={{ display: 'flex', gap: 8 }} onSubmit={(event) => {
       event.preventDefault(); const start = Number(from), end = Number(to); const valid = from.trim() && to.trim() && Number.isFinite(start) && Number.isFinite(end) && start < end;
       setRangeError(!valid); if (valid) onRangeChange({ from: start, to: end });
     }}><Input aria-label={text('rangeStart')} value={from} onChange={(event) => setFrom(event.target.value)} /><Input aria-label={text('rangeEnd')} value={to} onChange={(event) => setTo(event.target.value)} /><Button type="submit">{text('applyRange')}</Button></form>}

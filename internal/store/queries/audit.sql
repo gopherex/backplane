@@ -20,20 +20,6 @@ INSERT INTO backplane.audit_outbox (sequence) VALUES (@sequence);
 SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
 FROM backplane.audit_entry WHERE sequence = @sequence;
 
--- name: ListAuditEntries :many
-SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
-FROM backplane.audit_entry
-WHERE sequence > @after_sequence AND sequence <= @through_sequence
-  AND (@actor::text = '' OR actor = @actor)
-  AND (@action::text = '' OR action = @action)
-  AND (@subject::text = '' OR subject = @subject)
-  AND (@outcome::text = '' OR outcome = @outcome)
-  AND (@operation_id::text = '' OR operation_id::text = @operation_id)
-  AND (@service::text = '' OR service = @service)
-  AND created_at >= @start_at AND created_at < @end_at
-ORDER BY CASE WHEN @descending::boolean THEN sequence END DESC, sequence ASC
-LIMIT @page_size;
-
 -- name: ClaimAuditOutbox :many
 UPDATE backplane.audit_outbox SET lease = @lease,
   leased_until = now() + (@lease_seconds::bigint * interval '1 second'), attempts = attempts + 1

@@ -26,12 +26,24 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await expect(page.getByLabel('Write attempts')).toHaveText('2');
     }
     if (story === 'audit') {
-      const table = page.getByRole('table', { name: 'Audit', exact: true }); await expect(table.getByText('#9007199254740994', { exact: true })).toBeVisible();
-      await expect(page.getByLabel('Watch cursors')).toHaveText('snapshot'); await page.getByRole('button', { name: 'Reconnect fixture' }).click();
-      await expect(page.getByLabel('Watch cursors')).toContainText('empty-advanced'); await expect(table.locator('tbody tr')).toHaveCount(2);
-      await page.getByRole('button', { name: 'Expire audit cursor' }).click(); await expect(page.getByText('The audit cursor has expired. Reload to establish a new snapshot.')).toBeVisible();
-      await page.getByRole('button', { name: 'Reload', exact: true }).click(); await expect(page.getByText('The audit cursor has expired. Reload to establish a new snapshot.')).toHaveCount(0);
-      await page.getByRole('button', { name: 'Replace session' }).click(); await expect(table.locator('tbody tr')).toHaveCount(0); await expect(page.getByLabel('Active watches')).toHaveText('0');
+      const table = page.getByRole('table', { name: 'Audit', exact: true });
+      await expect(table.locator('tbody tr')).toHaveCount(3);
+      await expect(table.getByText('operator · 1b7e2c9a', { exact: true })).toBeVisible();
+      await expect(table.getByText('rev 3 · keys greeter.suffix', { exact: true })).toBeVisible();
+      // A value in the fields panel keeps it; Alt+click excludes it.
+      await page.getByRole('button', { name: /^application/ }).first().click();
+      await expect(table.locator('tbody tr')).toHaveCount(2);
+      await page.getByRole('button', { name: 'Remove field:source', exact: true }).click();
+      await expect(table.locator('tbody tr')).toHaveCount(3);
+      // The filter builder: an attribute condition.
+      await page.getByRole('button', { name: 'Filter', exact: true }).click();
+      await page.getByRole('combobox', { name: 'Field' }).click(); await page.getByRole('option', { name: 'tenant', exact: true }).click();
+      await page.getByRole('button', { name: 'acme', exact: true }).click(); await page.getByRole('button', { name: 'Apply', exact: true }).click();
+      await expect(table.locator('tbody tr')).toHaveCount(1);
+      await table.locator('tbody tr').first().focus(); await page.keyboard.press('Enter');
+      const drawer = page.getByRole('dialog'); await expect(drawer.getByRole('button', { name: 'Open trace', exact: true })).toBeVisible();
+      await drawer.getByRole('button', { name: 'Exclude attr:tenant', exact: true }).click();
+      await expect(table).toHaveCount(0); // tenant is acme and is not acme
     }
     if (story === 'explore') {
       await expect(page.getByRole('button', { name: 'service.name', exact: true })).toBeVisible();

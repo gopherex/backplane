@@ -176,31 +176,25 @@ retries statuses 4, 8 and 14 with abortable capped jitter. It does not retry
 validation, permission, authentication or cursor-expiry errors. Do not use it
 for a mutation or a finite stream.
 
-## Audit cursor watch
+## Audit feed
 
-Audit is a delta stream; it must not use snapshot replacement. Load the initial
-page, retain its `watchCursor`, then consume deltas in sequence order. Maintain
-a bounded visible window and deduplicate by entry ID; older pages are loaded
-separately. Advance the saved cursor after applying a batch, including empty
-heartbeats. On `OutOfRange`, show that history must be refreshed and acquire a
-new first page/cursor. A new filter/session starts from a fresh page.
+The audit feed is read by page; a live view repeats the first page on an
+interval and merges it by record ID over what it shows (new records on top,
+the rest kept). Older pages follow `nextPageCursor` with the identical filter.
 
 ```ts
 const api = runtime.client(AuditServiceClient);
-const page = await api.listAudit(create(ListAuditRequestSchema, { filter }), { signal });
-let cursor = page.watchCursor;
-for await (const batch of watchWithRetry(
-  (signal) => api.watchAudit(create(WatchAuditRequestSchema, { filter, afterCursor: cursor }), { signal }),
-  { signal },
-)) {
-  await applyBatch(batch.entries); // caller merges by ID into its bounded window
-  cursor = batch.cursor;
-}
+const filter = create(AuditFilterSchema, {
+  start: timestampFromMs(Date.now() - 3_600_000),
+  conditions: [{ target: { case: 'field', value: AuditField.SERVICE }, op: AuditOperator.IS, values: [fromJson(ValueSchema, 'iam')] }],
+});
+const page = await api.searchAudit(create(SearchAuditRequestSchema, { filter }), { signal });
+const older = page.nextPageCursor
+  ? await api.searchAudit(create(SearchAuditRequestSchema, { filter, pageCursor: page.nextPageCursor }), { signal })
+  : undefined;
 ```
 
-The caller owns `filter`, `signal` and `applyBatch`; the callback opening a retry
-reads the last acknowledged cursor. Never advance it before applying the data.
-This pattern resumes transport interruptions without replaying commands.
+The caller owns `filter` and `signal`.
 
 ## Verification
 

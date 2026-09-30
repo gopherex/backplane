@@ -201,19 +201,19 @@ func TestAuditServiceFilter(t *testing.T) {
 
 	api := consolev1.NewAuditServiceClient(client(t, svc.Register))
 
-	page, err := api.ListAudit(t.Context(), &consolev1.ListAuditRequest{Filter: &consolev1.AuditFilter{Service: "hello"}})
-	if err != nil || len(page.GetEntries()) != 2 {
+	page, err := api.SearchAudit(t.Context(), &consolev1.SearchAuditRequest{Filter: where(is(consolev1.AuditField_AUDIT_FIELD_SERVICE, "hello"))})
+	if err != nil || len(page.GetRecords()) != 2 {
 		t.Fatal(page, err)
 	}
 
-	for _, entry := range page.GetEntries() {
+	for _, entry := range page.GetRecords() {
 		if entry.GetService() != "hello" {
 			t.Fatal("entry of another service", entry)
 		}
 	}
 }
 
-func TestAuditSnapshotAndWatch(t *testing.T) {
+func TestAuditPagesKeepTheirPlace(t *testing.T) {
 	t.Parallel()
 
 	svc, st := replica(t, isolatedDatabase(t), func(context.Context, audit.Entry) error { return nil })
@@ -224,72 +224,27 @@ func TestAuditSnapshotAndWatch(t *testing.T) {
 	}
 
 	api := consolev1.NewAuditServiceClient(client(t, svc.Register))
-	filter := &consolev1.AuditFilter{Actor: "operator"}
+	filter := where(is(consolev1.AuditField_AUDIT_FIELD_ACTOR, "operator"))
 
-	page, err := api.ListAudit(t.Context(), &consolev1.ListAuditRequest{Filter: filter, PageSize: 2})
-	if err != nil || len(page.GetEntries()) != 2 || page.GetNextPageCursor() == "" {
+	page, err := api.SearchAudit(t.Context(), &consolev1.SearchAuditRequest{Filter: filter, PageSize: 2})
+	if err != nil || len(page.GetRecords()) != 2 || page.GetNextPageCursor() == "" {
 		t.Fatal(page, err)
 	}
 
-	latest := page.GetEntries()[0].GetSequence()
+	latest := page.GetRecords()[0].GetSequence()
 
 	if _, err = st.AppendAudit(t.Context(), store.AuditDraft{Actor: "operator", Action: "config.save", Subject: "late", Outcome: "succeeded"}); err != nil {
 		t.Fatal(err)
 	}
 
-	older, err := api.ListAudit(t.Context(), &consolev1.ListAuditRequest{Filter: filter, PageSize: 2, PageCursor: page.GetNextPageCursor()})
-	if err != nil || len(older.GetEntries()) != 2 || older.GetEntries()[0].GetSequence() >= latest {
+	older, err := api.SearchAudit(t.Context(), &consolev1.SearchAuditRequest{Filter: filter, PageSize: 2, PageCursor: page.GetNextPageCursor()})
+	if err != nil || len(older.GetRecords()) != 2 || older.GetRecords()[0].GetSequence() >= latest {
 		t.Fatal("snapshot shifted", older, err)
 	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-
-	stream, err := api.WatchAudit(ctx, &consolev1.WatchAuditRequest{Filter: filter, AfterCursor: page.GetWatchCursor()})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	batch, err := stream.Recv()
-	if err != nil || len(batch.GetEntries()) != 1 || batch.GetEntries()[0].GetSubject() != "late" {
-		t.Fatal(batch, err)
-	}
-
-	resume, err := api.WatchAudit(ctx, &consolev1.WatchAuditRequest{Filter: filter, AfterCursor: batch.GetCursor()})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	heartbeat, err := resume.Recv()
-	if err != nil || len(heartbeat.GetEntries()) != 0 {
-		t.Fatal("resume replayed acknowledged entry", heartbeat, err)
-	}
-
-	_, err = api.ListAudit(ctx, &consolev1.ListAuditRequest{Filter: &consolev1.AuditFilter{Actor: "other"}, PageCursor: page.GetNextPageCursor()})
+	_, err = api.SearchAudit(t.Context(), &consolev1.SearchAuditRequest{Filter: where(is(consolev1.AuditField_AUDIT_FIELD_ACTOR, "other")), PageCursor: page.GetNextPageCursor()})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatal("cursor accepted changed filter", err)
-	}
-
-	eventually(t, func() bool {
-		var pending int
-
-		dbErr := st.Pool.QueryRow(ctx, "SELECT count(*) FROM backplane.audit_outbox WHERE published_at IS NULL").Scan(&pending)
-
-		return dbErr == nil && pending == 0
-	})
-
-	if err = svc.Expire(ctx, time.Now().Add(time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-
-	expired, err := api.WatchAudit(ctx, &consolev1.WatchAuditRequest{Filter: filter, AfterCursor: page.GetWatchCursor()})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = expired.Recv()
-	if status.Code(err) != codes.OutOfRange {
-		t.Fatal("expired cursor accepted", err)
 	}
 }
 
@@ -323,13 +278,14 @@ func TestCommandIntentBeforeDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	history, err := svc.ListAudit(t.Context(), &consolev1.ListAuditRequest{})
-	if err != nil || len(history.GetEntries()) != 2 {
+	history, err := svc.SearchAudit(t.Context(), &consolev1.SearchAuditRequest{})
+	if err != nil || len(history.GetRecords()) != 2 {
 		t.Fatal(history, err)
 	}
 
-	result, intent := history.GetEntries()[0], history.GetEntries()[1]
-	if result.GetOutcome() != "succeeded" || intent.GetOutcome() != "intent" || result.GetOperationId() != intent.GetOperationId() || result.GetDetail().GetRunId() != "run" {
+	result, intent := history.GetRecords()[0], history.GetRecords()[1]
+	if result.GetOutcome() != "succeeded" || intent.GetOutcome() != "intent" || result.GetOperationId() != intent.GetOperationId() ||
+		result.GetAttributes().GetFields()["run_id"].GetStringValue() != "run" {
 		t.Fatal(history)
 	}
 
@@ -422,14 +378,14 @@ func TestRunCommandAttribution(t *testing.T) {
 		}
 	}
 
-	history, err := svc.ListAudit(ctx, &consolev1.ListAuditRequest{})
+	history, err := svc.SearchAudit(ctx, &consolev1.SearchAuditRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	results := map[string]*consolev1.AuditEntry{}
+	results := map[string]*consolev1.AuditRecord{}
 
-	for _, e := range history.GetEntries() {
+	for _, e := range history.GetRecords() {
 		if strings.Contains(e.String(), "secret") {
 			t.Fatalf("payload in audit: %v", e)
 		}
@@ -447,11 +403,11 @@ func TestRunCommandAttribution(t *testing.T) {
 		}
 	}
 
-	if d := results["workflow.signal"].GetDetail(); d.GetSignal() != "go" || d.GetWorkflowId() != "call-7" {
+	if d := results["workflow.signal"].GetAttributes().GetFields(); d["signal"].GetStringValue() != "go" || d["workflow_id"].GetStringValue() != "call-7" {
 		t.Errorf("signal detail: %v", d)
 	}
 
-	if d := results["workflow.terminate"].GetDetail(); d.GetReason() != "stuck" || d.GetRunId() != "r" {
+	if d := results["workflow.terminate"].GetAttributes().GetFields(); d["reason"].GetStringValue() != "stuck" || d["run_id"].GetStringValue() != "r" {
 		t.Errorf("terminate detail: %v", d)
 	}
 }

@@ -57,6 +57,12 @@ try {
   await expect(page.getByRole('textbox', { name: 'Output', exact: true })).toContainText('Welcome, BrowserOperation!', { timeout: 45000 });
   await page.getByRole('button', { name: 'Audit', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Audit', exact: true }).locator('tbody tr').first()).toBeVisible();
+  // Application audit: hello marks each greeting backplane.audit; the Collector forwards it and backplane keeps it.
+  await page.getByRole('textbox', { name: 'Search text', exact: true }).fill('BrowserAcceptance');
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Refresh', exact: true }).first().click();
+    await expect(page.getByRole('table', { name: 'Audit', exact: true }).getByText('name/BrowserAcceptance', { exact: true }).first()).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 30000 });
   await page.getByRole('button', { name: 'Explore', exact: true }).click();
   await page.getByRole('button', { name: 'Run query', exact: true }).click();
   await expect(page.getByRole('list', { name: 'Logs', exact: true }).getByRole('listitem').first()).toBeVisible({ timeout: 20000 });
@@ -112,6 +118,6 @@ try {
   await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.getByLabel('Operator token')).toBeVisible();
   assert.deepEqual(failures, []);
-  console.log('Live dev acceptance passed: service relay, config, binding, hook, audit, stored logs/metrics, workflow start and schedule trigger, both themes and logout');
+  console.log('Live dev acceptance passed: service relay, config, binding, hook, audit (platform and application), stored logs/metrics, workflow start and schedule trigger, both themes and logout');
 } catch (error) { console.error(error); process.exitCode = 1; }
 finally { await browser.close(); }

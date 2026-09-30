@@ -70,6 +70,9 @@ type State struct {
 	internalObs bool
 	// Audit delivers durable control events and serves AuditService.
 	Audit *audit.Service
+	// AuditIngest is the OTLP audit listener: application audit the
+	// Collector forwards, stored for AuditService.
+	AuditIngest *audit.Ingest
 
 	// Extension points — one field and one constructor line in NewState per
 	// component, in the order they depend on each other:
@@ -117,6 +120,7 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	st.Registry = registry.New(root, client)
 	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor), ops.Namespace(cfg.Temporal.Namespace))
 	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention), audit.WithRunQueue(st.Ops.RunQueue))
+	st.AuditIngest = audit.NewIngest(root, st.Store, cfg.Audit)
 
 	st.Obs, err = obs.New(cfg.Obs, obs.WithRegistry(st.Registry))
 	if err != nil {

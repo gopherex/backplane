@@ -37,6 +37,16 @@ services:
       BACKPLANE_OBS_LOGS_URL: http://victorialogs:9428
       BACKPLANE_OBS_METRICS_URL: http://victoriametrics:8428
       BACKPLANE_OBS_TRACES_URL: http://victoriatraces:10428
+  # The application audit pipeline (deployments/otel-collector.audit.yaml)
+  # needs the contrib distribution; its queue waits out backplane restarts.
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.147.0
+    user: "0:0"
+    command: ["--config=/etc/otelcol/config.yaml", "--config=/etc/otelcol/audit.yaml"]
+    volumes:
+      - ./deployments/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./deployments/otel-collector.audit.yaml:/etc/otelcol/audit.yaml:ro
+      - collector-audit:/var/lib/otelcol/audit
   hello:
     <<: *runtime
     command: [/app/bin/hello]
@@ -58,3 +68,5 @@ services:
     environment:
       BACKPLANE_ADMIN_TOKEN: ${DEV_ADMIN_TOKEN:-dev-admin-token-change-me}
       BACKPLANE_DEMO_URL: http://backplane:8081/backplane
+volumes:
+  collector-audit: {}
