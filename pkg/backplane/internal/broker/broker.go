@@ -35,7 +35,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/nats-io/nkeys"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -43,6 +42,7 @@ import (
 	"github.com/gopherex/xlog"
 	"github.com/gopherex/xtrace"
 
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
@@ -60,9 +60,8 @@ var ErrNoService = errors.New("broker: service name is empty")
 
 // Params of New.
 type Params struct {
-	URL   string
-	Creds string // NATS credentials file content; empty for none
-	TLS   TLS
+	// Conn is the connection: URL, credentials, TLS.
+	Conn infranats.Config
 	// PublishTimeout bounds a Publish whose ctx has no deadline; zero is
 	// the default (5s).
 	PublishTimeout time.Duration
@@ -181,14 +180,9 @@ func (b *Broker) Connect(ctx context.Context, g node.Group) error {
 		return err
 	}
 
-	opts, err := b.options()
+	conn, err := b.dial()
 	if err != nil {
-		return err
-	}
-
-	conn, err := nats.Connect(b.p.URL, opts...)
-	if err != nil {
-		return fmt.Errorf("broker: connect: %w", err)
+		return fmt.Errorf("broker: %w", err)
 	}
 
 	jet, err := jetstream.New(conn)
@@ -239,94 +233,23 @@ func (b *Broker) Connect(ctx context.Context, g node.Group) error {
 	return nil
 }
 
-// options of the NATS connection: never give up, log the transitions.
-func (b *Broker) options() ([]nats.Option, error) {
+// dial connects through infra/nats: never gives up, logs the transitions,
+// reports connectivity as a metric.
+func (b *Broker) dial() (*nats.Conn, error) {
 	name := b.p.Instance
 	if name == "" {
 		name = b.p.Service
 	}
 
-	var opts []nats.Option
-
-	if b.p.Creds != "" {
-		creds, err := credentials(b.p.Creds)
-		if err != nil {
-			return nil, err
-		}
-
-		opts = append(opts, creds)
-	}
-
-	tc, err := tlsConfig(b.p.TLS)
-	if err != nil {
-		return nil, err
-	}
-
-	if tc != nil {
-		opts = append(opts, nats.Secure(tc))
-	}
-
 	var once sync.Once
 
-	report := func(connected bool) { metrics.TransportConnected(context.Background(), transport, connected) }
-
-	return append(opts,
-		nats.Name(name),
-		nats.RetryOnFailedConnect(true),
-		nats.MaxReconnects(-1),
-		nats.ReconnectWait(b.t.reconnectWait),
-		nats.ReconnectJitter(b.t.reconnectJitter, b.t.reconnectJitter),
-		// No buffering while disconnected: Publish fails instead of waiting.
-		nats.ReconnectBufSize(-1),
-		nats.ConnectHandler(func(conn *nats.Conn) {
-			report(true)
-			b.log.Info("nats connected", xlog.String("url", conn.ConnectedUrlRedacted()))
-		}),
-		nats.ReconnectHandler(func(conn *nats.Conn) {
-			report(true)
-			b.log.Info("nats reconnected", xlog.String("url", conn.ConnectedUrlRedacted()))
-		}),
-		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
-			report(false)
-
-			if err != nil {
-				b.log.Warn("nats disconnected", xlog.Err(err))
-			}
-		}),
-		nats.ErrorHandler(func(_ *nats.Conn, sub *nats.Subscription, err error) {
-			subject := ""
-			if sub != nil {
-				subject = sub.Subject
-			}
-
-			b.log.Warn("nats error", xlog.Err(err), xlog.String("subject", subject))
-		}),
-		nats.ClosedHandler(func(*nats.Conn) {
-			report(false)
-			once.Do(func() { close(b.closed) })
-		}),
-	), nil
-}
-
-// credentials turns the content of a .creds file into the user JWT and
-// seed option.
-func credentials(content string) (nats.Option, error) {
-	jwt, err := nkeys.ParseDecoratedJWT([]byte(content))
-	if err != nil {
-		return nil, fmt.Errorf("broker: creds: jwt: %w", err)
-	}
-
-	kp, err := nkeys.ParseDecoratedUserNKey([]byte(content))
-	if err != nil {
-		return nil, fmt.Errorf("broker: creds: seed: %w", err)
-	}
-
-	seed, err := kp.Seed()
-	if err != nil {
-		return nil, fmt.Errorf("broker: creds: seed: %w", err)
-	}
-
-	return nats.UserJWTAndSeed(jwt, string(seed)), nil
+	//nolint:wrapcheck // Connect names nats
+	return infranats.Connect(b.p.Conn, infranats.Options{
+		Name: name, Log: b.log,
+		OnStatus:      func(connected bool) { metrics.TransportConnected(context.Background(), transport, connected) },
+		OnClosed:      func() { once.Do(func() { close(b.closed) }) },
+		ReconnectWait: b.t.reconnectWait, ReconnectJitter: b.t.reconnectJitter,
+	})
 }
 
 // connected returns JetStream while the connection is up.

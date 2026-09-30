@@ -6,6 +6,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/envoyproxy/go-control-plane v0.14.0
 	github.com/envoyproxy/go-control-plane/envoy v1.39.0
+	github.com/exaring/otelpgx v0.12.0
 	github.com/google/cel-go v0.30.0
 	github.com/google/uuid v1.6.0
 	github.com/gopherex/pgtx v1.1.1
@@ -19,6 +20,7 @@ require (
 	github.com/gopherex/xconf/contrib/sources/env v1.4.0
 	github.com/gopherex/xconf/contrib/sources/file v1.4.0
 	github.com/gopherex/xlog v1.2.1
+	github.com/gopherex/xlog/contrib/libs/pgx v1.2.1
 	github.com/gopherex/xprobe v1.2.0
 	github.com/gopherex/xprobe/pkg/transport/grpc v1.2.0
 	github.com/gopherex/xshutdown v1.1.0

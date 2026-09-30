@@ -17,6 +17,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
@@ -42,7 +43,7 @@ func service(t *testing.T, name string, declare func(e *env.Env)) *temporal.Clie
 	declare(e)
 
 	c := temporal.New(temporal.Params{
-		Addr: temporaltest.Addr(t), Service: name, Instance: name + "-1", Log: testlog.Discard(), Env: e,
+		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: name, Instance: name + "-1", Log: testlog.Discard(), Env: e,
 	})
 	c.UseFastRetry()
 
@@ -286,7 +287,7 @@ func TestUnreachable(t *testing.T) {
 	e := env.New("down", manifest.New("down", "0.0.0"))
 	withHook(e)
 
-	c := temporal.New(temporal.Params{Addr: "127.0.0.1:1", Service: "down", Log: testlog.Discard(), Env: e})
+	c := temporal.New(temporal.Params{Conn: inftemporal.Config{Addr: "127.0.0.1:1"}, Service: "down", Log: testlog.Discard(), Env: e})
 	c.UseFastRetry()
 
 	g := temporaltest.NewGroup(t)

@@ -23,4 +23,4 @@ func (c *Client) WorkerOptions() worker.Options { return c.workerOptions() }
 func (c *Client) Options() (client.Options, error) { return c.options() }
 
 // DialTimeout is the bound of one connection attempt.
-func (c *Client) DialTimeout() time.Duration { return c.p.DialTimeout }
+func (c *Client) DialTimeout() time.Duration { return c.p.Conn.DialTimeout }

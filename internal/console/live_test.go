@@ -29,6 +29,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 // pgSessions starts a store on a database of its own, created on the
@@ -67,7 +68,7 @@ func pgSessions(t *testing.T) console.PG {
 	scratch.Path = "/" + name
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(config.Secret(scratch.String())))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(scratch.String())}))
 	h.Start()
 
 	if err := backplanetest.Ready(h); err != nil {

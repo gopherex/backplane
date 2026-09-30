@@ -19,6 +19,7 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
@@ -34,7 +35,7 @@ func connect(t *testing.T, name string, hooks, main bool) *temporal.Client {
 	withHook(e)
 
 	c := temporal.New(temporal.Params{
-		Addr: temporaltest.Addr(t), Service: name, Instance: name + "-1", Log: testlog.Discard(), Env: e,
+		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: name, Instance: name + "-1", Log: testlog.Discard(), Env: e,
 	})
 	c.UseFastRetry()
 

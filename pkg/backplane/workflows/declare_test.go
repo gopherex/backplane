@@ -12,6 +12,7 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
@@ -96,7 +97,7 @@ func TestDeclaredStartable(t *testing.T) {
 	workflows.Declare(root, "Ship", ship)
 
 	c := internal.New(internal.Params{
-		Addr: temporaltest.Addr(t), Service: svc, Instance: svc + "-1", Log: testlog.Discard(), Env: e,
+		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: svc, Instance: svc + "-1", Log: testlog.Discard(), Env: e,
 	})
 	g := temporaltest.NewGroup(t)
 

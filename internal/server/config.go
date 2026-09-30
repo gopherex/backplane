@@ -23,6 +23,7 @@ import (
 	"github.com/gopherex/backplane/internal/otlp"
 	"github.com/gopherex/backplane/internal/xds"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 	"github.com/gopherex/backplane/pkg/backplane/infra/valkey"
 )
 
@@ -33,8 +34,8 @@ const Name = "backplane"
 type Config struct {
 	config.Backplane `json:"backplane"`
 
-	// PostgreSQL, schema `backplane`.
-	PG PG `json:"pg"`
+	// PostgreSQL, schema `backplane`: BACKPLANE_PG_DSN, _QUERY_LOG, _POOL_*.
+	PG postgres.Config `json:"pg"`
 	// Valkey keeps what every replica shares briefly: login attempts.
 	Valkey valkey.Config `json:"valkey"`
 	// xDS (ADS) for Envoy.
@@ -56,11 +57,6 @@ type Config struct {
 	LiveConfig liveconfig.Settings `json:"live_config"`
 	// Nexus endpoint reconciliation and retirement.
 	Nexus Nexus `json:"nexus"`
-}
-
-// PG is the store's connection: BACKPLANE_PG_DSN.
-type PG struct {
-	DSN config.Secret `json:"dsn,omitempty"`
 }
 
 // XDS is the control plane Envoy connects to: BACKPLANE_XDS_*.
@@ -122,8 +118,10 @@ var (
 func (c Config) Validate() error {
 	var errs []error
 
-	if c.PG.DSN.Reveal() == "" {
+	if !c.PG.Enabled() {
 		errs = append(errs, ErrNoPG)
+	} else if err := c.PG.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 
 	if !c.Consul.Enabled() {

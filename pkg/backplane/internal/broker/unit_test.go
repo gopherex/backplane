@@ -10,11 +10,11 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
-	"github.com/nats-io/nkeys"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
@@ -169,34 +169,10 @@ func TestNakDelay(t *testing.T) {
 	}
 }
 
-func TestCredentials(t *testing.T) {
-	t.Parallel()
-
-	kp, err := nkeys.CreateUser()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	seed, err := kp.Seed()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	creds := "-----BEGIN NATS USER JWT-----\neyJhbGciOiJlZDI1NTE5In0.e30.sig\n------END NATS USER JWT------\n\n" +
-		"-----BEGIN USER NKEY SEED-----\n" + string(seed) + "\n------END USER NKEY SEED------\n"
-	if err := broker.Credentials(creds); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := broker.Credentials("garbage"); err == nil {
-		t.Fatal("garbage creds accepted")
-	}
-}
-
 func TestReservedService(t *testing.T) {
 	t.Parallel()
 
-	b := broker.New(broker.Params{URL: "nats://127.0.0.1:1", Service: "dlq", Log: testlog.Discard()})
+	b := broker.New(broker.Params{Conn: infranats.Config{URL: "nats://127.0.0.1:1"}, Service: "dlq", Log: testlog.Discard()})
 	if err := b.Connect(t.Context(), newGroup(t)); !errors.Is(err, broker.ErrReserved) {
 		t.Fatalf("want ErrReserved, got %v", err)
 	}
@@ -205,7 +181,7 @@ func TestReservedService(t *testing.T) {
 func TestPublishBeforeConnect(t *testing.T) {
 	t.Parallel()
 
-	b := broker.New(broker.Params{URL: "nats://127.0.0.1:1", Service: "svc"})
+	b := broker.New(broker.Params{Conn: infranats.Config{URL: "nats://127.0.0.1:1"}, Service: "svc"})
 	if err := b.PublishRaw(t.Context(), "svc.X", "", []byte("{}")); !errors.Is(err, env.ErrUnavailable) {
 		t.Fatalf("want ErrUnavailable, got %v", err)
 	}
@@ -224,7 +200,7 @@ func TestUnreachableDoesNotBlock(t *testing.T) {
 	t.Parallel()
 
 	e := emitter(t, "svc")
-	b := broker.New(broker.Params{URL: "nats://127.0.0.1:1", Service: "svc", Log: testlog.Discard(), Env: e})
+	b := broker.New(broker.Params{Conn: infranats.Config{URL: "nats://127.0.0.1:1"}, Service: "svc", Log: testlog.Discard(), Env: e})
 	b.Fast(3)
 
 	start := time.Now()

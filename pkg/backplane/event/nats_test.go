@@ -11,6 +11,7 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/event"
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
@@ -49,7 +50,7 @@ func connect(t *testing.T, service string) live {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	g := &group{ctx: ctx}
-	b := broker.New(broker.Params{URL: "nats://" + addr, Service: service, Instance: service + "-1", Env: e})
+	b := broker.New(broker.Params{Conn: infranats.Config{URL: "nats://" + addr}, Service: service, Instance: service + "-1", Env: e})
 
 	t.Cleanup(func() {
 		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)

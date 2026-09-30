@@ -21,6 +21,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/config"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
@@ -179,7 +181,7 @@ func TestOptions(t *testing.T) {
 	cert, key := selfSigned(t)
 
 	// Plain: no TLS, no credentials, default dial timeout.
-	c := newClient(t, temporal.Params{Addr: "h:7233"})
+	c := newClient(t, temporal.Params{Conn: inftemporal.Config{Addr: "h:7233"}})
 
 	opts, err := c.Options()
 	if err != nil || opts.ConnectionOptions.TLS != nil || opts.Credentials != nil || opts.HostPort != "h:7233" ||
@@ -189,8 +191,10 @@ func TestOptions(t *testing.T) {
 
 	// mTLS with a private CA.
 	c = newClient(t, temporal.Params{
-		Addr: "h:7233", DialTimeout: 5 * time.Second,
-		TLS: temporal.TLS{Enabled: true, CA: cert, Cert: cert, Key: key, ServerName: "temporal.internal"},
+		Conn: inftemporal.Config{
+			Addr: "h:7233", DialTimeout: 5 * time.Second,
+			TLS: config.TLS{Enabled: true, CA: cert, Cert: cert, Key: config.Secret(key), ServerName: "temporal.internal"},
+		},
 	})
 
 	opts, err = c.Options()
@@ -205,19 +209,19 @@ func TestOptions(t *testing.T) {
 	}
 
 	// API key: credentials; TLS comes with them (the SDK turns it on).
-	c = newClient(t, temporal.Params{Addr: "ns.tmprl.cloud:7233", APIKey: "secret"})
+	c = newClient(t, temporal.Params{Conn: inftemporal.Config{Addr: "ns.tmprl.cloud:7233", APIKey: "secret"}})
 
 	if opts, err = c.Options(); err != nil || opts.Credentials == nil {
 		t.Fatalf("api key: %+v %v", opts, err)
 	}
 
 	// Broken PEM: an error, at Connect too.
-	for _, bad := range []temporal.TLS{
+	for _, bad := range []config.TLS{
 		{Enabled: true, CA: "not a pem"},
 		{Enabled: true, Cert: cert},
 		{Enabled: true, Cert: cert, Key: "junk"},
 	} {
-		c = newClient(t, temporal.Params{Addr: "h:7233", TLS: bad})
+		c = newClient(t, temporal.Params{Conn: inftemporal.Config{Addr: "h:7233", TLS: bad}})
 		if _, err := c.Options(); err == nil {
 			t.Errorf("accepted %+v", bad)
 		}
@@ -228,7 +232,7 @@ func TestOptions(t *testing.T) {
 	}
 
 	// Disabled TLS ignores its fields.
-	c = newClient(t, temporal.Params{Addr: "h:7233", TLS: temporal.TLS{CA: "junk"}})
+	c = newClient(t, temporal.Params{Conn: inftemporal.Config{Addr: "h:7233", TLS: config.TLS{CA: "junk"}}})
 	if opts, err = c.Options(); err != nil || opts.ConnectionOptions.TLS != nil {
 		t.Fatalf("disabled: %v", err)
 	}

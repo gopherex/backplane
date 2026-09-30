@@ -120,7 +120,7 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 
 	st := &State{Consul: client, internalObs: cfg.InternalSecret.Reveal() != ""}
 
-	st.Store = deps.NewDependency(root, store.New(cfg.PG.DSN))
+	st.Store = deps.NewDependency(root, store.New(cfg.PG))
 	st.Valkey = deps.NewDependency(root, valkey.New(cfg.Valkey))
 	st.Registry = registry.New(root, client)
 	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor), ops.Namespace(cfg.Temporal.Namespace))

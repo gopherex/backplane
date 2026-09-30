@@ -26,6 +26,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 func isolatedDatabase(t *testing.T) string {
@@ -77,7 +78,7 @@ func replica(
 ) (*audit.Service, *store.Store) {
 	t.Helper()
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(config.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(dsn)}))
 	svc := audit.New(h.Root(), st, append([]audit.Option{audit.WithPublisher(publish)}, options...)...)
 	h.Start()
 

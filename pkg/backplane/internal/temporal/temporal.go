@@ -13,20 +13,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
-	"go.opentelemetry.io/otel"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/operatorservice/v1"
 	"go.temporal.io/sdk/client"
-	otelsdk "go.temporal.io/sdk/contrib/opentelemetry"
-	"go.temporal.io/sdk/interceptor"
-	tlog "go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc/codes"
@@ -37,16 +32,13 @@ import (
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/internal/wire"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
 const (
-	defaultNamespace = "default"
-	// defaultDialTimeout bounds one connection attempt; Connect makes one
-	// before going to the background.
-	defaultDialTimeout = 2 * time.Second
 	// stopGrace is how long a stopping worker lets activities finish; the
 	// stop budget of the service bounds it in practice.
 	stopGrace = time.Minute
@@ -70,20 +62,16 @@ const (
 
 // Params of New.
 type Params struct {
-	Addr      string
-	Namespace string // default "default"
-	Service   string
-	Instance  string
-	Log       *xlog.Logger
-	Env       *env.Env
-	Worker    Tuning
+	// Conn is the connection: address, namespace, TLS, API key, dial
+	// timeout (one attempt; Connect makes one before going to the
+	// background).
+	Conn     inftemporal.Config
+	Service  string
+	Instance string
+	Log      *xlog.Logger
+	Env      *env.Env
+	Worker   Tuning
 
-	TLS TLS
-	// APIKey authenticates to Temporal Cloud; it turns TLS on even when
-	// TLS is not enabled.
-	APIKey string
-	// DialTimeout bounds one connection attempt; 0 is 2s.
-	DialTimeout time.Duration
 	// HookTimeout is the deadline of a hook call nothing else bounds; 0 is
 	// env.DefaultHookTimeout. New installs it on Env for WorkflowCall.
 	HookTimeout time.Duration
@@ -103,7 +91,6 @@ type Client struct {
 	log    *xlog.Logger
 	retry  backoff.Policy // between connection and worker start attempts
 	health time.Duration  // between connection checks
-	tracer interceptor.Interceptor
 
 	mu      sync.Mutex
 	client  client.Client // nil until connected
@@ -127,13 +114,7 @@ const (
 
 // New creates the client; nothing connects until Connect.
 func New(p Params) *Client {
-	if p.Namespace == "" {
-		p.Namespace = defaultNamespace
-	}
-
-	if p.DialTimeout <= 0 {
-		p.DialTimeout = defaultDialTimeout
-	}
+	p.Conn = p.Conn.WithDefaults()
 
 	log := p.Log
 	if log == nil {
@@ -157,13 +138,6 @@ func New(p Params) *Client {
 // connection is checked on g every few seconds (Connected). A TLS setting
 // that cannot work is an error.
 func (c *Client) Connect(ctx context.Context, g node.Group) error {
-	tracer, err := otelsdk.NewTracingInterceptor(otelsdk.TracerOptions{})
-	if err != nil {
-		return fmt.Errorf("temporal: tracing: %w", err)
-	}
-
-	c.tracer = tracer
-
 	opts, err := c.options()
 	if err != nil {
 		return err
@@ -185,7 +159,7 @@ func (c *Client) Connect(ctx context.Context, g node.Group) error {
 		return nil
 	}
 
-	c.log.Warn("temporal unreachable, connecting in background", xlog.String("addr", c.p.Addr), xlog.Err(c.dialErr()))
+	c.log.Warn("temporal unreachable, connecting in background", xlog.String("addr", c.p.Conn.Addr), xlog.Err(c.dialErr()))
 
 	g.Go(func(ctx context.Context) error {
 		err := backoff.Retry(ctx, c.retry, func(ctx context.Context) error { return c.dial(ctx, opts) },
@@ -193,7 +167,7 @@ func (c *Client) Connect(ctx context.Context, g node.Group) error {
 				c.log.Debug("temporal unreachable", xlog.Err(err), xlog.Duration("retry_in", in))
 			})
 		if err == nil {
-			c.log.Info("temporal connected", xlog.String("addr", c.p.Addr))
+			c.log.Info("temporal connected", xlog.String("addr", c.p.Conn.Addr))
 		}
 
 		return nil
@@ -204,10 +178,7 @@ func (c *Client) Connect(ctx context.Context, g node.Group) error {
 
 // dial makes one connection attempt.
 func (c *Client) dial(ctx context.Context, opts client.Options) error {
-	ctx, cancel := context.WithTimeout(ctx, c.p.DialTimeout)
-	defer cancel()
-
-	conn, err := client.DialContext(ctx, opts)
+	conn, err := inftemporal.Dial(ctx, c.p.Conn, opts)
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -216,7 +187,7 @@ func (c *Client) dial(ctx context.Context, opts client.Options) error {
 	case err != nil:
 		c.lastErr = err
 
-		return fmt.Errorf("temporal: dial %s: %w", c.p.Addr, err)
+		return err //nolint:wrapcheck // Dial names temporal and the address
 	case c.closed:
 		conn.Close()
 
@@ -231,32 +202,8 @@ func (c *Client) dial(ctx context.Context, opts client.Options) error {
 }
 
 func (c *Client) options() (client.Options, error) {
-	log := c.log
-
-	tlsCfg, err := c.p.TLS.config()
-	if err != nil {
-		return client.Options{}, err
-	}
-
-	opts := client.Options{
-		HostPort:     c.p.Addr,
-		Namespace:    c.p.Namespace,
-		Identity:     c.p.Instance,
-		Logger:       tlog.NewStructuredLogger(slog.New(xlog.NewSlogHandler(log))),
-		Interceptors: []interceptor.ClientInterceptor{c.tracer},
-		MetricsHandler: otelsdk.NewMetricsHandler(otelsdk.MetricsHandlerOptions{
-			Meter:                otel.GetMeterProvider().Meter(scopeName),
-			OnError:              func(err error) { log.Debug("temporal metric", xlog.Err(err)) },
-			UseMonotonicCounters: true,
-		}),
-		ConnectionOptions: client.ConnectionOptions{TLS: tlsCfg},
-	}
-
-	if c.p.APIKey != "" {
-		opts.Credentials = client.NewAPIKeyStaticCredentials(c.p.APIKey)
-	}
-
-	return opts, nil
+	//nolint:wrapcheck // Options names temporal
+	return inftemporal.Options(c.p.Conn, c.p.Instance, c.log)
 }
 
 func (c *Client) dialErr() error {
@@ -420,7 +367,7 @@ func (c *Client) searchAttributes(ctx context.Context, conn client.Client) bool 
 	}
 
 	res, err := conn.OperatorService().ListSearchAttributes(ctx, &operatorservice.ListSearchAttributesRequest{
-		Namespace: c.p.Namespace,
+		Namespace: c.p.Conn.Namespace,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

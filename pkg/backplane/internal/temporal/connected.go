@@ -47,7 +47,7 @@ func (c *Client) watch(ctx context.Context) {
 			return
 		}
 
-		check, cancel := context.WithTimeout(ctx, c.p.DialTimeout)
+		check, cancel := context.WithTimeout(ctx, c.p.Conn.DialTimeout)
 		_, err := conn.CheckHealth(check, &client.CheckHealthRequest{})
 
 		cancel()

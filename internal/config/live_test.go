@@ -26,6 +26,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	sdkconfig "github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 const liveLimit = 20 * time.Second
@@ -82,7 +83,7 @@ func backplaneSide(t *testing.T, client *api.Client, dsn string) (*config.Manage
 	t.Helper()
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(sdkconfig.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: sdkconfig.Secret(dsn)}))
 	reg := registry.New(h.Root(), client)
 	m := config.New(h.Root(), config.Settings{ReconcileInterval: 300 * time.Millisecond}, client, st, reg, config.WaitTime(5*time.Second))
 
@@ -379,7 +380,7 @@ func replica(t *testing.T, client *api.Client, dsn string, src registry.Source) 
 	t.Helper()
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(sdkconfig.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: sdkconfig.Secret(dsn)}))
 	m := config.New(h.Root(), config.Settings{ReconcileInterval: 200 * time.Millisecond}, client, st, src, config.WaitTime(5*time.Second))
 
 	h.Start()

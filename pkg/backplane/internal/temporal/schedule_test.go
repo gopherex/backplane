@@ -19,6 +19,7 @@ import (
 
 	"github.com/gopherex/xlog"
 
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
@@ -48,7 +49,7 @@ func replica(
 	}
 
 	c := temporal.New(temporal.Params{
-		Addr: temporaltest.Addr(t), Service: name, Instance: instance, Log: xlog.NewJSON(xlog.WithWriter(logs)), Env: e,
+		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: name, Instance: instance, Log: xlog.NewJSON(xlog.WithWriter(logs)), Env: e,
 		Worker: temporal.Tuning{MaxConcurrentActivities: 4, ActivityPollers: 2, WorkflowPollers: 2},
 	})
 	c.UseFastRetry()

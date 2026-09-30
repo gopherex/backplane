@@ -24,6 +24,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 func str(key, value string) *commonpb.KeyValue {
@@ -110,7 +111,7 @@ func ingestReplica(t *testing.T, dsn string, keys ...string) (*audit.Service, *a
 	t.Helper()
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(config.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(dsn)}))
 	svc := audit.New(h.Root(), st, audit.WithPublisher(func(context.Context, audit.Entry) error { return nil }))
 
 	settings := audit.Settings{Listen: "127.0.0.1:0"}
@@ -329,7 +330,7 @@ func storeOf(t *testing.T, dsn string) *store.Store {
 	t.Helper()
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(config.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(dsn)}))
 	h.Start()
 
 	if err := backplanetest.Ready(h); err != nil {

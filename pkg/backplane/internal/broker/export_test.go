@@ -2,7 +2,6 @@ package broker
 
 import (
 	"context"
-	"crypto/tls"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -37,13 +36,6 @@ func DeadHeaders(orig nats.Header, id, consumer, cause string, delivered uint64)
 // NakDelay exposes nakDelay.
 func NakDelay(p backoff.Policy, n uint64) time.Duration { return nakDelay(p, n) }
 
-// Credentials exposes credentials.
-func Credentials(content string) error {
-	_, err := credentials(content)
-
-	return err
-}
-
 // Settings is what a reactor runs with.
 type Settings struct {
 	Consumer    jetstream.ConsumerConfig
@@ -77,9 +69,6 @@ func (b *Broker) OwnStreams() (jetstream.StreamConfig, jetstream.StreamConfig) {
 func (b *Broker) PublishRaw(ctx context.Context, event, key string, payload []byte) error {
 	return b.Publish(ctx, env.Message{Event: event, Key: key, Payload: payload})
 }
-
-// TLSConfig exposes tlsConfig.
-func TLSConfig(t TLS) (*tls.Config, error) { return tlsConfig(t) }
 
 // Incoming exposes incoming.
 func Incoming(h nats.Header, consumer string, attempt uint64) env.Incoming {

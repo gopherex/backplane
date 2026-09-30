@@ -85,6 +85,8 @@ github.com/envoyproxy/go-control-plane/ratelimit v0.1.0 h1:/G9QYbddjL25KvtKTv3an
 github.com/envoyproxy/go-control-plane/ratelimit v0.1.0/go.mod h1:Wk+tMFAFbCXaJPzVVHnPgRKdUdwW/KdbRt94AzgRee4=
 github.com/envoyproxy/protoc-gen-validate v1.3.3 h1:MVQghNeW+LZcmXe7SY1V36Z+WFMDjpqGAGacLe2T0ds=
 github.com/envoyproxy/protoc-gen-validate v1.3.3/go.mod h1:TsndJ/ngyIdQRhMcVVGDDHINPLWB7C82oDArY51KfB0=
+github.com/exaring/otelpgx v0.12.0 h1:K3NG2YUiYB384YWptKglk8gLDYek5YptMdm1b0G4pQM=
+github.com/exaring/otelpgx v0.12.0/go.mod h1:3OojrUKhhy3lTbYIMBijP3YjMey/jo14eHAW5cXcUdk=
 github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a h1:yDWHCSQ40h88yih2JAcL6Ls/kVkSE8GFACTGVnMPruw=
 github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a/go.mod h1:7Ga40egUymuWXxAe151lTNnCv97MddSOVsjpPPkityA=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
@@ -186,6 +188,8 @@ github.com/gopherex/xlog v1.2.1 h1:0vH+msXzXF/isFXVNlKNq58QBkQxEmzNsQkR+R9hLeY=
 github.com/gopherex/xlog v1.2.1/go.mod h1:gEMTFKZe5HRXeQHsg1+P6Zsdd5P5b0lWDPdCqmlpjG4=
 github.com/gopherex/xlog/contrib/libs/otel v1.2.1 h1:8v8QV24LtEEZq7HrUGUrJtHw9pbG7BLyyz7DgQsI+K4=
 github.com/gopherex/xlog/contrib/libs/otel v1.2.1/go.mod h1:5yjY1ASNQnyW5Nb1UAHCe1DLLk5L0fu5NeDIQzmekoc=
+github.com/gopherex/xlog/contrib/libs/pgx v1.2.1 h1:425LQiljYocUH1CUhw7Q9Hmqyd2ecG5JvlNUks0OPk0=
+github.com/gopherex/xlog/contrib/libs/pgx v1.2.1/go.mod h1:fsHzX4LkeSHg4zP/R5SaJbP/tPQZHwwWCKt/4zPxIXU=
 github.com/gopherex/xprobe v1.2.0 h1:XbmsrEse6ODOqL/jdZCCjrq+oj7GTj3pQQjZewUqsJk=
 github.com/gopherex/xprobe v1.2.0/go.mod h1:kTfmLC7H7+daCv9D8bBnR89CEiJMIXbxR309PATp/80=
 github.com/gopherex/xprobe/pkg/transport/grpc v1.2.0 h1:C68HIzToGdTCwDBdsxb1NUSJMkw0XftW+Ps43I8e6Uw=

@@ -2,105 +2,28 @@ package broker_test
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
-	"math/big"
 	"testing"
 	"time"
 
 	"github.com/nats-io/nats.go"
 
+	"github.com/gopherex/backplane/pkg/backplane/config"
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
 )
-
-// selfSigned is a PEM certificate and its PEM key.
-func selfSigned(t *testing.T) (string, string) {
-	t.Helper()
-
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "nats"},
-		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
-		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-	}
-
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	der2, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
-		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der2}))
-}
-
-func TestTLSConfig(t *testing.T) {
-	t.Parallel()
-
-	cert, key := selfSigned(t)
-
-	off, err := broker.TLSConfig(broker.TLS{CA: cert})
-	if err != nil || off != nil {
-		t.Fatalf("disabled: %v %v", off, err)
-	}
-
-	sys, err := broker.TLSConfig(broker.TLS{Enabled: true})
-	if err != nil || sys.RootCAs != nil || len(sys.Certificates) != 0 || sys.MinVersion != tls.VersionTLS12 {
-		t.Fatalf("system pool: %+v %v", sys, err)
-	}
-
-	full, err := broker.TLSConfig(broker.TLS{
-		Enabled: true, CA: cert, Cert: cert, Key: key, ServerName: "nats.internal", InsecureSkipVerify: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if full.RootCAs == nil || len(full.Certificates) != 1 || full.ServerName != "nats.internal" || !full.InsecureSkipVerify {
-		t.Fatalf("full: %+v", full)
-	}
-
-	for name, c := range map[string]struct {
-		tls  broker.TLS
-		want error
-	}{
-		"bad ca":      {broker.TLS{Enabled: true, CA: "not a pem"}, broker.ErrTLSCA},
-		"cert alone":  {broker.TLS{Enabled: true, Cert: cert}, broker.ErrTLSPair},
-		"key alone":   {broker.TLS{Enabled: true, Key: key}, broker.ErrTLSPair},
-		"bad keypair": {broker.TLS{Enabled: true, Cert: cert, Key: "junk"}, nil},
-	} {
-		_, err := broker.TLSConfig(c.tls)
-		if err == nil || c.want != nil && !errors.Is(err, c.want) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-}
 
 // A bad TLS configuration fails Connect before dialing.
 func TestConnectRejectsBadTLS(t *testing.T) {
 	t.Parallel()
 
 	b := broker.New(broker.Params{
-		URL: "nats://127.0.0.1:1", Service: "svc", Log: testlog.Discard(),
-		TLS: broker.TLS{Enabled: true, CA: "junk"},
+		Conn:    infranats.Config{URL: "nats://127.0.0.1:1", TLS: config.TLS{Enabled: true, CA: "junk"}},
+		Service: "svc", Log: testlog.Discard(),
 	})
-	if err := b.Connect(t.Context(), newGroup(t)); !errors.Is(err, broker.ErrTLSCA) {
+	if err := b.Connect(t.Context(), newGroup(t)); !errors.Is(err, config.ErrTLSCA) {
 		t.Fatalf("want ErrTLSCA, got %v", err)
 	}
 }

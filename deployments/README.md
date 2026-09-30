@@ -114,6 +114,8 @@ variables — the same `BACKPLANE_` prefix, since the service is named
 | variable | default | meaning |
 |---|---|---|
 | `BACKPLANE_PG_DSN` | — | **required**: PostgreSQL (secret); everything lives in schema `backplane`, created and migrated at start (the role needs `CREATE` on the database) |
+| `BACKPLANE_PG_QUERY_LOG` | `warn` | lowest level of the per-query log (`trace`…`error`, `none`); arguments are never logged |
+| `BACKPLANE_PG_POOL_MAX_CONNS`, `_MIN_CONNS`, `_MAX_CONN_LIFETIME`, `_MAX_CONN_IDLE_TIME` | `0` (pgx's default) | pool bounds; set `MAX_CONNS` explicitly in production — pgx's default follows the node's CPUs |
 | `BACKPLANE_CONSUL_ADDR` | — | **required** for backplane (optional for services): the registry follows the catalog and `backplane/services/` |
 | `BACKPLANE_VALKEY_ADDR` | — | **required**: Valkey `host:port` (a cluster is discovered from it); `_USERNAME`, `_PASSWORD` (secret), `_DB` (`0`), `_TLS_*` like the SDK block's. Holds the console's login attempts for every replica; while it is down, logins are refused with `503` |
 | `BACKPLANE_XDS_LISTEN` | `:18000` | xDS (ADS, delta and state-of-the-world) for Envoy; must be reachable from every Envoy |

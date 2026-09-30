@@ -10,6 +10,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 var errRollback = errors.New("rollback")
@@ -26,7 +27,7 @@ func open(t *testing.T) *store.Store {
 	}
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	dep := deps.NewDependency(h.Root(), store.New(config.Secret(dsn)))
+	dep := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(dsn)}))
 	h.Start()
 
 	if err := backplanetest.Ready(h); err != nil {
@@ -73,8 +74,8 @@ func TestStore(t *testing.T) {
 func TestNoDSN(t *testing.T) {
 	t.Parallel()
 
-	_, err := store.New("").Provide(t.Context(), deps.Component{})
-	if !errors.Is(err, store.ErrNoDSN) {
+	_, err := store.New(postgres.Config{}).Provide(t.Context(), deps.Component{})
+	if !errors.Is(err, postgres.ErrNoDSN) {
 		t.Fatalf("want ErrNoDSN, got %v", err)
 	}
 }

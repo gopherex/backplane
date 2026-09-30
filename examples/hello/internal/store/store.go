@@ -1,5 +1,5 @@
-// Package store stands in for a contrib package (contrib/pgx, contrib/valkey):
-// a config section plus a deps.Provider built from it. The service embeds the
+// Package store stands in for an infra package (pkg/backplane/infra/postgres,
+// infra/valkey): a config section plus a deps.Provider built from it. The service embeds the
 // section in its Config and passes it to New explicitly.
 package store
 

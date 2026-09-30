@@ -23,6 +23,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	sdkconfig "github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 // live is the Manager over PostgreSQL (BACKPLANE_TEST_PG, skipped
@@ -69,7 +70,7 @@ func liveHub(t *testing.T) (*bindings.Manager, string, hubServices) {
 	hub.Publish(services)
 
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	st := deps.NewDependency(h.Root(), store.New(sdkconfig.Secret(dsn)))
+	st := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: sdkconfig.Secret(dsn)}))
 	m := bindings.New(h.Root(), st, hub, bindings.PollInterval(100*time.Millisecond))
 
 	h.Start()

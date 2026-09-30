@@ -14,6 +14,8 @@ import (
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
 	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
@@ -129,12 +131,7 @@ func newCore(ctx context.Context, o options, conf configrt.State, cfg config.Bac
 func (c *core) connect() {
 	if c.cfg.NATS.Enabled() {
 		c.broker = broker.New(broker.Params{
-			URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds.Reveal(),
-			TLS: broker.TLS{
-				Enabled: c.cfg.NATS.TLS.Enabled, CA: c.cfg.NATS.TLS.CA, Cert: c.cfg.NATS.TLS.Cert,
-				Key: c.cfg.NATS.TLS.Key.Reveal(), ServerName: c.cfg.NATS.TLS.ServerName,
-				InsecureSkipVerify: c.cfg.NATS.TLS.InsecureSkipVerify,
-			},
+			Conn:           infranats.Config{URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds, TLS: c.cfg.NATS.TLS},
 			PublishTimeout: c.cfg.NATS.PublishTimeout,
 			Service:        c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
 			Streams: broker.Streams{
@@ -150,11 +147,12 @@ func (c *core) connect() {
 
 	if c.cfg.Temporal.Enabled() {
 		c.temporal = temporal.New(temporal.Params{
-			Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace,
+			Conn: inftemporal.Config{
+				Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace, TLS: c.cfg.Temporal.TLS,
+				APIKey: c.cfg.Temporal.APIKey, DialTimeout: c.cfg.Temporal.DialTimeout,
+			},
 			Service: c.id.Service, Instance: c.id.Instance, Log: c.log, Env: c.env,
-			Worker: tuning(c.cfg.Temporal.Worker),
-			TLS:    temporalTLS(c.cfg.Temporal.TLS), APIKey: c.cfg.Temporal.APIKey.Reveal(),
-			DialTimeout: c.cfg.Temporal.DialTimeout, HookTimeout: c.cfg.Temporal.HookTimeout,
+			Worker: tuning(c.cfg.Temporal.Worker), HookTimeout: c.cfg.Temporal.HookTimeout,
 		})
 		n := c.svc.Child("temporal", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.Connect(ctx, n) })
@@ -168,14 +166,6 @@ func (c *core) connect() {
 
 		c.env.SetCaller(c.temporal)
 		c.env.SetWorkflowClient(func() (any, error) { return c.temporal.SDK() })
-	}
-}
-
-// temporalTLS of the Temporal connection from its configuration block.
-func temporalTLS(t config.TLS) temporal.TLS {
-	return temporal.TLS{
-		Enabled: t.Enabled, CA: t.CA, Cert: t.Cert, Key: t.Key.Reveal(),
-		ServerName: t.ServerName, InsecureSkipVerify: t.InsecureSkipVerify,
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
@@ -129,7 +130,7 @@ func admin(t *testing.T, url string, services ...string) jetstream.JetStream {
 func open(t *testing.T, url, service string, e *env.Env) *broker.Broker {
 	t.Helper()
 
-	return openWith(t, broker.Params{URL: url, Service: service, Env: e})
+	return openWith(t, broker.Params{Conn: infranats.Config{URL: url}, Service: service, Env: e})
 }
 
 // openWith is open with p; Instance, Version and Log are filled in.

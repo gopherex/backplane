@@ -14,6 +14,7 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/activity"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
@@ -48,7 +49,7 @@ func TestWorkflowActivity(t *testing.T) {
 	activity.Workflow(root, "Ship", ship)
 
 	c := temporal.New(temporal.Params{
-		Addr: temporaltest.Addr(t), Service: svc, Instance: svc + "-1", Log: testlog.Discard(), Env: e,
+		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: svc, Instance: svc + "-1", Log: testlog.Discard(), Env: e,
 	})
 	g := temporaltest.NewGroup(t)
 

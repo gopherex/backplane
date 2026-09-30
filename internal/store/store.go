@@ -19,27 +19,21 @@ package store
 import (
 	"context"
 	"embed"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gopherex/pgtx"
 	"github.com/gopherex/pgtx/pkg/tx"
-	"github.com/gopherex/sqld/pkg/migrate"
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/internal/store/db"
-	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/postgres"
 )
 
 // Schema is where everything of backplane lives in PostgreSQL.
 const Schema = "backplane"
-
-// ErrNoDSN: the store has no connection string.
-var ErrNoDSN = errors.New("store: dsn is empty")
 
 //go:embed migrations/*.sql
 var migrations embed.FS
@@ -78,64 +72,36 @@ func (s *Store) InTx(ctx context.Context, fn func(ctx context.Context) error) er
 // New is the provider of the store: a required dependency whose start
 // connects, creates the schema and applies pending migrations (retried
 // with backoff while PostgreSQL is down); its probe pings.
-func New(dsn config.Secret) deps.Provider[*Store] { return provider{dsn: dsn} }
+func New(cfg postgres.Config) deps.Provider[*Store] { return provider{cfg: cfg} }
 
-type provider struct{ dsn config.Secret }
+type provider struct{ cfg postgres.Config }
 
 func (provider) Name() string { return "postgres" }
 
 func (p provider) Provide(ctx context.Context, s deps.Scope) (*Store, error) {
-	if p.dsn.Reveal() == "" {
-		return nil, ErrNoDSN
+	pg, err := postgres.Open(ctx, s.Log(), p.cfg,
+		postgres.Schema(Schema), postgres.Migrations(migrations), postgres.Serializable())
+	if err != nil {
+		return nil, fmt.Errorf("store: %w", err)
 	}
 
-	cfg, err := pgxpool.ParseConfig(p.dsn.Reveal())
+	st, err := open(ctx, pg)
 	if err != nil {
-		// The parse error may quote the DSN.
-		return nil, errors.New("store: dsn does not parse") //nolint:err113 // DSN must not leak
-	}
-
-	cfg.ConnConfig.RuntimeParams["search_path"] = Schema
-
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("store: pool: %w", err)
-	}
-
-	st, err := open(ctx, pool)
-	if err != nil {
-		pool.Close()
+		pg.Close()
 
 		return nil, err
 	}
 
-	s.Log().Info("postgres ready", xlog.String("host", cfg.ConnConfig.Host),
-		xlog.String("database", cfg.ConnConfig.Database), xlog.String("installation", st.Installation.String()))
+	conn := pg.Pool.Config().ConnConfig
+	s.Log().Info("postgres ready", xlog.String("host", conn.Host),
+		xlog.String("database", conn.Database), xlog.String("installation", st.Installation.String()))
 
 	return st, nil
 }
 
-// open migrates and wraps pool.
-func open(ctx context.Context, pool *pgxpool.Pool) (*Store, error) {
-	if err := pool.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("store: ping: %w", err)
-	}
-
-	if _, err := pool.Exec(ctx, "CREATE SCHEMA IF NOT EXISTS "+Schema); err != nil {
-		return nil, fmt.Errorf("store: create schema: %w", err)
-	}
-
-	if err := migrate.Migrate(ctx, pool, migrations); err != nil {
-		return nil, fmt.Errorf("store: %w", err)
-	}
-
-	trm, err := pgtx.NewTxManager(pool, tx.Serializable())
-	if err != nil {
-		return nil, fmt.Errorf("store: tx manager: %w", err)
-	}
-
-	txdb := pgtx.NewTxDB(pool)
-	st := &Store{Pool: pool, Trm: trm, DB: txdb, Q: db.New(txdb)}
+// open wraps a migrated connection and makes sure of the installation.
+func open(ctx context.Context, pg *postgres.DB) (*Store, error) {
+	st := &Store{Pool: pg.Pool, Trm: pg.Trm, DB: pg.DB, Q: db.New(pg.DB)}
 
 	if err := st.Q.CreateInstallation(ctx); err != nil {
 		return nil, fmt.Errorf("store: installation: %w", err)

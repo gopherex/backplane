@@ -725,7 +725,14 @@ type Config struct {
 cache := deps.NewDependency(root, valkey.New(cfg.Cache), deps.Name("cache"))
 ```
 
-Пакеты: `infra/valkey` (valkey-go с OTel, проба PING). `Provide` получает
+Пакеты: `infra/postgres` (pgxpool с otelpgx и логом запросов без
+аргументов, pgtx, схема и миграции sqld при старте), `infra/nats`
+(соединение, которое не сдаётся), `infra/temporal` (клиент с трейсингом и
+метриками), `infra/valkey` (valkey-go с OTel). Узлы `nats` и `temporal`
+самого SDK подключаются через `infra/nats.Connect` и
+`infra/temporal.Options`: код подключения один. Шина событий платформы —
+только NATS из блока SDK (`BACKPLANE_NATS_*`); `infra/nats` — для NATS,
+которым сервис владеет сам и которого backplane не видит. `Provide` получает
 `deps.Scope` своего узла; у обязательной зависимости он может создавать под
 ним дочерние узлы (они стартуют вместе с ней). Для
 разового случая — `deps.Func(fn, deps.WithProbe(...), deps.WithClose(...))`,
@@ -2524,6 +2531,7 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 | | |
 |---|---|
 | `BACKPLANE_PG_DSN` | обязателен; схема `backplane` — создаётся и мигрируется при старте |
+| `BACKPLANE_PG_QUERY_LOG`, `_POOL_MAX_CONNS`, `_POOL_MIN_CONNS`, `_POOL_MAX_CONN_LIFETIME`, `_POOL_MAX_CONN_IDLE_TIME` | нижний уровень лога запросов (`warn`; аргументы не пишутся) и границы пула (`0` — по умолчанию pgx; в проде `MAX_CONNS` задают явно) |
 | `BACKPLANE_CONSUL_ADDR` | обязателен для backplane (у сервисов — опционален) |
 | `BACKPLANE_VALKEY_ADDR`, `_USERNAME`, `_PASSWORD`, `_DB`, `_TLS_*` | обязателен адрес (`host:port`): Valkey для попыток входа (§11.3); старт ждёт его, readiness — его PING |
 | `BACKPLANE_XDS_LISTEN` | ADS для Envoy (`:18000`) |
@@ -3032,8 +3040,8 @@ backplane/
   internal/                  приватное backplane (сервер):
     server/                  конфигурация сервера (§12.2, Validate) и State: дерево узлов — store,
                              registry, дальше компоненты; readiness и объявления сервера
-    store/                   PostgreSQL, схема backplane: pgxpool + pgtx (транзакции), миграции sqld
-                             при старте (migrations/, из diff schema.sql), типизированные запросы
+    store/                   PostgreSQL, схема backplane, на infra/postgres: pgxpool + pgtx
+                             (транзакции), миграции sqld при старте (migrations/, из diff schema.sql), типизированные запросы
                              (queries/ → db/, sqld-gen-go)
     wire/                    контракт имён SDK и сервера (§8, §9, §17): объекты NATS, заголовки, metadata,
                              redrive-subject, имена Temporal; только стандартная библиотека
@@ -3076,6 +3084,12 @@ backplane/
     hook/                    хуки: Declare, Call, WorkflowCall, Key, Timeout, ErrUnavailable, ErrNoBinding
     infra/                   подключения к инфраструктуре как провайдеры deps (§4.4): секция
                              конфигурации + New(cfg) deps.Provider[T]; ими пользуется и backplane
+      postgres/              PostgreSQL: Config (DSN, лог запросов, пул), DB (pgxpool + pgtx), Open,
+                             Schema, Migrations (sqld), Serializable; otelpgx, проба ping
+      nats/                  NATS: Config (URL, creds, TLS), Connect (переподключение без конца, без
+                             буфера), провайдер со статусом в пробе; через него подключается шина SDK
+      temporal/              Temporal: Config (addr, ns, TLS, API key, dial timeout), Options (логгер,
+                             OTel-трейсинг и метрики), Dial; через него подключается Temporal SDK
       valkey/                Valkey: Config, Client (valkey-go), OTel, проба PING
     route/                   declarative-роуты, опции managed-роутов, политика Envoy, Origins
     workflows/               workflows автора: Register, Declare, Client, Queue, Schedule и опции
