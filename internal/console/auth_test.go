@@ -3,7 +3,7 @@ package console_test
 import (
 	"errors"
 	"net/http"
-	"strconv"
+	"slices"
 	"testing"
 	"time"
 
@@ -167,7 +167,7 @@ func TestSessionExpiry(t *testing.T) {
 	}
 }
 
-func TestBruteForce(t *testing.T) {
+func TestLoginAttempts(t *testing.T) {
 	t.Parallel()
 
 	e := newEnv(t, nil, func(s *console.Settings) { s.TrustedProxies = []string{"127.0.0.1"} })
@@ -177,49 +177,35 @@ func TestBruteForce(t *testing.T) {
 		return res
 	}
 
-	// Per address: a burst of 5, then 429 with Retry-After.
-	for i := range 5 {
-		if res := from("198.51.100.1", "wrong"); res.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("attempt %d: %s", i, res.Status)
-		}
+	// A wrong token counts a failure of the client's address.
+	if res := from("198.51.100.1", "wrong"); res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("wrong token: %s", res.Status)
 	}
+
+	// Refused: 429 with the wait rounded up to seconds.
+	e.attempts.set(1500*time.Millisecond, nil)
 
 	limited := from("198.51.100.1", adminToken)
-	if limited.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("over the burst: %s", limited.Status)
+	if limited.StatusCode != http.StatusTooManyRequests || limited.Header.Get("Retry-After") != "2" {
+		t.Fatalf("limited: %s, retry-after %q", limited.Status, limited.Header.Get("Retry-After"))
 	}
 
-	if s, err := strconv.Atoi(limited.Header.Get("Retry-After")); err != nil || s < 1 {
-		t.Fatalf("retry-after %q", limited.Header.Get("Retry-After"))
+	// Attempts that cannot be counted refuse the login.
+	e.attempts.set(0, errors.New("valkey down"))
+
+	if res := from("198.51.100.1", adminToken); res.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("attempts unavailable: %s", res.Status)
 	}
 
-	// Another address (through the trusted proxy) is not limited by it.
+	e.attempts.set(0, nil)
+
 	if res := from("198.51.100.2", adminToken); res.StatusCode != http.StatusOK {
-		t.Fatalf("other address: %s", res.Status)
+		t.Fatalf("login: %s", res.Status)
 	}
 
-	// The bucket refills.
-	e.clock.Advance(15 * time.Second)
-
-	if res := from("198.51.100.1", adminToken); res.StatusCode != http.StatusOK {
-		t.Fatalf("after refill: %s", res.Status)
-	}
-
-	// Global: consecutive failures from many addresses back everyone off.
-	for i := range 10 {
-		if res := from("203.0.113."+strconv.Itoa(i), "wrong"); res.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("global attempt %d: %s", i, res.Status)
-		}
-	}
-
-	if res := from("192.0.2.200", adminToken); res.StatusCode != http.StatusTooManyRequests {
-		t.Fatalf("global backoff: %s", res.Status)
-	}
-
-	e.clock.Advance(2 * time.Second)
-
-	if res := from("192.0.2.200", adminToken); res.StatusCode != http.StatusOK {
-		t.Fatalf("after the backoff: %s", res.Status)
+	addrs, failed, succeeded := e.attempts.counts()
+	if !slices.Equal(addrs, []string{"198.51.100.1", "198.51.100.1", "198.51.100.1", "198.51.100.2"}) || failed != 1 || succeeded != 1 {
+		t.Fatalf("addrs %v, failed %d, succeeded %d", addrs, failed, succeeded)
 	}
 }
 

@@ -27,6 +27,59 @@ import (
 // adminToken is the configured admin token of the tests.
 const adminToken = "test-admin-token-0123"
 
+// attempts is a settable Attempts: allows while wait and err are zero,
+// counts failures and successes.
+type attempts struct {
+	mu                sync.Mutex
+	wait              time.Duration
+	err               error
+	addrs             []string
+	failed, succeeded int
+}
+
+func newAttempts() *attempts { return &attempts{} }
+
+func (a *attempts) Allow(_ context.Context, addr string) (time.Duration, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.addrs = append(a.addrs, addr)
+
+	return a.wait, a.err
+}
+
+func (a *attempts) Failed(context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.failed++
+
+	return a.err
+}
+
+func (a *attempts) Succeeded(context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.succeeded++
+
+	return a.err
+}
+
+func (a *attempts) set(wait time.Duration, err error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.wait, a.err = wait, err
+}
+
+func (a *attempts) counts() ([]string, int, int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Clone(a.addrs), a.failed, a.succeeded
+}
+
 // clock is a settable time.
 type clock struct {
 	mu  sync.Mutex
@@ -178,6 +231,7 @@ type env struct {
 	t        *testing.T
 	console  *console.Console
 	sessions console.Sessions
+	attempts *attempts
 	hub      *registry.Hub
 	clock    *clock
 	srv      *httptest.Server
@@ -199,7 +253,7 @@ func newEnvOptions(t *testing.T, sessions console.Sessions, options []console.Op
 		sessions = newMemSessions()
 	}
 
-	e := &env{t: t, sessions: sessions, hub: registry.NewHub(), clock: newClock()}
+	e := &env{t: t, sessions: sessions, attempts: newAttempts(), hub: registry.NewHub(), clock: newClock()}
 	settings := console.Settings{AdminToken: adminToken, InternalSecret: "relay-secret"}
 
 	for _, o := range opts {
@@ -209,7 +263,7 @@ func newEnvOptions(t *testing.T, sessions console.Sessions, options []console.Op
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
 
 	options = append(options, console.WithClock(e.clock.Now))
-	e.console = console.New(h.Root(), settings, sessions, e.hub, options...)
+	e.console = console.New(h.Root(), settings, sessions, e.attempts, e.hub, options...)
 	h.Start()
 
 	e.srv = httptest.NewServer(e.console.Handler())

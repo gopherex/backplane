@@ -93,6 +93,7 @@ it. Ports are published on localhost:
 | Consul | `hashicorp/consul` | 8500 (HTTP), 8600/udp (DNS) | `agent -dev`: in-memory, no ACL |
 | NATS | `nats` | 4222, 8222 (monitoring) | JetStream on (`-js`) |
 | Temporal | `temporalio/temporal` | 7233 (frontend), 8233 (UI) | **dev server** (`server start-dev`): SQLite in memory, Nexus enabled, namespace `default`; enough for development and conformance — production runs a real Temporal cluster |
+| Valkey | `valkey/valkey` | 6379 | backplane's login attempts, shared by its replicas |
 | PostgreSQL | `postgres` | 5433 | for backplane (user/password/db `backplane`); `backplane_scratch` is created by `make db-migration` |
 | Envoy | `envoyproxy/envoy` | 10000 (traffic), 9901 (admin) | bootstrap `envoy/envoy.yaml`; routes come over xDS from backplane |
 
@@ -114,6 +115,7 @@ variables — the same `BACKPLANE_` prefix, since the service is named
 |---|---|---|
 | `BACKPLANE_PG_DSN` | — | **required**: PostgreSQL (secret); everything lives in schema `backplane`, created and migrated at start (the role needs `CREATE` on the database) |
 | `BACKPLANE_CONSUL_ADDR` | — | **required** for backplane (optional for services): the registry follows the catalog and `backplane/services/` |
+| `BACKPLANE_VALKEY_ADDR` | — | **required**: Valkey `host:port` (a cluster is discovered from it); `_USERNAME`, `_PASSWORD` (secret), `_DB` (`0`), `_TLS_*` like the SDK block's. Holds the console's login attempts for every replica; while it is down, logins are refused with `503` |
 | `BACKPLANE_XDS_LISTEN` | `:18000` | xDS (ADS, delta and state-of-the-world) for Envoy; must be reachable from every Envoy |
 | `BACKPLANE_XDS_HTTP_PORT` | `10000` | port of Envoy's public HTTP listener the xDS snapshot describes (Envoy binds it, backplane does not) |
 | `BACKPLANE_CONSOLE_LISTEN` | `:8081` | console HTTP (`/`, `/ws`, `/auth`, `/plugins`), behind Envoy |
@@ -126,7 +128,7 @@ variables — the same `BACKPLANE_` prefix, since the service is named
 
 Listen ports must differ from each other and from the platform and public
 ports. Readiness (`/healthz/readiness` on the platform port) waits for
-PostgreSQL (migrated, pinging) and the first registry snapshot from Consul;
+PostgreSQL (migrated, pinging), Valkey (pinging) and the first registry snapshot from Consul;
 later Consul outages keep the last snapshot and readiness.
 
 Locally, against platform-in-a-box, next to services on their default
@@ -134,7 +136,7 @@ ports:
 
 ```sh
 make up
-make run-backplane   # bin/backplane: Consul localhost:8500, PostgreSQL localhost:5433,
+make run-backplane   # bin/backplane: Consul localhost:8500, PostgreSQL localhost:5433, Valkey localhost:6379,
                      # platform port 9410, public port 8090, console admin token
                      # dev-admin-token-change-me (DEV_ADMIN_TOKEN=... to override)
 make run-hello       # another terminal: the registry logs hello's manifest and instance
@@ -287,6 +289,7 @@ without it:
 |---|---|
 | `BACKPLANE_TEST_CONSUL=localhost:8500` | manifest and instance state in KV, catalog, platform port and bundle, public protocols, hot reload, graceful stop (builds and runs `examples/hello`); the console's relay to hello's `AdminService` and its bundle through `/plugins/` (`internal/console`: builds and runs its own `hello` without Consul, so it never meets the conformance one) |
 | `BACKPLANE_TEST_NATS=localhost:4222` | events end to end, reactors: dead letters and redrive, stop without dead letters, schema evolution |
+| `BACKPLANE_TEST_VALKEY=localhost:6379` | the console's login attempts against Valkey, in database 15 (`internal/console`); the built `backplane` of M1, M2 and replicas needs it too |
 | `BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane` | the backplane store: migrations, installation, transactions (`internal/store`); console sessions (`internal/console`, in a scratch database it creates and drops — the role needs `CREATEDB`) |
 | `BACKPLANE_TEST_ENVOY=localhost:9901` with `BACKPLANE_TEST_CONSUL` | xDS end to end (`internal/xds`, `make test-envoy`): the control plane on `:18000` against the live catalog, `examples/hello` through the compose Envoy — HTTP, gRPC and a stream, gRPC-Web, REST-JSON, ws-proto, CORS, a route on its own port, the console under a prefix — and no NACK; needs `:18000` free (no `make run-backplane`) and waits for a running conformance `hello` to go |
 | `BACKPLANE_TEST_TEMPORAL=localhost:7233` | hooks through a binding (the test plays backplane's Nexus side), hooks from workflows and lifecycle hooks, activities by name, workflows and schedules |
@@ -298,6 +301,7 @@ make up
 BACKPLANE_TEST_CONSUL=localhost:8500 \
 BACKPLANE_TEST_NATS=localhost:4222 \
 BACKPLANE_TEST_TEMPORAL=localhost:7233 \
+BACKPLANE_TEST_VALKEY=localhost:6379 \
 BACKPLANE_TEST_PG=postgres://backplane:backplane@localhost:5433/backplane \
   GOWORK=off go test -race -count=1 ./...
 ```
@@ -308,8 +312,8 @@ run alone:
 
 ```sh
 make up
-make test-m1   # BACKPLANE_TEST_{CONSUL,PG,ENVOY} set; -run '^TestM1$' ./conformance/
-make test-m2   # BACKPLANE_TEST_{CONSUL,PG,ENVOY,NATS,TEMPORAL} set; -run '^TestM2$' ./conformance/
+make test-m1   # BACKPLANE_TEST_{CONSUL,PG,VALKEY,ENVOY} set; -run '^TestM1$' ./conformance/
+make test-m2   # BACKPLANE_TEST_{CONSUL,PG,VALKEY,ENVOY,NATS,TEMPORAL} set; -run '^TestM2$' ./conformance/
 ```
 
 `make test-m1` builds `cmd/backplane` and `examples/hello` and runs both

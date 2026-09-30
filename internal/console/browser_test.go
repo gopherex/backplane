@@ -84,7 +84,7 @@ func TestBrowserConsole(t *testing.T) {
 		"browser-live-data": {Name: "browser-live-data"},
 	})
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken, InternalSecret: "relay-secret", InsecureCookie: true}, newMemSessions(), hub, console.WithShell(shell))
+	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken, InternalSecret: "relay-secret", InsecureCookie: true}, newMemSessions(), newAttempts(), hub, console.WithShell(shell))
 	h.Start()
 
 	srv := httptest.NewServer(c.Handler())
@@ -118,7 +118,7 @@ func TestTelemetryWithoutOperatorSession(t *testing.T) {
 
 		w.WriteHeader(http.StatusAccepted)
 	})
-	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken}, newMemSessions(), registry.NewHub(), console.WithTelemetry(admission))
+	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken}, newMemSessions(), newAttempts(), registry.NewHub(), console.WithTelemetry(admission))
 	h.Start()
 
 	request := httptest.NewRequest(http.MethodPost, "/backplane/telemetry/v1/logs", strings.NewReader("{}"))

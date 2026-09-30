@@ -107,6 +107,7 @@ backplane — место, где **независимые сервисы сое�
 | **NATS JetStream** | события | да |
 | **Temporal** | workflows сервисов, исполнение хуков, биндингов и правил | да |
 | **PostgreSQL** | собственное состояние backplane | да |
+| **Valkey** | общее короткоживущее состояние реплик backplane (попытки входа в консоль) | да |
 
 «Обязателен» — для установки с backplane. Сервис на SDK стартует и
 работает без любого из них: недостающее — предупреждение в лог, не ошибка
@@ -710,8 +711,21 @@ SIGINT/SIGTERM или ошибки горутины узла; затем ост�
 значение без паники, `Err()` нулевой зависимости — `deps.ErrNotReady`.
 
 Провайдер (`deps.Provider[T]`: `Name`, `Provide`, `Probe`, `Close`) — форма
-будущих contrib-модулей (`contrib/pgx`, `contrib/valkey`, `contrib/s3`):
-секция конфигурации + `New(*Config) deps.Provider[T]`. `Provide` получает
+подключений SDK к инфраструктуре (`pkg/backplane/infra/<name>`): секция
+конфигурации + `New(Config) deps.Provider[T]`. Ими пользуется и сам
+backplane, и автор — для своих ресурсов (своя база, свой кэш, свой
+кластер); узел называют `deps.Name`:
+
+```go
+type Config struct {
+    config.Backplane `json:"backplane"`
+    Cache valkey.Config `json:"cache"` // GREETER_CACHE_ADDR, _PASSWORD, ...
+}
+
+cache := deps.NewDependency(root, valkey.New(cfg.Cache), deps.Name("cache"))
+```
+
+Пакеты: `infra/valkey` (valkey-go с OTel, проба PING). `Provide` получает
 `deps.Scope` своего узла; у обязательной зависимости он может создавать под
 ним дочерние узлы (они стартуют вместе с ней). Для
 разового случая — `deps.Func(fn, deps.WithProbe(...), deps.WithClose(...))`,
@@ -2422,10 +2436,13 @@ v0 — один оператор.
   `POST /auth/login` и `/auth/logout` отвергают чужой `Origin`, а без
   `Origin` — `Sec-Fetch-Site`, отличный от `same-origin`/`none`
   (клиент не из браузера не шлёт ни того, ни другого).
-- **Brute force** — на адрес: 5 попыток сразу, дальше одна в 12 с;
-  глобально: после 10 неудачных подряд (с любых адресов) каждый вход
-  ждёт 1 с, удваиваясь с каждой следующей неудачей до 1 мин; успешный вход
-  сбрасывает. Отказ — `429` с `Retry-After`. Адрес клиента — адрес пира,
+- **Brute force** — счётчики в Valkey, общие для всех реплик: на адрес —
+  5 попыток в минуту (окно с первой попытки); глобально: после 10
+  неудачных подряд (с любых адресов, без перерыва дольше часа) каждый
+  вход ждёт 1 с, удваиваясь с каждой следующей неудачей до 1 мин;
+  успешный вход сбрасывает. Отказ — `429` с `Retry-After`. Недоступный
+  Valkey закрывает вход (`503`): попытки, которые нельзя сосчитать, не
+  пропускаются. Адрес клиента — адрес пира,
   а если пир входит в `BACKPLANE_CONSOLE_TRUSTED_PROXIES` (Envoy) — первый
   справа в `X-Forwarded-For`, не входящий в список.
 - **Заголовки** всех ответов: CSP `default-src 'self'; script-src 'self'`
@@ -2508,6 +2525,7 @@ backplane — сервис на своём SDK (§14): весь блок §4.3 �
 |---|---|
 | `BACKPLANE_PG_DSN` | обязателен; схема `backplane` — создаётся и мигрируется при старте |
 | `BACKPLANE_CONSUL_ADDR` | обязателен для backplane (у сервисов — опционален) |
+| `BACKPLANE_VALKEY_ADDR`, `_USERNAME`, `_PASSWORD`, `_DB`, `_TLS_*` | обязателен адрес (`host:port`): Valkey для попыток входа (§11.3); старт ждёт его, readiness — его PING |
 | `BACKPLANE_XDS_LISTEN` | ADS для Envoy (`:18000`) |
 | `BACKPLANE_XDS_HTTP_PORT` | порт публичного listener'а, который описывает снапшот (Envoy его слушает; `10000`) |
 | `BACKPLANE_CONSOLE_LISTEN` | HTTP консоли (`/`, `/ws`, `/auth`, `/plugins`) — за Envoy (`:8081`) |
@@ -3042,7 +3060,8 @@ backplane/
     xds/                     control-plane Envoy (§6): ADS-сервер на своём адресе, снапшот из Catalog
                              (Build: listener, маршруты, cluster'ы, endpoints), метрики, NACK в лог
     console/                 консоль (§11): компонент со своим listener'ом — вход по
-                             admin-токену из конфигурации, сессии (Sessions: PostgreSQL, PG), brute force,
+                             admin-токену из конфигурации, сессии (Sessions: PostgreSQL, PG), brute force
+                             (Attempts: Valkey),
                              /ws (ws-proto: CatalogService, SessionService, ConfigService, BindingService, RuleService; relay во
                              внутреннее API сервисов), бандлы плагинов с LRU-кэшем, заголовки безопасности
   pkg/backplane/             Go SDK: Open, Root, Service, Identity, Info, опции Open, ErrConfig, ErrClosed
@@ -3055,6 +3074,9 @@ backplane/
     event/                   события: Declare, Publish и опции, React и опции доставки, Delivery,
                              Terminal, Redrive, JetStream
     hook/                    хуки: Declare, Call, WorkflowCall, Key, Timeout, ErrUnavailable, ErrNoBinding
+    infra/                   подключения к инфраструктуре как провайдеры deps (§4.4): секция
+                             конфигурации + New(cfg) deps.Provider[T]; ими пользуется и backplane
+      valkey/                Valkey: Config, Client (valkey-go), OTel, проба PING
     route/                   declarative-роуты, опции managed-роутов, политика Envoy, Origins
     workflows/               workflows автора: Register, Declare, Client, Queue, Schedule и опции
     wsproto/                 ws-proto как managed-роут (своя зависимость ws-proto)

@@ -30,7 +30,7 @@ func TestListener(t *testing.T) {
 		h := backplanetest.New(t, backplanetest.Name("backplane"))
 		c := console.New(h.Root(), console.Settings{
 			Listen: "127.0.0.1:0", Prefix: "/backplane", AdminToken: adminToken, InsecureCookie: true,
-		}, newMemSessions(), registry.NewHub())
+		}, newMemSessions(), newAttempts(), registry.NewHub())
 		h.Start()
 
 		base = "http://" + c.Addr().String()

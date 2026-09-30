@@ -138,7 +138,7 @@ func WithTelemetry(handler http.Handler) Option { return func(o *options) { o.te
 // gone instances, and whose stop shuts the listener down and closes the
 // open /ws connections.
 //
-// A Console is shared by pointer: it holds the limiter, the connections,
+// A Console is shared by pointer: it holds the connections,
 // the relay pool and the bundle cache.
 type Console struct {
 	deps.Component
@@ -152,20 +152,22 @@ type Console struct {
 	now      func() time.Time
 	token    adminToken
 
-	limiter *limiter
-	conns   *connections
-	relay   *relay
-	bundles *bundles
-	handler http.Handler
+	attempts Attempts
+	conns    *connections
+	relay    *relay
+	bundles  *bundles
+	handler  http.Handler
 
 	mu  sync.Mutex
 	srv *http.Server
 	ln  net.Listener
 }
 
-// New creates the console under parent: sessions keep the sessions, src is
-// the installation. Its start fails when s does not pass Validate.
-func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, opts ...Option) *Console {
+// New creates the console under parent: sessions keep the sessions,
+// attempts count logins across replicas, src is the installation. Its start fails when s does not pass Validate.
+func New(
+	parent deps.Scope, s Settings, sessions Sessions, attempts Attempts, src registry.Source, opts ...Option,
+) *Console {
 	o := options{now: time.Now, cacheBytes: defaultCacheBytes}
 	for _, opt := range opts {
 		opt(&o)
@@ -180,7 +182,7 @@ func New(parent deps.Scope, s Settings, sessions Sessions, src registry.Source, 
 		src:       src,
 		now:       o.now,
 		token:     newAdminToken(s.AdminToken.Reveal()),
-		limiter:   newLimiter(),
+		attempts:  attempts,
 		conns:     newConnections(),
 	}
 

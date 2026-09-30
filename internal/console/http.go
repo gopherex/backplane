@@ -182,8 +182,16 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	now := c.now()
 	addr := c.proxies.client(r)
 
-	if wait, ok := c.limiter.allow(addr, now); !ok {
-		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+	wait, err := c.attempts.Allow(r.Context(), addr)
+	if err != nil {
+		c.Log().Error("console: login refused", xlog.Err(err))
+		httpError(w, http.StatusServiceUnavailable, "login unavailable")
+
+		return
+	}
+
+	if wait > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
 		httpError(w, http.StatusTooManyRequests, "too many login attempts")
 
 		return
@@ -197,14 +205,20 @@ func (c *Console) login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !c.token.match(req.Token) {
-		c.limiter.failed(now)
 		c.Log().Warn("console: failed login", xlog.String("address", addr))
+
+		if err := c.attempts.Failed(r.Context()); err != nil {
+			c.Log().Error("console: failed login not counted", xlog.Err(err))
+		}
+
 		httpError(w, http.StatusUnauthorized, "wrong token")
 
 		return
 	}
 
-	c.limiter.succeeded()
+	if err := c.attempts.Succeeded(r.Context()); err != nil {
+		c.Log().Warn("console: login backoff not reset", xlog.Err(err))
+	}
 
 	token, err := randomToken()
 	if err != nil {

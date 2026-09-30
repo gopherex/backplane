@@ -23,6 +23,7 @@ import (
 	"github.com/gopherex/backplane/internal/otlp"
 	"github.com/gopherex/backplane/internal/xds"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/infra/valkey"
 )
 
 // Name of the service.
@@ -34,6 +35,8 @@ type Config struct {
 
 	// PostgreSQL, schema `backplane`.
 	PG PG `json:"pg"`
+	// Valkey keeps what every replica shares briefly: login attempts.
+	Valkey valkey.Config `json:"valkey"`
 	// xDS (ADS) for Envoy.
 	XDS XDS `json:"xds"`
 	// Console HTTP: `/`, `/ws`, `/auth`, `/plugins`, served behind Envoy.
@@ -101,6 +104,7 @@ func (c Config) consoleSettings() console.Settings {
 var (
 	ErrNoPG         = errors.New("pg.dsn is required (BACKPLANE_PG_DSN)")
 	ErrNoConsul     = errors.New("backplane.consul.addr is required (BACKPLANE_CONSUL_ADDR)")
+	ErrNoValkey     = errors.New("valkey.addr is required (BACKPLANE_VALKEY_ADDR)")
 	ErrAddr         = errors.New("want host:port with a port in 1..65535")
 	ErrPortTaken    = errors.New("port is used twice")
 	ErrHostOrPrefix = errors.New("console: host and prefix exclude each other")
@@ -124,6 +128,12 @@ func (c Config) Validate() error {
 
 	if !c.Consul.Enabled() {
 		errs = append(errs, ErrNoConsul)
+	}
+
+	if !c.Valkey.Enabled() {
+		errs = append(errs, ErrNoValkey)
+	} else if err := c.Valkey.Validate(); err != nil {
+		errs = append(errs, err)
 	}
 
 	if err := c.adminToken(); err != nil {

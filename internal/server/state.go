@@ -23,6 +23,7 @@ import (
 	"github.com/gopherex/backplane/internal/xds"
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/infra/valkey"
 	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
@@ -36,6 +37,9 @@ type State struct {
 	// Store is PostgreSQL: required — the start waits for it (migrated),
 	// readiness follows its ping.
 	Store deps.Dependency[*store.Store]
+	// Valkey is shared short-lived state of the replicas (login attempts):
+	// required — the start waits for it, readiness follows its ping.
+	Valkey deps.Dependency[valkey.Client]
 	// Registry is the installation as Consul sees it; everything else reads
 	// its snapshots (registry.Source).
 	Registry *registry.Registry
@@ -117,6 +121,7 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	st := &State{Consul: client, internalObs: cfg.InternalSecret.Reveal() != ""}
 
 	st.Store = deps.NewDependency(root, store.New(cfg.PG.DSN))
+	st.Valkey = deps.NewDependency(root, valkey.New(cfg.Valkey))
 	st.Registry = registry.New(root, client)
 	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor), ops.Namespace(cfg.Temporal.Namespace))
 	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention), audit.WithRunQueue(st.Ops.RunQueue))
@@ -149,7 +154,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Bindings.Register),
 		console.WithServices(st.Obs.Register), console.WithServices(errorReader.Register),
 		console.WithServices(st.Audit.Register))
-	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry, consoleOptions...)
+	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store),
+		console.NewValkey(st.Valkey, console.DefaultLoginLimits()), st.Registry, consoleOptions...)
 
 	return st, nil
 }

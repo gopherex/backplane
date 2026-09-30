@@ -22,6 +22,11 @@ services:
     ports: ["5433:5432"]
     volumes: ["pg:/var/lib/postgresql/data"]
 
+  # Shared short-lived state of backplane replicas (login attempts).
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports: ["6379:6379"]
+
   nats:
     image: nats:2-alpine
     command: -js -m 8222
