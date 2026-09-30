@@ -451,7 +451,13 @@ type StepAnalysis struct {
 	When []string `protobuf:"bytes,5,rep,name=when,proto3" json:"when,omitempty"`
 	// The steps its undo input reads (they are not dependencies: they must
 	// have run before it).
-	Undo          []string `protobuf:"bytes,6,rep,name=undo,proto3" json:"undo,omitempty"`
+	Undo []string `protobuf:"bytes,6,rep,name=undo,proto3" json:"undo,omitempty"`
+	// The id of the for_each step whose body this step is in:
+	// "<outer>/<inner>" in a nested body; empty at the top level. Names are
+	// unique only within one body.
+	Parent string `protobuf:"bytes,7,opt,name=parent,proto3" json:"parent,omitempty"`
+	// CEL type of the item of a for_each step; empty without for_each.
+	ItemType      string `protobuf:"bytes,8,opt,name=item_type,json=itemType,proto3" json:"item_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -526,6 +532,20 @@ func (x *StepAnalysis) GetUndo() []string {
 		return x.Undo
 	}
 	return nil
+}
+
+func (x *StepAnalysis) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
+func (x *StepAnalysis) GetItemType() string {
+	if x != nil {
+		return x.ItemType
+	}
+	return ""
 }
 
 // ValueType is the CEL type of a value node: "string", "int", "double",
@@ -667,9 +687,11 @@ type RenameStepRequest struct {
 	//	*RenameStepRequest_Binding
 	//	*RenameStepRequest_Rule
 	Definition isRenameStepRequest_Definition `protobuf_oneof:"definition"`
-	// The step's current name.
+	// The step's id: its name, or "<for-each step>/<name>" for a step of
+	// a body (bodies nest).
 	From string `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
-	// Its new name: an identifier, not reserved, not another step's.
+	// Its new name: an identifier, not reserved, not taken by a step or an
+	// item it would be seen with.
 	To            string `protobuf:"bytes,4,opt,name=to,proto3" json:"to,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -890,14 +912,16 @@ const file_backplanepb_console_v1_wiring_proto_rawDesc = "" +
 	"\x05types\x18\x03 \x03(\v2\x1f.backplane.console.v1.ValueTypeR\x05types\x12?\n" +
 	"\n" +
 	"references\x18\x04 \x03(\v2\x1f.backplane.console.v1.ReferenceR\n" +
-	"references\"\x8a\x01\n" +
+	"references\"\xbf\x01\n" +
 	"\fStepAnalysis\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05level\x18\x02 \x01(\x05R\x05level\x12\x12\n" +
 	"\x04data\x18\x03 \x03(\tR\x04data\x12\x14\n" +
 	"\x05after\x18\x04 \x03(\tR\x05after\x12\x12\n" +
 	"\x04when\x18\x05 \x03(\tR\x04when\x12\x12\n" +
-	"\x04undo\x18\x06 \x03(\tR\x04undo\"3\n" +
+	"\x04undo\x18\x06 \x03(\tR\x04undo\x12\x16\n" +
+	"\x06parent\x18\a \x01(\tR\x06parent\x12\x1b\n" +
+	"\titem_type\x18\b \x01(\tR\bitemType\"3\n" +
 	"\tValueType\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\"\x84\x01\n" +

@@ -1,6 +1,7 @@
 package bindings
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math"
@@ -67,6 +68,10 @@ type StepAnalysis struct {
 	// Data, After and When are the steps its input, `after` and `when`
 	// make it depend on; Undo the steps its undo input reads.
 	Data, After, When, Undo []string
+	// Parent is the for-each step whose body the step is in; "" at the top.
+	Parent string
+	// ItemType is the CEL type of a for-each step's item; "" without.
+	ItemType string
 }
 
 // ValueType is the CEL type of a value node.
@@ -242,31 +247,35 @@ type draft struct {
 	undoRefs []string
 	deps     []string
 	level    int
+	// outer are the steps of enclosing frames the step's expressions read:
+	// dependencies of the for-each step whose body it is in.
+	outer []string
+	// itemType is the CEL type of a for-each step's item.
+	itemType string
+	// body and bodyGroups are a for-each step's sub-flow.
+	body       []*draft
+	bodyGroups [][]string
 }
 
 func (c *compiler) compile(src source, steps []Step, in *sp.Schema, result *shape) (*Program, Analysis, error) {
-	drafts := c.steps(steps)
+	drafts := c.steps("", steps)
+	top := c.topFrame()
+	c.declare(top, drafts)
 
-	env, err := c.typedEnv(drafts)
-	if err != nil {
+	if err := c.frameEnv(top); err != nil {
 		return nil, Analysis{}, err
 	}
 
-	c.env = env
-	names := map[string]bool{}
-
 	for _, d := range drafts {
-		if d.ok {
-			names[d.Name] = true
+		if err := c.expressions(d, top); err != nil {
+			return nil, Analysis{}, err
 		}
 	}
 
-	for _, d := range drafts {
-		c.expressions(d, names)
-	}
+	c.env = top.env
 
 	if src.kind == KindRule && src.when != "" {
-		c.ruleWhen(src.when, names)
+		c.ruleWhen(src.when, top.names)
 	}
 
 	if src.kind == KindBinding {
@@ -275,19 +284,15 @@ func (c *compiler) compile(src source, steps []Step, in *sp.Schema, result *shap
 
 	groups := c.order(drafts)
 	c.undoRefs(drafts)
-	c.describe(drafts)
+	c.describe(drafts, "")
 
 	if len(c.analysis.Violations) > 0 {
 		return nil, c.analysis, nil
 	}
 
-	s := spec{Kind: src.kind, Source: src.name, When: src.when, Result: src.result.JSON(), Input: schemaBytes(in)}
-
-	for _, d := range drafts {
-		s.Steps = append(s.Steps, specStep{
-			StepPlan: c.plan(d, groups), When: d.When, Input: d.Input.JSON(), UndoInput: d.UndoInput.JSON(),
-			Output: schemaBytes(d.out),
-		})
+	s := spec{
+		Kind: src.kind, Source: src.name, When: src.when, Result: src.result.JSON(), Input: schemaBytes(in),
+		Steps: c.specSteps(drafts, groups),
 	}
 
 	p, err := newProgram(s)
@@ -296,6 +301,25 @@ func (c *compiler) compile(src source, steps []Step, in *sp.Schema, result *shap
 	}
 
 	return p, c.analysis, nil
+}
+
+// specSteps are the steps as a program runs them, a for-each body nested.
+func (c *compiler) specSteps(drafts []*draft, groups [][]string) []specStep {
+	out := make([]specStep, 0, len(drafts))
+
+	for _, d := range drafts {
+		st := specStep{
+			StepPlan: c.plan(d, groups), When: d.When, ForEachExpr: d.ForEach, Input: d.Input.JSON(),
+			UndoInput: d.UndoInput.JSON(), Output: schemaBytes(d.out),
+		}
+		if d.body != nil {
+			st.Body = &specBody{Steps: c.specSteps(d.body, d.bodyGroups), Result: d.Result.JSON()}
+		}
+
+		out = append(out, st)
+	}
+
+	return out
 }
 
 // ruleWhen compiles a rule's filter: a bool over event and meta only.
@@ -314,14 +338,15 @@ func (c *compiler) ruleWhen(src string, names map[string]bool) {
 	}
 }
 
-// steps checks what does not need CEL: names, activities, options.
-func (c *compiler) steps(steps []Step) []*draft {
+// steps checks what does not need CEL: names, activities, options. prefix
+// is the path of the for-each step whose body they are, "" at the top.
+func (c *compiler) steps(prefix string, steps []Step) []*draft {
 	sorted := sortSteps(slices.Clone(steps))
 	out := make([]*draft, 0, len(sorted))
 
 	for i := range sorted {
 		s := &sorted[i]
-		d := &draft{Step: *s, path: Pointer("steps", s.Name), level: -1}
+		d := &draft{Step: *s, path: prefix + Pointer("steps", s.Name), level: -1}
 		out = append(out, d)
 
 		switch {
@@ -333,7 +358,10 @@ func (c *compiler) steps(steps []Step) []*draft {
 			d.ok = true
 		}
 
-		d.act = c.activity(d.path+"/activity", s.Activity)
+		// A for-each step whose body is steps calls no activity itself.
+		if s.ForEach == "" || len(s.Steps) == 0 || s.Activity != "" {
+			d.act = c.activity(d.path+"/activity", s.Activity)
+		}
 
 		if d.act != nil {
 			d.out = d.act.GetOutput()
@@ -346,9 +374,65 @@ func (c *compiler) steps(steps []Step) []*draft {
 		}
 
 		c.options(d)
+		c.forEachOptions(d)
 	}
 
 	return out
+}
+
+// forEachOptions checks the options of a for-each step, and that a step
+// without forEach sets none of them.
+//
+//nolint:cyclop // one check per option
+func (c *compiler) forEachOptions(d *draft) {
+	if d.ForEach == "" {
+		for _, o := range []struct {
+			set  bool
+			path string
+		}{
+			{d.As != "", "/as"},
+			{d.Concurrency != 0, "/concurrency"},
+			{d.OnError != "", "/onError"},
+			{d.MaxItems != 0, "/maxItems"},
+			{len(d.Steps) > 0, "/steps"},
+			{!d.Result.IsZero(), "/result"},
+		} {
+			if o.set {
+				c.violate(d.path+o.path, CodeInvalidOption, "only a step with forEach takes this option")
+			}
+		}
+
+		return
+	}
+
+	if len(d.Steps) > 0 && d.Activity != "" {
+		c.violate(d.path+"/steps", CodeInvalidOption, "a for-each body is an activity or steps, not both")
+	}
+
+	if len(d.Steps) > 0 && (d.Undo != "" || !d.Input.IsZero()) {
+		c.violate(d.path+"/steps", CodeInvalidOption, "a body of steps takes no input or undo: its steps have their own")
+	}
+
+	if len(d.Steps) == 0 && !d.Result.IsZero() {
+		c.violate(d.path+"/result", CodeInvalidOption, "a result needs a body of steps")
+	}
+
+	if d.Concurrency < 0 || d.Concurrency > MaxConcurrency {
+		c.violate(d.path+"/concurrency", CodeInvalidOption, fmt.Sprintf("must be between 1 and %d", MaxConcurrency))
+	}
+
+	if d.MaxItems < 0 || d.MaxItems > MaxItemsLimit {
+		c.violate(d.path+"/maxItems", CodeInvalidOption, fmt.Sprintf("must be between 1 and %d", MaxItemsLimit))
+	}
+
+	if d.OnError != "" && d.OnError != OnErrorFail && d.OnError != OnErrorContinue {
+		c.violate(d.path+"/onError", CodeInvalidOption,
+			fmt.Sprintf("%q is not %q or %q", d.OnError, OnErrorFail, OnErrorContinue))
+	}
+
+	if item := d.ItemVar(); !IsIdent(item) || reserved[item] {
+		c.violate(d.path+"/as", CodeInvalidName, fmt.Sprintf("%q is not a free identifier", item))
+	}
 }
 
 func (c *compiler) activity(path, name string) *backplanev1.Activity {
@@ -398,141 +482,6 @@ func (c *compiler) options(d *draft) {
 	if d.Heartbeat < 0 {
 		c.violate(d.path+"/heartbeat", CodeInvalidOption, "must not be negative")
 	}
-}
-
-// typedEnv declares the source, `steps` and every step by the shapes of
-// the schemas.
-func (c *compiler) typedEnv(drafts []*draft) (*cel.Env, error) {
-	vars := map[string]*types.Type{}
-	state := &shape{kind: kindObject, name: "bp.step_state", fields: map[string]*shape{"skipped": {kind: kindBool}}}
-	stepsShape := &shape{kind: kindObject, name: "bp.steps", fields: map[string]*shape{}}
-	c.shapes.objects[state.name] = state
-	c.shapes.objects[stepsShape.name] = stepsShape
-
-	if c.kind == KindBinding {
-		vars[VarReq] = c.input.celType()
-	} else {
-		str := &shape{kind: kindString}
-		meta := &shape{kind: kindObject, name: "bp.meta", fields: map[string]*shape{
-			"id": str, "source": str, "subject": str, "type": str, "time": str,
-		}}
-		c.shapes.objects[meta.name] = meta
-		vars[VarEvent] = c.input.celType()
-		vars[VarMeta] = meta.celType()
-	}
-
-	for _, d := range drafts {
-		if !d.ok {
-			continue
-		}
-
-		d.outShape = c.shapes.of(d.out, "bp.step."+d.Name)
-		vars[d.Name] = d.outShape.celType()
-		stepsShape.fields[d.Name] = state
-	}
-
-	vars[VarSteps] = stepsShape.celType()
-
-	return typedEnv(vars, c.shapes.objects)
-}
-
-// expressions compiles and type-checks the step's expressions and derives
-// its dependencies.
-func (c *compiler) expressions(d *draft, names map[string]bool) {
-	if d.When != "" {
-		t, rs, ok := c.expr(d.path+"/when", d.When)
-		if ok {
-			c.boolean(d.path+"/when", t)
-		}
-
-		d.when = c.stepReads(d, rs, names)
-	}
-
-	var in *shape
-	if d.act != nil {
-		in = c.shapes.of(d.act.GetInput(), "bp.in."+d.Name)
-	}
-
-	d.data = c.stepReads(d, c.value(d.path+"/input", d.Input, in), names)
-
-	if d.Undo != "" && !d.UndoInput.IsZero() {
-		var undoIn *shape
-		if d.undo != nil {
-			undoIn = c.shapes.of(d.undo.GetInput(), "bp.undo."+d.Name)
-		}
-
-		d.undoRefs = stepNames(c.value(d.path+"/undoInput", d.UndoInput, undoIn), names)
-	}
-
-	for i, a := range d.After {
-		path := d.path + "/after/" + strconv.Itoa(i)
-
-		switch {
-		case a == d.Name:
-			c.violate(path, CodeCycle, fmt.Sprintf("step %s runs after itself", a))
-		case !names[a]:
-			c.violate(path, CodeUnknownStep, "no step "+a)
-		default:
-			d.after = appendNew(d.after, a)
-		}
-	}
-
-	for _, list := range [][]string{d.after, d.data, d.when} {
-		for _, dep := range list {
-			d.deps = appendNew(d.deps, dep)
-		}
-	}
-}
-
-// stepReads are the steps among reads, a read of the step's own output
-// reported.
-func (c *compiler) stepReads(d *draft, rs []read, names map[string]bool) []string {
-	var out []string
-
-	for _, r := range rs {
-		name, ok := stepOf(r, names)
-		if !ok {
-			continue
-		}
-
-		if name == d.Name {
-			c.violateAt(r.path, CodeCycle, fmt.Sprintf("step %s reads its own output", name), r.whole)
-
-			continue
-		}
-
-		out = appendNew(out, name)
-	}
-
-	return out
-}
-
-// stepOf is the step a read is of: its variable, or the field selected on
-// `steps`.
-func stepOf(r read, names map[string]bool) (string, bool) {
-	name := r.variable
-	if name == VarSteps {
-		if len(r.fields) == 0 {
-			return "", false
-		}
-
-		name = r.fields[0]
-	}
-
-	return name, names[name]
-}
-
-// stepNames are the steps among reads.
-func stepNames(rs []read, names map[string]bool) []string {
-	var out []string
-
-	for _, r := range rs {
-		if name, ok := stepOf(r, names); ok {
-			out = appendNew(out, name)
-		}
-	}
-
-	return out
 }
 
 func appendNew(list []string, s string) []string {
@@ -1043,12 +992,26 @@ func ancestors(d *draft, byName map[string]*draft) map[string]bool {
 	return out
 }
 
-// describe fills the analysis' steps and orders its lists.
-func (c *compiler) describe(drafts []*draft) {
+// describe fills the analysis' steps (a for-each body's after its step)
+// and orders its lists.
+func (c *compiler) describe(drafts []*draft, parent string) {
 	for _, d := range drafts {
 		c.analysis.Steps = append(c.analysis.Steps, StepAnalysis{
 			Name: d.Name, Level: d.level, Data: d.data, After: d.after, When: d.when, Undo: d.undoRefs,
+			Parent: parent, ItemType: d.itemType,
 		})
+		if d.body != nil {
+			id := d.Name
+			if parent != "" {
+				id = parent + "/" + d.Name
+			}
+
+			c.describe(d.body, id)
+		}
+	}
+
+	if parent != "" {
+		return
 	}
 
 	slices.SortStableFunc(c.analysis.Types, func(a, b ValueType) int { return strings.Compare(a.Path, b.Path) })
@@ -1069,6 +1032,13 @@ func (c *compiler) plan(d *draft, groups [][]string) StepPlan {
 		Conditional: d.When != "", Undo: d.Undo,
 		Retry: d.Retry, StartToClose: d.StartToClose, Heartbeat: d.Heartbeat,
 	}
+	if d.ForEach != "" {
+		p.ForEach = &ForEachPlan{
+			Item: d.ItemVar(), Concurrency: cmp.Or(d.Concurrency, DefaultConcurrency),
+			Continue: d.OnError == OnErrorContinue, MaxItems: cmp.Or(d.MaxItems, DefaultMaxItems), Steps: d.body != nil,
+		}
+	}
+
 	p.Service, _ = SplitName(d.Activity)
 
 	for i, g := range groups {

@@ -354,3 +354,39 @@ steps:
 		t.Errorf("late: %v", got[1])
 	}
 }
+
+// Calls of a for-each step's items and body carry their item and parent;
+// the step's row is its calls in scheduling order.
+func TestTimelineItems(t *testing.T) {
+	t.Parallel()
+
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  send: {forEach: req.to, activity: smtp.Send, input: {to: item}}
+  pay:
+    forEach: req.users
+    steps: {charge: {activity: billing.Charge, input: {v: item}}}
+`)
+
+	prog, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := executor.TimelineOf(prog, []*historypb.HistoryEvent{
+		scheduled(t, 5, "5", "send[1]", "smtp.Send", `{}`),
+		scheduled(t, 6, "6", "pay[0].charge", "billing.Charge", `{}`),
+		scheduled(t, 7, "7", "send[0]", "smtp.Send", `{}`),
+	}, nil)
+
+	rows := make([]string, 0, len(got))
+	for _, run := range got {
+		rows = append(rows, fmt.Sprintf("%s/%s[%d]", run.GetParent(), run.GetStep(), run.GetItem()))
+	}
+
+	// Steps by name: pay (its body call), then send (both items).
+	if want := []string{"pay/charge[0]", "/send[1]", "/send[0]"}; !slices.Equal(rows, want) {
+		t.Fatalf("rows %v, want %v", rows, want)
+	}
+}

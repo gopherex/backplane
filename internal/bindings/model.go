@@ -87,6 +87,44 @@ type Step struct {
 	// default, else none.
 	Heartbeat   time.Duration
 	Description string
+
+	// ForEach is a CEL list or map: the step runs once per item. Empty: once.
+	ForEach string
+	// As names the item variable; empty: "item". Its position is
+	// "<As>Index".
+	As string
+	// Concurrency bounds the items in flight; 0: DefaultConcurrency.
+	Concurrency int
+	// OnError is OnErrorFail (default, also empty) or OnErrorContinue.
+	OnError string
+	// MaxItems bounds the items; 0: DefaultMaxItems.
+	MaxItems int
+	// Steps are the body of a for-each step as a sub-flow, sorted by name;
+	// exclusive with Activity.
+	Steps []Step
+	// Result is each item's result when the body is Steps; zero: {}.
+	Result Value
+}
+
+// For-each options.
+const (
+	OnErrorFail     = "fail"
+	OnErrorContinue = "continue"
+	// DefaultItemVar names the item without As.
+	DefaultItemVar     = "item"
+	DefaultConcurrency = 10
+	MaxConcurrency     = 100
+	DefaultMaxItems    = 1000
+	MaxItemsLimit      = 10000
+)
+
+// ItemVar is the name of the item variable of a for-each step.
+func (s Step) ItemVar() string {
+	if s.As == "" {
+		return DefaultItemVar
+	}
+
+	return s.As
 }
 
 // Retry is a step's retry policy; zero fields are unset.

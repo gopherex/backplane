@@ -3,9 +3,9 @@ import { create, fromJson, toJson } from '@bufbuild/protobuf';
 import { isScalar } from 'yaml';
 import * as api from '@gopherex/backplane-api';
 import { SchemaSchema } from '@gopherex/backplane-api/schemapb/schema_pb';
-import { addStep, editAll, exprRange, locate, nodeAt, parseDraft, pathAt, protoDuration, removeStep, stepNameFor, templateYAML, toYAML } from '../packages/platform-ui/src/wiring/document';
+import { addStep, editAll, stepAt, stepPathOf, exprRange, locate, nodeAt, parseDraft, pathAt, protoDuration, removeStep, stepNameFor, templateYAML, toYAML } from '../packages/platform-ui/src/wiring/document';
 import { completeCEL, completeYAML, parentKeys } from '../packages/platform-ui/src/wiring/complete';
-import { indexCatalog, scopeOf } from '../packages/platform-ui/src/wiring/catalog';
+import { framesOf, indexCatalog, outputShape, scopeAt, scopeOf } from '../packages/platform-ui/src/wiring/catalog';
 import { shapeAt, shapeOf } from '../packages/platform-ui/src/wiring/shape';
 
 const binding = `hook: hello.Greet
@@ -20,9 +20,10 @@ result: {text: format.text}
 `;
 
 const text = (...names: string[]) => create(SchemaSchema, { fields: names.map((name) => ({ name, required: true, kind: { case: 'string' as const, value: {} } })) });
+const people = create(SchemaSchema, { fields: [{ name: 'people', kind: { case: 'list', value: { items: [{ kind: { case: 'object', value: { schema: text('name') } } }] } } }] });
 const index = indexCatalog([
   create(api.WiringContractSchema, { service: 'formatter', activities: [{ name: 'Format', input: text('name'), output: text('text') }, { name: 'Record', input: text('name', 'text') }] }),
-  create(api.WiringContractSchema, { service: 'hello', hooks: [{ name: 'Greet', input: text('name'), output: text('text') }], events: [{ name: 'Greeted', schema: text('name') }] }),
+  create(api.WiringContractSchema, { service: 'hello', hooks: [{ name: 'Greet', input: text('name'), output: text('text') }, { name: 'Batch', input: people }], events: [{ name: 'Greeted', schema: text('name') }] }),
 ]);
 
 describe('wiring YAML', () => {
@@ -139,5 +140,62 @@ describe('wiring completion', () => {
     expect(completeCEL('st', 2, scope)!.options.map((option) => option.label)).toContain('steps');
     expect(completeCEL('steps.format.', 13, scope)!.options.map((option) => option.label)).toEqual(['skipped']);
     expect(shapeAt(shapeOf(index.activities.get('formatter.Record')!.value.input), ['text'])).toEqual({ kind: 'string' });
+  });
+});
+
+describe('wiring for-each', () => {
+  const batch = `hook: hello.Batch
+steps:
+  each:
+    forEach: req.people
+    as: person
+    steps:
+      fmt: {activity: formatter.Format, input: {name: person.name}}
+      rec: {activity: formatter.Record, after: [fmt], input: {name: person.name, text: fmt.text}}
+    result: fmt.text
+  greet: {activity: formatter.Format, forEach: req.people, input: {name: item.name}}
+`;
+  const draft = parseDraft('binding', batch), definition = draft.definition as api.BindingDefinition;
+  const labels = (result: ReturnType<typeof completeCEL>) => result?.options.map((option) => option.label);
+
+  it('reads bodies and finds steps by id', () => {
+    expect(draft.problems).toEqual([]);
+    expect(stepAt(definition, 'each/rec').step?.after).toEqual(['fmt']);
+    expect(Object.keys(stepAt(definition, 'each/rec').siblings).sort()).toEqual(['fmt', 'rec']);
+    expect(stepPathOf('each/rec')).toEqual(['steps', 'each', 'steps', 'rec']);
+    expect(framesOf(['steps', 'each', 'steps', 'fmt', 'input', 'name'], definition.steps)).toMatchObject({ chain: [{ name: 'each' }, { name: 'fmt' }], rest: ['input', 'name'] });
+    expect(toYAML('binding', definition).indexOf('forEach:')).toBeLessThan(toYAML('binding', definition).indexOf('steps:\n      fmt'));
+  });
+
+  it('scopes the item and the body by place', () => {
+    const scopeFor = (...path: string[]) => scopeAt(index, { hook: 'hello.Batch' }, definition.steps, path, 'binding');
+    const inside = scopeFor('steps', 'each', 'steps', 'rec', 'input', 'text');
+    expect(labels(completeCEL('person.', 7, inside))).toEqual(['name']);
+    expect(labels(completeCEL('fmt.', 4, inside))).toEqual(['text']);
+    expect(inside.variables.get('personIndex')?.shape.kind).toBe('int');
+    // The list does not see the item; the result sees the body.
+    expect(scopeFor('steps', 'each', 'forEach').variables.has('person')).toBe(false);
+    expect(scopeFor('steps', 'each', 'result').variables.has('fmt')).toBe(true);
+    expect(scopeFor('steps', 'greet', 'input', 'name').variables.get('item')?.shape.kind).toBe('object');
+    // Outside, a for-each step is a list: of its activity's outputs, of dyn for a body.
+    expect(outputShape(index, definition.steps.greet)).toMatchObject({ kind: 'list', elem: { kind: 'object' } });
+    expect(outputShape(index, definition.steps.each)).toEqual({ kind: 'list', elem: { kind: 'dyn' } });
+    expect(labels(completeCEL('steps.greet.', 12, scopeFor('result')))).toEqual(['skipped', 'failed', 'errors']);
+  });
+
+  it('completes keys and fields inside a body', () => {
+    const at = (source: string) => completeYAML({ kind: 'binding', index, definition, text: source, position: source.length })?.options.map((option) => option.label);
+    expect(at('steps:\n  each:\n    forEach: req.people\n    as: person\n    steps:\n      fmt:\n        input:\n          name: person.')).toEqual(['name']);
+    expect(at('steps:\n  each:\n    forEach: req.people\n    con')).toContain('concurrency');
+    expect(at('steps:\n  greet:\n    onError: ')).toEqual(['fail', 'continue']);
+  });
+
+  it('adds and removes steps of a body', () => {
+    const added = addStep(definition, 'formatter.Format', { x: 1, y: 2 }, 'each');
+    expect(added).toMatchObject({ name: 'format', id: 'each/format' });
+    const next = parseDraft('binding', editAll(draft, [...added.changes, ...removeStep(definition, 'each/fmt')])).definition as api.BindingDefinition;
+    expect(Object.keys(next.steps.each!.steps).sort()).toEqual(['format', 'rec']);
+    expect(next.steps.each!.steps.rec!.after).toEqual([]);
+    expect(next.editor?.nodes['each/format']).toMatchObject({ x: 1, y: 2 });
   });
 });

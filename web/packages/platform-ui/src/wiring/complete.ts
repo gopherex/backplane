@@ -1,6 +1,6 @@
 import type { EditorCompletion, EditorCompletionResult } from '@gopherex/backplane-editors';
 import type * as api from '@gopherex/backplane-api';
-import { scopeOf, type Scope, type WiringIndex } from './catalog.js';
+import { framesOf, scopeAt, type Scope, type StepLike, type WiringIndex } from './catalog.js';
 import type { Definition, WiringKind } from './document.js';
 import { shapeAt, shapeLabel, shapeOf, type Shape } from './shape.js';
 
@@ -11,7 +11,11 @@ const rootKeys: Record<WiringKind, [string, string][]> = {
 const stepKeys: [string, string][] = [
   ['activity', '<service>.<Activity>'], ['input', 'activity input'], ['when', 'CEL bool: run only when true'], ['after', 'steps to run after'],
   ['undo', 'compensating activity'], ['undoInput', 'undo activity input'], ['retry', 'retry policy'], ['startToClose', 'attempt timeout, e.g. 30s'],
-  ['heartbeat', 'heartbeat timeout'], ['description', 'text for people'],
+  ['heartbeat', 'heartbeat timeout'], ['description', 'text for people'], ['forEach', 'CEL list or map: run per item'],
+];
+const forEachKeys: [string, string][] = [
+  ['as', 'item variable (default item)'], ['concurrency', 'items at once (default 10)'], ['onError', 'fail | continue'],
+  ['maxItems', 'most items (default 1000)'], ['steps', 'a sub-flow per item'], ['result', 'each item\'s result'],
 ];
 const retryKeys: [string, string][] = [['attempts', 'total attempts'], ['initialInterval', 'e.g. 1s'], ['maxInterval', 'e.g. 30s'], ['backoff', 'multiplier ≥ 1']];
 const functions = ['size', 'has', 'int', 'uint', 'double', 'string', 'bool', 'timestamp', 'duration', 'matches', 'startsWith', 'endsWith', 'contains', 'lowerAscii', 'upperAscii', 'trim', 'split', 'join', 'replace', 'format', 'map', 'filter', 'exists', 'all'];
@@ -46,9 +50,10 @@ export function completeYAML({ kind, index, definition, text, position }: Comple
   const keyOnly = /^(\s*)([\w]*)$/.exec(before);
   const keyValue = /^(\s*)(?:-\s+)?([\w]+)\s*:\s*(.*)$/.exec(before);
   const steps = stepsOf(definition);
+  const siblings = (path: readonly string[]) => { const frames = framesOf(path, steps); return frames.chain.length > 1 ? frames.chain.at(-2)?.step?.steps ?? {} : steps; };
   if (listItem) {
     const path = parentKeys(text, lineStart, listItem[1]!.length);
-    if (path.at(-1) === 'after') return { from: position - listItem[2]!.length, options: Object.keys(steps).map((name) => ({ label: name, type: 'variable', detail: steps[name]?.activity })) };
+    if (path.at(-1) === 'after') { const around = siblings(path.slice(0, -1)); return { from: position - listItem[2]!.length, options: Object.keys(around).map((name) => ({ label: name, type: 'variable', detail: around[name]?.activity })) }; }
     return null;
   }
   if (keyOnly) {
@@ -58,31 +63,37 @@ export function completeYAML({ kind, index, definition, text, position }: Comple
   }
   if (!keyValue) return null;
   const path = [...parentKeys(text, lineStart, keyValue[1]!.length), keyValue[2]!], rest = keyValue[3]!;
-  const key = path.at(-1)!, inStep = path.length === 3 && path[0] === 'steps';
+  const key = path.at(-1)!, frames = framesOf(path.slice(0, -1), steps);
+  const inStep = frames.chain.length > 0 && frames.rest.length === 0 && !frames.inStepsMap;
   const word = /[\w.<>-]*$/.exec(rest)![0];
   const names = (list: Map<string, { value: { description: string } }>) => [...list.entries()].map(([full, entry]) => ({ label: full, type: 'function' as const, detail: entry.value.description || undefined }));
   if (path.length === 1 && key === 'hook') return { from: position - word.length, options: names(index.hooks) };
   if (path.length === 1 && key === 'event') return { from: position - word.length, options: names(index.events) };
   if (inStep && (key === 'activity' || key === 'undo')) return { from: position - word.length, options: names(index.activities) };
-  if (inStep && key === 'after') { const partial = /[\w]*$/.exec(rest)![0]; return { from: position - partial.length, options: Object.keys(steps).map((name) => ({ label: name, type: 'variable' })) }; }
-  const cel = path[0] === 'result' || (path[0] === 'steps' && (path[2] === 'input' || path[2] === 'undoInput' || path[2] === 'when')) || (path.length === 1 && key === 'when');
+  if (inStep && key === 'onError') { const partial = /\w*$/.exec(rest)![0]; return { from: position - partial.length, options: ['fail', 'continue'].map((label) => ({ label, type: 'keyword' as const })) }; }
+  if (inStep && key === 'after') { const partial = /[\w]*$/.exec(rest)![0], around = siblings(path.slice(0, -1)); return { from: position - partial.length, options: Object.keys(around).map((name) => ({ label: name, type: 'variable' })) }; }
+  const exprFrames = framesOf(path, steps), first = exprFrames.rest[0];
+  const cel = (path[0] === 'result' && path.length >= 1) || (exprFrames.chain.length > 0 && ['input', 'undoInput', 'when', 'forEach', 'result'].includes(first ?? '')) || (path.length === 1 && key === 'when');
   if (!cel) return null;
   const source = definitionSource(kind, definition);
   if (!source) return null;
-  return completeCEL(rest, position, scopeOf(index, source, steps, kind === 'rule' && path.length === 1));
+  return completeCEL(rest, position, scopeAt(index, source, steps, path, kind));
 }
 
 /** Keys a mapping at path may hold. */
-function keysFor(kind: WiringKind, index: WiringIndex, path: readonly string[], steps: Record<string, { activity: string; undo?: string } | undefined>, source?: { hook: string } | { event: string }): EditorCompletion[] {
+function keysFor(kind: WiringKind, index: WiringIndex, path: readonly string[], steps: Record<string, StepLike | undefined>, source?: { hook: string } | { event: string }): EditorCompletion[] {
   const toOptions = (entries: [string, string][]) => entries.map(([label, detail]) => ({ label, detail, type: 'property' as const, apply: `${label}: ` }));
   if (!path.length) return toOptions(rootKeys[kind]);
-  if (path[0] === 'steps' && path.length === 2) return toOptions(stepKeys);
-  if (path[0] === 'steps' && path.length === 3 && path[2] === 'retry') return toOptions(retryKeys);
+  const frames = framesOf(path, steps);
+  if (frames.inStepsMap) return [];
+  const step = frames.chain.at(-1)?.step as (StepLike & { undo?: string }) | undefined;
+  if (frames.chain.length && !frames.rest.length) return toOptions(step?.forEach ? [...stepKeys, ...forEachKeys] : stepKeys);
+  if (frames.chain.length && frames.rest.length === 1 && frames.rest[0] === 'retry') return toOptions(retryKeys);
   let shape: Shape | undefined;
-  if (path[0] === 'steps' && path.length >= 3 && (path[2] === 'input' || path[2] === 'undoInput')) {
-    const step = steps[path[1]!], activity = path[2] === 'input' ? step?.activity : step?.undo;
-    shape = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), path.slice(3));
-  } else if (path[0] === 'result' && source && 'hook' in source) shape = shapeAt(shapeOf(index.hooks.get(source.hook)?.value.output), path.slice(1));
+  if (frames.chain.length && (frames.rest[0] === 'input' || frames.rest[0] === 'undoInput')) {
+    const activity = frames.rest[0] === 'input' ? step?.activity : step?.undo;
+    shape = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), frames.rest.slice(1));
+  } else if (!frames.chain.length && path[0] === 'result' && source && 'hook' in source) shape = shapeAt(shapeOf(index.hooks.get(source.hook)?.value.output), path.slice(1));
   return fieldOptions(shape).map((option) => ({ ...option, apply: `${option.label}: ` }));
 }
 
@@ -108,7 +119,7 @@ export function completeCEL(before: string, position: number, scope: Scope): Edi
   ] };
 }
 
-export function stepsOf(definition?: Definition): Record<string, { activity: string; undo?: string } | undefined> {
+export function stepsOf(definition?: Definition): Record<string, StepLike | undefined> {
   return definition?.steps ?? {};
 }
 

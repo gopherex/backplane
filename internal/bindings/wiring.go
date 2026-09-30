@@ -105,10 +105,11 @@ func (a WiringAPI) RenameStep(
 func (a Analysis) PB() *consolev1.Analysis {
 	out := &consolev1.Analysis{Violations: ViolationsPB(a.Violations)}
 
-	for _, s := range a.Steps {
+	for i := range a.Steps {
+		s := &a.Steps[i]
 		out.Steps = append(out.Steps, &consolev1.StepAnalysis{
 			Name: s.Name, Level: int32(max(min(s.Level, math.MaxInt32), -1)), //nolint:gosec // bounded
-			Data: s.Data, After: s.After, When: s.When, Undo: s.Undo,
+			Data: s.Data, After: s.After, When: s.When, Undo: s.Undo, Parent: s.Parent, ItemType: s.ItemType,
 		})
 	}
 

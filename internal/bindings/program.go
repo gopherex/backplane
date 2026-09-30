@@ -24,6 +24,9 @@ const (
 	// KindRule reacts to an event: input `event` and `meta`, a filter, no
 	// result.
 	KindRule
+	// KindBody is a for-each step's sub-flow (Program.Body): it runs in the
+	// scope of an item, its result is the item's output.
+	KindBody
 )
 
 // StepPlan is a step as the executor runs it: the activity, where it
@@ -53,6 +56,23 @@ type StepPlan struct {
 	StartToClose time.Duration `json:"start_to_close"`
 	// Heartbeat 0: none.
 	Heartbeat time.Duration `json:"heartbeat,omitempty"`
+	// ForEach: the step runs once per item; nil: once.
+	ForEach *ForEachPlan `json:"for_each,omitempty"`
+}
+
+// ForEachPlan is how a for-each step runs its items.
+type ForEachPlan struct {
+	// Item names the item variable; its position is Item+"Index".
+	Item string `json:"item"`
+	// Concurrency bounds the items in flight.
+	Concurrency int `json:"concurrency"`
+	// Continue: failed items are collected, the step succeeds; else the
+	// first failure fails it.
+	Continue bool `json:"continue,omitempty"`
+	// MaxItems bounds the items: more fails the step.
+	MaxItems int `json:"max_items"`
+	// Steps: the body is a sub-flow (Program.Body), else the activity.
+	Steps bool `json:"steps,omitempty"`
 }
 
 // spec is a Program's serialized form: everything evaluation needs,
@@ -70,11 +90,19 @@ type spec struct {
 type specStep struct {
 	StepPlan
 
-	When      string          `json:"when_expr,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	UndoInput json.RawMessage `json:"undo_input,omitempty"`
+	When        string          `json:"when_expr,omitempty"`
+	ForEachExpr string          `json:"for_each_expr,omitempty"`
+	Body        *specBody       `json:"body,omitempty"`
+	Input       json.RawMessage `json:"input,omitempty"`
+	UndoInput   json.RawMessage `json:"undo_input,omitempty"`
 	// Output is the schema of the activity's output (protobuf binary).
 	Output []byte `json:"output,omitempty"`
+}
+
+// specBody is a for-each step's sub-flow.
+type specBody struct {
+	Steps  []specStep      `json:"steps"`
+	Result json.RawMessage `json:"result,omitempty"`
 }
 
 // Program is a compiled binding or rule: the steps ordered into groups,
@@ -99,9 +127,11 @@ type Program struct {
 
 type runStep struct {
 	when      cel.Program
+	forEach   cel.Program
 	input     valueProgram
 	undoInput valueProgram
 	output    *shape
+	body      *Program
 }
 
 // valueProgram is a compiled Value: a program, fields, items or a
@@ -117,8 +147,6 @@ type valueProgram struct {
 
 // newProgram builds the evaluation side of a spec.
 func newProgram(s spec) (*Program, error) {
-	p := &Program{spec: s, index: map[string]int{}}
-
 	vars := []string{VarSteps}
 	if s.Kind == KindRule {
 		vars = append(vars, VarEvent, VarMeta)
@@ -126,10 +154,63 @@ func newProgram(s spec) (*Program, error) {
 		vars = append(vars, VarReq)
 	}
 
-	for i := range s.Steps {
-		st := &s.Steps[i]
+	// One runtime environment for every frame: names are unique across
+	// frames (compile checks), and evaluation checks no types.
+	env, err := runtimeEnv(append(vars, frameNames(s.Steps)...))
+	if err != nil {
+		return nil, err
+	}
+
+	b := newShapes()
+
+	in, err := schemaOf(s.Input)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &Program{spec: s, env: env, input: b.of(in, "bp.input")}
+
+	if s.When != "" {
+		if p.when, err = program(env, s.When); err != nil {
+			return nil, fmt.Errorf("bindings: when: %w", err)
+		}
+	}
+
+	if err := p.build(b); err != nil {
+		return nil, err
+	}
+
+	return p, nil
+}
+
+// frameNames are the variables steps declare: their names, and for a
+// for-each step its item, the item's position and its body's names.
+func frameNames(steps []specStep) []string {
+	var out []string
+
+	for i := range steps {
+		st := &steps[i]
+		out = append(out, st.Name)
+
+		if st.ForEach != nil {
+			out = append(out, st.ForEach.Item, st.ForEach.Item+"Index")
+		}
+
+		if st.Body != nil {
+			out = append(out, frameNames(st.Body.Steps)...)
+		}
+	}
+
+	return out
+}
+
+// build compiles the program's steps (and their bodies) and result.
+func (p *Program) build(b *shapes) error {
+	p.index = map[string]int{}
+
+	for i := range p.spec.Steps {
+		st := &p.spec.Steps[i]
 		p.index[st.Name] = i
-		vars = append(vars, st.Name)
 
 		for len(p.groups) <= st.Group {
 			p.groups = append(p.groups, nil)
@@ -138,41 +219,21 @@ func newProgram(s spec) (*Program, error) {
 		p.groups[st.Group] = append(p.groups[st.Group], st.Name)
 	}
 
-	env, err := runtimeEnv(vars)
-	if err != nil {
-		return nil, err
+	var err error
+	if p.result, err = p.value(p.spec.Result); err != nil {
+		return fmt.Errorf("bindings: result: %w", err)
 	}
 
-	p.env = env
-	b := newShapes()
-
-	in, err := schemaOf(s.Input)
-	if err != nil {
-		return nil, err
-	}
-
-	p.input = b.of(in, "bp.input")
-
-	if s.When != "" {
-		if p.when, err = program(env, s.When); err != nil {
-			return nil, fmt.Errorf("bindings: when: %w", err)
-		}
-	}
-
-	if p.result, err = p.value(s.Result); err != nil {
-		return nil, fmt.Errorf("bindings: result: %w", err)
-	}
-
-	for i := range s.Steps {
-		run, err := p.step(b, &s.Steps[i])
+	for i := range p.spec.Steps {
+		run, err := p.step(b, &p.spec.Steps[i])
 		if err != nil {
-			return nil, fmt.Errorf("bindings: step %s: %w", s.Steps[i].Name, err)
+			return fmt.Errorf("bindings: step %s: %w", p.spec.Steps[i].Name, err)
 		}
 
 		p.steps = append(p.steps, run)
 	}
 
-	return p, nil
+	return nil
 }
 
 func (p *Program) step(b *shapes, st *specStep) (runStep, error) {
@@ -185,6 +246,24 @@ func (p *Program) step(b *shapes, st *specStep) (runStep, error) {
 		if run.when, err = program(p.env, st.When); err != nil {
 			return run, fmt.Errorf("when: %w", err)
 		}
+	}
+
+	if st.ForEach != nil {
+		if run.forEach, err = program(p.env, st.ForEachExpr); err != nil {
+			return run, fmt.Errorf("forEach: %w", err)
+		}
+	}
+
+	if st.Body != nil {
+		body := &Program{
+			spec: spec{Kind: KindBody, Source: p.spec.Source, Steps: st.Body.Steps, Result: st.Body.Result},
+			env:  p.env, input: p.input,
+		}
+		if err := body.build(b); err != nil {
+			return run, err
+		}
+
+		run.body = body
 	}
 
 	if run.input, err = p.value(st.Input); err != nil {
@@ -390,13 +469,26 @@ func (p *Program) initial(name string, value any) map[string]any {
 	steps := make(map[string]any, len(p.spec.Steps))
 	vars := map[string]any{name: value, VarSteps: steps}
 
-	for i := range p.spec.Steps {
-		step := p.spec.Steps[i].Name
-		steps[step] = map[string]any{"skipped": false}
-		vars[step] = map[string]any{}
-	}
+	p.declare(vars, steps)
 
 	return vars
+}
+
+// declare sets every step of the program to not run yet: its variable {}
+// (a for-each step's []), its state not skipped.
+func (p *Program) declare(vars, steps map[string]any) {
+	for i := range p.spec.Steps {
+		st := &p.spec.Steps[i]
+		if st.ForEach != nil {
+			steps[st.Name] = map[string]any{"skipped": false, "failed": int64(0), "errors": []any{}}
+			vars[st.Name] = []any{}
+
+			continue
+		}
+
+		steps[st.Name] = map[string]any{"skipped": false}
+		vars[st.Name] = map[string]any{}
+	}
 }
 
 // Bind is s with the output (JSON) of a step that ran.

@@ -11,14 +11,14 @@ import { usePlatformText } from '../locales.js';
 import { date, enumLabel } from '../format.js';
 import type { RunRef } from '../runs.js';
 import { completeYAML } from './complete.js';
-import { addStep, edit, editAll, nodeAt, parseDraft, pathAt, templateYAML, toYAML, type Definition, type Draft, type DraftProblem, type WiringKind } from './document.js';
+import { addStep, edit, editAll, nodeAt, parseDraft, pathAt, templateYAML, toYAML, unescape, type Definition, type Draft, type DraftProblem, type WiringKind } from './document.js';
 import { lineColumn, problemsOf, sameDefinition, useAnalysis, useDraftText, useParsedDraft } from './draft.js';
 import { Runs, TestRun, Versions, useRunSteps, type Subject } from './history.js';
 import { WiringGraph } from './graph.js';
 import { shortActor } from './actor.js';
 import { StepInspector } from './inspector.js';
 import { shapeAt, shapeLabel, shapeOf } from './shape.js';
-import type { WiringIndex } from './catalog.js';
+import { framesOf, type WiringIndex } from './catalog.js';
 
 type Mode = 'dark' | 'light';
 
@@ -175,7 +175,7 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
           <Button size="icon-sm" variant="ghost" aria-label={text('redo')} title={text('redo')} disabled={!draft.canRedo} onClick={draft.redo}><Redo2 /></Button>
           {view === 'graph' && parsed.definition && <>
             <div className="w-56"><Combobox label={text('addStep')} placeholder={text('addStep')} options={[...index.activities.keys()].sort().map((value) => ({ value, label: value }))} values={[]}
-              onValuesChange={(values) => { if (!values[0]) return; const added = addStep(parsed.definition, values[0], { x: 0, y: 0 }); draft.apply(editAll(parsed, added.changes.slice(0, 1))); setSelected(added.name); }} /></div>
+              onValuesChange={(values) => { if (!values[0]) return; const added = addStep(parsed.definition, values[0], { x: 0, y: 0 }); draft.apply(editAll(parsed, added.changes.slice(0, 1))); setSelected(added.id); }} /></div>
             <Button size="xs" variant="ghost" title={text('tidyHelp')} disabled={!Object.keys(parsed.definition.editor?.nodes ?? {}).length} onClick={() => draft.apply(edit(parsed, ['editor', 'nodes'], undefined))}><LayoutGrid />{text('tidy')}</Button>
             <Button size="xs" variant="ghost" aria-pressed={minimap} onClick={() => setMinimap((value) => !value)}><MapIcon />{text('minimap')}</Button>
           </>}
@@ -282,17 +282,20 @@ function CursorContext({ kind, parsed, cursor, analysis, index, definition }: { 
   const text = usePlatformText();
   const { path } = pathAt(parsed.doc, cursor);
   if (!path) return <p className="m-0 text-xs text-muted-foreground">{text('atCursorHelp')}</p>;
-  const segments = path.split('/').slice(1);
+  const segments = path.split('/').slice(1).map(unescape);
   const type = analysis?.types.find((entry) => entry.path === path)?.type;
   const reads = analysis?.references.filter((entry) => entry.path === path) ?? [];
-  const step = segments[0] === 'steps' ? segments[1] : undefined, stepAnalysis = step ? analysis?.steps.find((entry) => entry.name === step) : undefined;
+  // The step the cursor is in, through the for-each bodies it is nested in.
+  const frames = framesOf(segments, definition?.steps ?? {}), chain = frames.chain.map((entry) => entry.name);
+  const step = chain.at(-1), parent = chain.slice(0, -1).join('/'), current = frames.chain.at(-1)?.step as api.Step | undefined;
+  const stepAnalysis = step ? analysis?.steps.find((entry) => entry.name === step && entry.parent === parent) : undefined;
   let expected: string | undefined, description: string | undefined;
-  if (definition && step && (segments[2] === 'input' || segments[2] === 'undoInput')) {
-    const activity = segments[2] === 'input' ? definition.steps[step]?.activity : definition.steps[step]?.undo;
-    const shape = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), segments.slice(3));
+  if (current && (frames.rest[0] === 'input' || frames.rest[0] === 'undoInput')) {
+    const activity = frames.rest[0] === 'input' ? current.activity : current.undo;
+    const shape = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), frames.rest.slice(1));
     expected = shape && shapeLabel(shape);
-    const parent = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), segments.slice(3, -1));
-    description = parent?.fields?.find((field) => field.name === segments.at(-1))?.description;
+    const fields = shapeAt(shapeOf(activity ? index.activities.get(activity)?.value.input : undefined), frames.rest.slice(1, -1));
+    description = fields?.fields?.find((field) => field.name === frames.rest.at(-1))?.description;
   } else if (definition && kind === 'binding' && segments[0] === 'result') {
     const shape = shapeAt(shapeOf(index.hooks.get((definition as api.BindingDefinition).hook)?.value.output), segments.slice(1));
     expected = shape && shapeLabel(shape);
@@ -304,6 +307,7 @@ function CursorContext({ kind, parsed, cursor, analysis, index, definition }: { 
     {expected && <><dt className="text-muted-foreground">{text('expectedType')}</dt><dd className="m-0 font-mono">{expected}</dd></>}
     {description && <><dt className="text-muted-foreground">{text('description')}</dt><dd className="m-0">{description}</dd></>}
     {!!reads.length && <><dt className="text-muted-foreground">{text('reads')}</dt><dd className="m-0 flex flex-wrap gap-1">{reads.map((entry, at) => <Badge key={at} variant="outline" className="font-mono">{[entry.variable, ...entry.fields].join('.')}</Badge>)}</dd></>}
+    {stepAnalysis?.itemType && <><dt className="text-muted-foreground">{text('itemType')}</dt><dd className="m-0 font-mono">{stepAnalysis.itemType}</dd></>}
     {stepAnalysis && <><dt className="text-muted-foreground">{text('level')}</dt><dd className="m-0 font-mono">{stepAnalysis.level < 0 ? '—' : stepAnalysis.level}</dd>
       <dt className="text-muted-foreground">{text('dependsOn')}</dt><dd className="m-0 font-mono">{[...new Set([...stepAnalysis.data, ...stepAnalysis.after, ...stepAnalysis.when])].join(', ') || '—'}</dd></>}
   </dl>;

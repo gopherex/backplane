@@ -95,6 +95,12 @@ message StepAnalysis {
   // The steps its undo input reads (they are not dependencies: they must
   // have run before it).
   repeated string undo = 6;
+  // The id of the for_each step whose body this step is in:
+  // "<outer>/<inner>" in a nested body; empty at the top level. Names are
+  // unique only within one body.
+  string parent = 7;
+  // CEL type of the item of a for_each step; empty without for_each.
+  string item_type = 8;
 }
 
 // ValueType is the CEL type of a value node: "string", "int", "double",
@@ -126,9 +132,11 @@ message RenameStepRequest {
     BindingDefinition binding = 1;
     RuleDefinition rule = 2;
   }
-  // The step's current name.
+  // The step's id: its name, or "<for-each step>/<name>" for a step of
+  // a body (bodies nest).
   string from = 3;
-  // Its new name: an identifier, not reserved, not another step's.
+  // Its new name: an identifier, not reserved, not taken by a step or an
+  // item it would be seen with.
   string to = 4;
 }
 

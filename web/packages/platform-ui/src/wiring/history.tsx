@@ -160,9 +160,9 @@ export function StepTimeline({ subject, run }: { subject: Subject | { kind: 'rul
   const text = usePlatformText(), state = useRunSteps(subject, run);
   if (!state.value?.length) return null;
   return <Panel title={text('steps', { count: state.value.length })} flush>
-    {state.value.map((step, index) => { const start = date(step.startedTime), end = date(step.closeTime); return <div key={index} className="grid gap-0.5 border-b border-border px-3 py-2 text-xs last:border-b-0">
+    {state.value.map((step, index) => { const start = date(step.startedTime), end = date(step.closeTime); return <div key={index} className={`grid gap-0.5 border-b border-border py-2 pr-3 text-xs last:border-b-0 ${step.parent ? 'pl-7' : 'pl-3'}`}>
       <div className="flex flex-wrap items-center gap-2"><StatusBadge tone={stepTone[step.status]}>{enumLabel(api.StepRunStatus, step.status)}</StatusBadge>
-        <span className="font-mono font-medium">{step.step}</span>{step.undo && <Badge variant="outline" className="text-warning">undo</Badge>}<span className="font-mono text-link">{step.activity}</span>
+        <span className="font-mono font-medium">{step.parent && <span className="text-muted-foreground">{step.parent}/</span>}{step.step}{step.item !== undefined && <span className="text-muted-foreground">[{step.item}]</span>}</span>{step.undo && <Badge variant="outline" className="text-warning">undo</Badge>}<span className="font-mono text-link">{step.activity}</span>
         <span className="ml-auto text-muted-foreground">{step.attempt > 1 && `${text('attemptShort', { attempt: step.attempt })} · `}{start && end ? `${end.getTime() - start.getTime()}ms` : ''}</span></div>
       {step.error && <div className="font-mono text-destructive">{step.errorType && `${step.errorType}: `}{step.error}</div>}
     </div>; })}

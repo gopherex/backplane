@@ -3,16 +3,19 @@ package executor
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 
 	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/sdk/converter"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/internal/bindings"
 )
 
 // programStep is what the timeline needs of a program's step.
@@ -58,7 +61,8 @@ func timeline(
 type timelineBuilder struct {
 	calls map[int64]*consolev1.StepRun  // by scheduled / initiated event id
 	byAct map[string]*consolev1.StepRun // by activity id
-	first map[string]*consolev1.StepRun // a step's own call
+	first map[string]*consolev1.StepRun // a call's first run, by call label
+	order []*consolev1.StepRun          // first runs in scheduling order
 	undos []*consolev1.StepRun
 }
 
@@ -81,17 +85,25 @@ func (tl *timelineBuilder) schedule(
 		_ = converter.GetDefaultDataConverter().FromPayload(ps[0], &call)
 	}
 
+	label := bindings.ParseCallLabel(call.GetStep())
 	run := &consolev1.StepRun{
-		Step: call.GetStep(), Activity: call.GetActivity(), Workflow: workflow,
+		Step: label.Step, Parent: label.Parent, Activity: call.GetActivity(), Workflow: workflow,
 		Status: consolev1.StepRunStatus_STEP_RUN_STATUS_SCHEDULED, ScheduledTime: e.GetEventTime(),
 		Input: jsonText(call.GetPayload()),
 	}
 
-	if _, seen := tl.first[run.GetStep()]; seen {
+	if label.Item >= 0 {
+		run.Item = proto.Uint32(uint32(label.Item)) //nolint:gosec // an item index
+	}
+
+	// A call label scheduled again is the call's compensation: retries are
+	// attempts of one call.
+	if _, seen := tl.first[call.GetStep()]; seen {
 		run.Undo = true
 		tl.undos = append(tl.undos, run)
 	} else {
-		tl.first[run.GetStep()] = run
+		tl.first[call.GetStep()] = run
+		tl.order = append(tl.order, run)
 	}
 
 	tl.calls[e.GetEventId()] = run
@@ -191,41 +203,34 @@ func (tl *timelineBuilder) pending(pending []*consolev1.PendingActivity) {
 	}
 }
 
-// runs orders the collected calls: steps, then calls of unknown steps,
-// then undos.
-func (tl *timelineBuilder) runs(steps []programStep, events []*historypb.HistoryEvent) []*consolev1.StepRun {
-	out := make([]*consolev1.StepRun, 0, len(steps)+len(tl.undos))
+// runs orders the collected calls: each program step's calls (a for-each
+// step's items and body calls in scheduling order; NOT_RUN when none),
+// then calls of steps the program does not name (a history of another
+// program version), then undos.
+func (tl *timelineBuilder) runs(steps []programStep, _ []*historypb.HistoryEvent) []*consolev1.StepRun {
+	out := make([]*consolev1.StepRun, 0, len(steps)+len(tl.order)+len(tl.undos))
+	used := map[*consolev1.StepRun]bool{}
 
 	for _, s := range steps {
-		if run, ok := tl.first[s.Name]; ok {
+		found := false
+
+		for _, run := range tl.order {
+			if top, _, _ := strings.Cut(run.GetParent(), "/"); top == s.Name || (top == "" && run.GetStep() == s.Name) {
+				out, used[run], found = append(out, run), true, true
+			}
+		}
+
+		if !found {
+			out = append(out, &consolev1.StepRun{
+				Step: s.Name, Activity: s.Activity, Workflow: s.Kind == backplanev1.ActivityKind_ACTIVITY_KIND_WORKFLOW,
+				Status: consolev1.StepRunStatus_STEP_RUN_STATUS_NOT_RUN,
+			})
+		}
+	}
+
+	for _, run := range tl.order {
+		if !used[run] {
 			out = append(out, run)
-
-			continue
-		}
-
-		out = append(out, &consolev1.StepRun{
-			Step: s.Name, Activity: s.Activity, Workflow: s.Kind == backplanev1.ActivityKind_ACTIVITY_KIND_WORKFLOW,
-			Status: consolev1.StepRunStatus_STEP_RUN_STATUS_NOT_RUN,
-		})
-	}
-
-	// Calls of steps the program does not name (a history of another
-	// program version): after the known ones, never lost.
-	for _, s := range steps {
-		delete(tl.first, s.Name)
-	}
-
-	for _, e := range events {
-		if at := e.GetActivityTaskScheduledEventAttributes(); at != nil {
-			if run := tl.calls[e.GetEventId()]; run != nil && tl.first[run.GetStep()] == run {
-				out = append(out, run)
-			}
-		}
-
-		if at := e.GetStartChildWorkflowExecutionInitiatedEventAttributes(); at != nil {
-			if run := tl.calls[e.GetEventId()]; run != nil && tl.first[run.GetStep()] == run {
-				out = append(out, run)
-			}
 		}
 	}
 

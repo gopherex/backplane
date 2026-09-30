@@ -95,9 +95,19 @@ func (StepRunStatus) EnumDescriptor() ([]byte, []int) {
 
 // Step is one call of an activity. Its name is its key in the definition's
 // steps: an identifier, the CEL variable of its output.
+//
+// With for_each the step runs once per item of a list (or map): its body
+// is either the activity (one call per item) or steps and a result (a
+// sub-flow per item, with the semantics of a definition). The item is the
+// CEL variable `as` (default `item`) and its position `<as>Index`; the
+// body also sees everything the step itself sees. The step's output is the
+// list of the items' outputs (activity output or body result) in item
+// order, null for an item its `when` skipped or that failed with
+// on_error "continue".
 type Step struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Full activity name "<service>.<Activity>".
+	// Full activity name "<service>.<Activity>"; empty for a for_each step
+	// whose body is steps.
 	Activity string `protobuf:"bytes,1,opt,name=activity,proto3" json:"activity,omitempty"`
 	// The activity's input; absent: {}.
 	Input *structpb.Value `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
@@ -120,7 +130,28 @@ type Step struct {
 	// activity's default, else none.
 	Heartbeat *durationpb.Duration `protobuf:"bytes,9,opt,name=heartbeat,proto3" json:"heartbeat,omitempty"`
 	// Free text for people; not executed.
-	Description   string `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
+	Description string `protobuf:"bytes,10,opt,name=description,proto3" json:"description,omitempty"`
+	// CEL list or map to run the step for; a map's items are {key, value}
+	// by key. Empty: the step runs once.
+	ForEach string `protobuf:"bytes,11,opt,name=for_each,json=forEach,proto3" json:"for_each,omitempty"`
+	// Name of the item variable; empty: "item". Its position is
+	// `<as>Index`.
+	As string `protobuf:"bytes,12,opt,name=as,proto3" json:"as,omitempty"`
+	// Items in flight at once; 0: 10.
+	Concurrency uint32 `protobuf:"varint,13,opt,name=concurrency,proto3" json:"concurrency,omitempty"`
+	// "fail" (default): the first failed item stops new items, waits for
+	// those in flight and fails the run (compensating what ran).
+	// "continue": failures are collected in steps.<name>.failed and
+	// steps.<name>.errors and the step succeeds.
+	OnError string `protobuf:"bytes,14,opt,name=on_error,json=onError,proto3" json:"on_error,omitempty"`
+	// Most items the step accepts (more fails the run); 0: 1000, at most
+	// 10000.
+	MaxItems uint32 `protobuf:"varint,15,opt,name=max_items,json=maxItems,proto3" json:"max_items,omitempty"`
+	// Body of a for_each step as a sub-flow, by name; exclusive with
+	// activity.
+	Steps map[string]*Step `protobuf:"bytes,16,rep,name=steps,proto3" json:"steps,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Each item's result when the body is steps; absent: {}.
+	Result        *structpb.Value `protobuf:"bytes,17,opt,name=result,proto3" json:"result,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -223,6 +254,55 @@ func (x *Step) GetDescription() string {
 		return x.Description
 	}
 	return ""
+}
+
+func (x *Step) GetForEach() string {
+	if x != nil {
+		return x.ForEach
+	}
+	return ""
+}
+
+func (x *Step) GetAs() string {
+	if x != nil {
+		return x.As
+	}
+	return ""
+}
+
+func (x *Step) GetConcurrency() uint32 {
+	if x != nil {
+		return x.Concurrency
+	}
+	return 0
+}
+
+func (x *Step) GetOnError() string {
+	if x != nil {
+		return x.OnError
+	}
+	return ""
+}
+
+func (x *Step) GetMaxItems() uint32 {
+	if x != nil {
+		return x.MaxItems
+	}
+	return 0
+}
+
+func (x *Step) GetSteps() map[string]*Step {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+func (x *Step) GetResult() *structpb.Value {
+	if x != nil {
+		return x.Result
+	}
+	return nil
 }
 
 // StepRetry is the retry policy of a step; zero fields are unset.
@@ -623,8 +703,14 @@ type StepRun struct {
 	// ActivityResult.payload, JSON text; empty until completed.
 	Output string `protobuf:"bytes,11,opt,name=output,proto3" json:"output,omitempty"`
 	// The failure's message and application error type.
-	Error         string `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
-	ErrorType     string `protobuf:"bytes,13,opt,name=error_type,json=errorType,proto3" json:"error_type,omitempty"`
+	Error     string `protobuf:"bytes,12,opt,name=error,proto3" json:"error,omitempty"`
+	ErrorType string `protobuf:"bytes,13,opt,name=error_type,json=errorType,proto3" json:"error_type,omitempty"`
+	// The item of a for_each step the call belongs to (from 0); absent
+	// for a step without for_each.
+	Item *uint32 `protobuf:"varint,14,opt,name=item,proto3,oneof" json:"item,omitempty"`
+	// The id of the for_each step whose body the call's step belongs to:
+	// "<outer>/<inner>" in a nested body; empty at the top level.
+	Parent        string `protobuf:"bytes,15,opt,name=parent,proto3" json:"parent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -750,11 +836,25 @@ func (x *StepRun) GetErrorType() string {
 	return ""
 }
 
+func (x *StepRun) GetItem() uint32 {
+	if x != nil && x.Item != nil {
+		return *x.Item
+	}
+	return 0
+}
+
+func (x *StepRun) GetParent() string {
+	if x != nil {
+		return x.Parent
+	}
+	return ""
+}
+
 var File_backplanepb_console_v1_step_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_step_proto_rawDesc = "" +
 	"\n" +
-	"!backplanepb/console/v1/step.proto\x12\x14backplane.console.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x98\x03\n" +
+	"!backplanepb/console/v1/step.proto\x12\x14backplane.console.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe0\x05\n" +
 	"\x04Step\x12\x1a\n" +
 	"\bactivity\x18\x01 \x01(\tR\bactivity\x12,\n" +
 	"\x05input\x18\x02 \x01(\v2\x16.google.protobuf.ValueR\x05input\x12\x12\n" +
@@ -767,7 +867,18 @@ const file_backplanepb_console_v1_step_proto_rawDesc = "" +
 	"\x0estart_to_close\x18\b \x01(\v2\x19.google.protobuf.DurationR\fstartToClose\x127\n" +
 	"\theartbeat\x18\t \x01(\v2\x19.google.protobuf.DurationR\theartbeat\x12 \n" +
 	"\vdescription\x18\n" +
-	" \x01(\tR\vdescription\"\xc5\x01\n" +
+	" \x01(\tR\vdescription\x12\x19\n" +
+	"\bfor_each\x18\v \x01(\tR\aforEach\x12\x0e\n" +
+	"\x02as\x18\f \x01(\tR\x02as\x12 \n" +
+	"\vconcurrency\x18\r \x01(\rR\vconcurrency\x12\x19\n" +
+	"\bon_error\x18\x0e \x01(\tR\aonError\x12\x1b\n" +
+	"\tmax_items\x18\x0f \x01(\rR\bmaxItems\x12;\n" +
+	"\x05steps\x18\x10 \x03(\v2%.backplane.console.v1.Step.StepsEntryR\x05steps\x12.\n" +
+	"\x06result\x18\x11 \x01(\v2\x16.google.protobuf.ValueR\x06result\x1aT\n" +
+	"\n" +
+	"StepsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
+	"\x05value\x18\x02 \x01(\v2\x1a.backplane.console.v1.StepR\x05value:\x028\x01\"\xc5\x01\n" +
 	"\tStepRetry\x12\x1a\n" +
 	"\battempts\x18\x01 \x01(\rR\battempts\x12D\n" +
 	"\x10initial_interval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x0finitialInterval\x12<\n" +
@@ -795,7 +906,7 @@ const file_backplanepb_console_v1_step_proto_rawDesc = "" +
 	"EditorNote\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x121\n" +
 	"\x02at\x18\x02 \x01(\v2!.backplane.console.v1.EditorPointR\x02at\x12\x14\n" +
-	"\x05width\x18\x03 \x01(\x01R\x05width\"\xe0\x03\n" +
+	"\x05width\x18\x03 \x01(\x01R\x05width\"\x9a\x04\n" +
 	"\aStepRun\x12\x12\n" +
 	"\x04step\x18\x01 \x01(\tR\x04step\x12\x1a\n" +
 	"\bactivity\x18\x02 \x01(\tR\bactivity\x12\x12\n" +
@@ -812,7 +923,10 @@ const file_backplanepb_console_v1_step_proto_rawDesc = "" +
 	"\x06output\x18\v \x01(\tR\x06output\x12\x14\n" +
 	"\x05error\x18\f \x01(\tR\x05error\x12\x1d\n" +
 	"\n" +
-	"error_type\x18\r \x01(\tR\terrorType*\x81\x02\n" +
+	"error_type\x18\r \x01(\tR\terrorType\x12\x17\n" +
+	"\x04item\x18\x0e \x01(\rH\x00R\x04item\x88\x01\x01\x12\x16\n" +
+	"\x06parent\x18\x0f \x01(\tR\x06parentB\a\n" +
+	"\x05_item*\x81\x02\n" +
 	"\rStepRunStatus\x12\x1f\n" +
 	"\x1bSTEP_RUN_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17STEP_RUN_STATUS_NOT_RUN\x10\x01\x12\x1d\n" +
@@ -836,7 +950,7 @@ func file_backplanepb_console_v1_step_proto_rawDescGZIP() []byte {
 }
 
 var file_backplanepb_console_v1_step_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_backplanepb_console_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_backplanepb_console_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_backplanepb_console_v1_step_proto_goTypes = []any{
 	(StepRunStatus)(0),            // 0: backplane.console.v1.StepRunStatus
 	(*Step)(nil),                  // 1: backplane.console.v1.Step
@@ -847,33 +961,37 @@ var file_backplanepb_console_v1_step_proto_goTypes = []any{
 	(*EditorPoint)(nil),           // 6: backplane.console.v1.EditorPoint
 	(*EditorNote)(nil),            // 7: backplane.console.v1.EditorNote
 	(*StepRun)(nil),               // 8: backplane.console.v1.StepRun
-	nil,                           // 9: backplane.console.v1.EditorLayout.NodesEntry
-	(*structpb.Value)(nil),        // 10: google.protobuf.Value
-	(*durationpb.Duration)(nil),   // 11: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil), // 12: google.protobuf.Timestamp
+	nil,                           // 9: backplane.console.v1.Step.StepsEntry
+	nil,                           // 10: backplane.console.v1.EditorLayout.NodesEntry
+	(*structpb.Value)(nil),        // 11: google.protobuf.Value
+	(*durationpb.Duration)(nil),   // 12: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
 }
 var file_backplanepb_console_v1_step_proto_depIdxs = []int32{
-	10, // 0: backplane.console.v1.Step.input:type_name -> google.protobuf.Value
-	10, // 1: backplane.console.v1.Step.undo_input:type_name -> google.protobuf.Value
+	11, // 0: backplane.console.v1.Step.input:type_name -> google.protobuf.Value
+	11, // 1: backplane.console.v1.Step.undo_input:type_name -> google.protobuf.Value
 	2,  // 2: backplane.console.v1.Step.retry:type_name -> backplane.console.v1.StepRetry
-	11, // 3: backplane.console.v1.Step.start_to_close:type_name -> google.protobuf.Duration
-	11, // 4: backplane.console.v1.Step.heartbeat:type_name -> google.protobuf.Duration
-	11, // 5: backplane.console.v1.StepRetry.initial_interval:type_name -> google.protobuf.Duration
-	11, // 6: backplane.console.v1.StepRetry.max_interval:type_name -> google.protobuf.Duration
-	4,  // 7: backplane.console.v1.Violation.expr:type_name -> backplane.console.v1.Range
-	9,  // 8: backplane.console.v1.EditorLayout.nodes:type_name -> backplane.console.v1.EditorLayout.NodesEntry
-	7,  // 9: backplane.console.v1.EditorLayout.notes:type_name -> backplane.console.v1.EditorNote
-	6,  // 10: backplane.console.v1.EditorNote.at:type_name -> backplane.console.v1.EditorPoint
-	0,  // 11: backplane.console.v1.StepRun.status:type_name -> backplane.console.v1.StepRunStatus
-	12, // 12: backplane.console.v1.StepRun.scheduled_time:type_name -> google.protobuf.Timestamp
-	12, // 13: backplane.console.v1.StepRun.started_time:type_name -> google.protobuf.Timestamp
-	12, // 14: backplane.console.v1.StepRun.close_time:type_name -> google.protobuf.Timestamp
-	6,  // 15: backplane.console.v1.EditorLayout.NodesEntry.value:type_name -> backplane.console.v1.EditorPoint
-	16, // [16:16] is the sub-list for method output_type
-	16, // [16:16] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	12, // 3: backplane.console.v1.Step.start_to_close:type_name -> google.protobuf.Duration
+	12, // 4: backplane.console.v1.Step.heartbeat:type_name -> google.protobuf.Duration
+	9,  // 5: backplane.console.v1.Step.steps:type_name -> backplane.console.v1.Step.StepsEntry
+	11, // 6: backplane.console.v1.Step.result:type_name -> google.protobuf.Value
+	12, // 7: backplane.console.v1.StepRetry.initial_interval:type_name -> google.protobuf.Duration
+	12, // 8: backplane.console.v1.StepRetry.max_interval:type_name -> google.protobuf.Duration
+	4,  // 9: backplane.console.v1.Violation.expr:type_name -> backplane.console.v1.Range
+	10, // 10: backplane.console.v1.EditorLayout.nodes:type_name -> backplane.console.v1.EditorLayout.NodesEntry
+	7,  // 11: backplane.console.v1.EditorLayout.notes:type_name -> backplane.console.v1.EditorNote
+	6,  // 12: backplane.console.v1.EditorNote.at:type_name -> backplane.console.v1.EditorPoint
+	0,  // 13: backplane.console.v1.StepRun.status:type_name -> backplane.console.v1.StepRunStatus
+	13, // 14: backplane.console.v1.StepRun.scheduled_time:type_name -> google.protobuf.Timestamp
+	13, // 15: backplane.console.v1.StepRun.started_time:type_name -> google.protobuf.Timestamp
+	13, // 16: backplane.console.v1.StepRun.close_time:type_name -> google.protobuf.Timestamp
+	1,  // 17: backplane.console.v1.Step.StepsEntry.value:type_name -> backplane.console.v1.Step
+	6,  // 18: backplane.console.v1.EditorLayout.NodesEntry.value:type_name -> backplane.console.v1.EditorPoint
+	19, // [19:19] is the sub-list for method output_type
+	19, // [19:19] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_console_v1_step_proto_init() }
@@ -881,13 +999,14 @@ func file_backplanepb_console_v1_step_proto_init() {
 	if File_backplanepb_console_v1_step_proto != nil {
 		return
 	}
+	file_backplanepb_console_v1_step_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_console_v1_step_proto_rawDesc), len(file_backplanepb_console_v1_step_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

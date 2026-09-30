@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-const stories = ['services-and-health', 'configuration', 'audit', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
+const stories = ['services-and-health', 'configuration', 'audit', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-loop', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
 for (const theme of ['dark', 'light']) for (const story of stories) {
   test(`${theme}: platform ${story}`, async ({ page }) => {
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
@@ -65,6 +65,18 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await expect(page.locator('.react-flow__edge')).not.toHaveCount(0);
       await node.click(); await expect(page.getByRole('textbox', { name: 'Step name', exact: true })).toHaveValue('format');
       await expect(page.getByText('formatter.Format').first()).toBeVisible();
+      await expect(page.getByLabel('Write attempts')).toHaveText('0');
+    }
+    if (story === 'wiring-loop') {
+      const loop = page.locator('.react-flow__node-loop');
+      await expect(loop).toBeVisible(); await expect(loop.getByText('req.people', { exact: true })).toBeVisible();
+      await expect(page.locator('.react-flow__node').filter({ hasText: 'formatter.Record' })).toBeVisible();
+      await loop.getByText('each', { exact: true }).first().click();
+      await expect(page.getByRole('textbox', { name: 'Step name', exact: true })).toHaveValue('each');
+      await expect(page.getByRole('textbox', { name: 'Item variable', exact: true })).toHaveValue('person');
+      await page.locator('.react-flow__node').filter({ hasText: 'formatter.Record' }).click();
+      await expect(page.getByRole('textbox', { name: 'Step name', exact: true })).toHaveValue('record');
+      await expect(page.getByRole('button', { name: 'in each', exact: true })).toBeVisible();
       await expect(page.getByLabel('Write attempts')).toHaveText('0');
     }
     if (story === 'wiring-rule') {

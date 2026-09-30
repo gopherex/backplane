@@ -16,17 +16,27 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/console/v1/step.proto.
  */
 export const file_backplanepb_console_v1_step: GenFile = /*@__PURE__*/
-  fileDesc("CiFiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3N0ZXAucHJvdG8SFGJhY2twbGFuZS5jb25zb2xlLnYxIrwCCgRTdGVwEhAKCGFjdGl2aXR5GAEgASgJEiUKBWlucHV0GAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEgwKBHdoZW4YAyABKAkSDQoFYWZ0ZXIYBCADKAkSDAoEdW5kbxgFIAEoCRIqCgp1bmRvX2lucHV0GAYgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEi4KBXJldHJ5GAcgASgLMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuU3RlcFJldHJ5EjEKDnN0YXJ0X3RvX2Nsb3NlGAggASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEiwKCWhlYXJ0YmVhdBgJIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhITCgtkZXNjcmlwdGlvbhgKIAEoCSKUAQoJU3RlcFJldHJ5EhAKCGF0dGVtcHRzGAEgASgNEjMKEGluaXRpYWxfaW50ZXJ2YWwYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SLwoMbWF4X2ludGVydmFsGAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEg8KB2JhY2tvZmYYBCABKAEiYwoJVmlvbGF0aW9uEgwKBHBhdGgYASABKAkSDAoEY29kZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJEikKBGV4cHIYBCABKAsyGy5iYWNrcGxhbmUuY29uc29sZS52MS5SYW5nZSIjCgVSYW5nZRINCgVzdGFydBgBIAEoDRILCgNlbmQYAiABKA0izgEKDEVkaXRvckxheW91dBI8CgVub2RlcxgBIAMoCzItLmJhY2twbGFuZS5jb25zb2xlLnYxLkVkaXRvckxheW91dC5Ob2Rlc0VudHJ5Ei8KBW5vdGVzGAIgAygLMiAuYmFja3BsYW5lLmNvbnNvbGUudjEuRWRpdG9yTm90ZRpPCgpOb2Rlc0VudHJ5EgsKA2tleRgBIAEoCRIwCgV2YWx1ZRgCIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkVkaXRvclBvaW50OgI4ASIjCgtFZGl0b3JQb2ludBIJCgF4GAEgASgBEgkKAXkYAiABKAEiWAoKRWRpdG9yTm90ZRIMCgR0ZXh0GAEgASgJEi0KAmF0GAIgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuRWRpdG9yUG9pbnQSDQoFd2lkdGgYAyABKAEi5wIKB1N0ZXBSdW4SDAoEc3RlcBgBIAEoCRIQCghhY3Rpdml0eRgCIAEoCRIMCgR1bmRvGAMgASgIEhAKCHdvcmtmbG93GAQgASgIEjMKBnN0YXR1cxgFIAEoDjIjLmJhY2twbGFuZS5jb25zb2xlLnYxLlN0ZXBSdW5TdGF0dXMSDwoHYXR0ZW1wdBgGIAEoBRIyCg5zY2hlZHVsZWRfdGltZRgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMc3RhcnRlZF90aW1lGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjbG9zZV90aW1lGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBINCgVpbnB1dBgKIAEoCRIOCgZvdXRwdXQYCyABKAkSDQoFZXJyb3IYDCABKAkSEgoKZXJyb3JfdHlwZRgNIAEoCSqBAgoNU3RlcFJ1blN0YXR1cxIfChtTVEVQX1JVTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdTVEVQX1JVTl9TVEFUVVNfTk9UX1JVThABEh0KGVNURVBfUlVOX1NUQVRVU19TQ0hFRFVMRUQQAhIbChdTVEVQX1JVTl9TVEFUVVNfU1RBUlRFRBADEh0KGVNURVBfUlVOX1NUQVRVU19DT01QTEVURUQQBBIaChZTVEVQX1JVTl9TVEFUVVNfRkFJTEVEEAUSHQoZU1RFUF9SVU5fU1RBVFVTX1RJTUVEX09VVBAGEhwKGFNURVBfUlVOX1NUQVRVU19DQU5DRUxFRBAHQkBaPmdpdGh1Yi5jb20vZ29waGVyZXgvYmFja3BsYW5lL2JhY2twbGFuZXBiL2NvbnNvbGUvdjE7Y29uc29sZXYxYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_struct, file_google_protobuf_timestamp]);
+  fileDesc("CiFiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3N0ZXAucHJvdG8SFGJhY2twbGFuZS5jb25zb2xlLnYxIrwECgRTdGVwEhAKCGFjdGl2aXR5GAEgASgJEiUKBWlucHV0GAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEgwKBHdoZW4YAyABKAkSDQoFYWZ0ZXIYBCADKAkSDAoEdW5kbxgFIAEoCRIqCgp1bmRvX2lucHV0GAYgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEi4KBXJldHJ5GAcgASgLMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuU3RlcFJldHJ5EjEKDnN0YXJ0X3RvX2Nsb3NlGAggASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEiwKCWhlYXJ0YmVhdBgJIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhITCgtkZXNjcmlwdGlvbhgKIAEoCRIQCghmb3JfZWFjaBgLIAEoCRIKCgJhcxgMIAEoCRITCgtjb25jdXJyZW5jeRgNIAEoDRIQCghvbl9lcnJvchgOIAEoCRIRCgltYXhfaXRlbXMYDyABKA0SNAoFc3RlcHMYECADKAsyJS5iYWNrcGxhbmUuY29uc29sZS52MS5TdGVwLlN0ZXBzRW50cnkSJgoGcmVzdWx0GBEgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlGkgKClN0ZXBzRW50cnkSCwoDa2V5GAEgASgJEikKBXZhbHVlGAIgASgLMhouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RlcDoCOAEilAEKCVN0ZXBSZXRyeRIQCghhdHRlbXB0cxgBIAEoDRIzChBpbml0aWFsX2ludGVydmFsGAIgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEi8KDG1heF9pbnRlcnZhbBgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIPCgdiYWNrb2ZmGAQgASgBImMKCVZpb2xhdGlvbhIMCgRwYXRoGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCRIpCgRleHByGAQgASgLMhsuYmFja3BsYW5lLmNvbnNvbGUudjEuUmFuZ2UiIwoFUmFuZ2USDQoFc3RhcnQYASABKA0SCwoDZW5kGAIgASgNIs4BCgxFZGl0b3JMYXlvdXQSPAoFbm9kZXMYASADKAsyLS5iYWNrcGxhbmUuY29uc29sZS52MS5FZGl0b3JMYXlvdXQuTm9kZXNFbnRyeRIvCgVub3RlcxgCIAMoCzIgLmJhY2twbGFuZS5jb25zb2xlLnYxLkVkaXRvck5vdGUaTwoKTm9kZXNFbnRyeRILCgNrZXkYASABKAkSMAoFdmFsdWUYAiABKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5FZGl0b3JQb2ludDoCOAEiIwoLRWRpdG9yUG9pbnQSCQoBeBgBIAEoARIJCgF5GAIgASgBIlgKCkVkaXRvck5vdGUSDAoEdGV4dBgBIAEoCRItCgJhdBgCIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkVkaXRvclBvaW50Eg0KBXdpZHRoGAMgASgBIpMDCgdTdGVwUnVuEgwKBHN0ZXAYASABKAkSEAoIYWN0aXZpdHkYAiABKAkSDAoEdW5kbxgDIAEoCBIQCgh3b3JrZmxvdxgEIAEoCBIzCgZzdGF0dXMYBSABKA4yIy5iYWNrcGxhbmUuY29uc29sZS52MS5TdGVwUnVuU3RhdHVzEg8KB2F0dGVtcHQYBiABKAUSMgoOc2NoZWR1bGVkX3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDHN0YXJ0ZWRfdGltZRgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY2xvc2VfdGltZRgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDQoFaW5wdXQYCiABKAkSDgoGb3V0cHV0GAsgASgJEg0KBWVycm9yGAwgASgJEhIKCmVycm9yX3R5cGUYDSABKAkSEQoEaXRlbRgOIAEoDUgAiAEBEg4KBnBhcmVudBgPIAEoCUIHCgVfaXRlbSqBAgoNU3RlcFJ1blN0YXR1cxIfChtTVEVQX1JVTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdTVEVQX1JVTl9TVEFUVVNfTk9UX1JVThABEh0KGVNURVBfUlVOX1NUQVRVU19TQ0hFRFVMRUQQAhIbChdTVEVQX1JVTl9TVEFUVVNfU1RBUlRFRBADEh0KGVNURVBfUlVOX1NUQVRVU19DT01QTEVURUQQBBIaChZTVEVQX1JVTl9TVEFUVVNfRkFJTEVEEAUSHQoZU1RFUF9SVU5fU1RBVFVTX1RJTUVEX09VVBAGEhwKGFNURVBfUlVOX1NUQVRVU19DQU5DRUxFRBAHQkBaPmdpdGh1Yi5jb20vZ29waGVyZXgvYmFja3BsYW5lL2JhY2twbGFuZXBiL2NvbnNvbGUvdjE7Y29uc29sZXYxYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * Step is one call of an activity. Its name is its key in the definition's
  * steps: an identifier, the CEL variable of its output.
  *
+ * With for_each the step runs once per item of a list (or map): its body
+ * is either the activity (one call per item) or steps and a result (a
+ * sub-flow per item, with the semantics of a definition). The item is the
+ * CEL variable `as` (default `item`) and its position `<as>Index`; the
+ * body also sees everything the step itself sees. The step's output is the
+ * list of the items' outputs (activity output or body result) in item
+ * order, null for an item its `when` skipped or that failed with
+ * on_error "continue".
+ *
  * @generated from message backplane.console.v1.Step
  */
 export type Step = Message<"backplane.console.v1.Step"> & {
   /**
-   * Full activity name "<service>.<Activity>".
+   * Full activity name "<service>.<Activity>"; empty for a for_each step
+   * whose body is steps.
    *
    * @generated from field: string activity = 1;
    */
@@ -98,6 +108,62 @@ export type Step = Message<"backplane.console.v1.Step"> & {
    * @generated from field: string description = 10;
    */
   description: string;
+
+  /**
+   * CEL list or map to run the step for; a map's items are {key, value}
+   * by key. Empty: the step runs once.
+   *
+   * @generated from field: string for_each = 11;
+   */
+  forEach: string;
+
+  /**
+   * Name of the item variable; empty: "item". Its position is
+   * `<as>Index`.
+   *
+   * @generated from field: string as = 12;
+   */
+  as: string;
+
+  /**
+   * Items in flight at once; 0: 10.
+   *
+   * @generated from field: uint32 concurrency = 13;
+   */
+  concurrency: number;
+
+  /**
+   * "fail" (default): the first failed item stops new items, waits for
+   * those in flight and fails the run (compensating what ran).
+   * "continue": failures are collected in steps.<name>.failed and
+   * steps.<name>.errors and the step succeeds.
+   *
+   * @generated from field: string on_error = 14;
+   */
+  onError: string;
+
+  /**
+   * Most items the step accepts (more fails the run); 0: 1000, at most
+   * 10000.
+   *
+   * @generated from field: uint32 max_items = 15;
+   */
+  maxItems: number;
+
+  /**
+   * Body of a for_each step as a sub-flow, by name; exclusive with
+   * activity.
+   *
+   * @generated from field: map<string, backplane.console.v1.Step> steps = 16;
+   */
+  steps: { [key: string]: Step };
+
+  /**
+   * Each item's result when the body is steps; absent: {}.
+   *
+   * @generated from field: google.protobuf.Value result = 17;
+   */
+  result?: Value | undefined;
 };
 
 /**
@@ -386,6 +452,22 @@ export type StepRun = Message<"backplane.console.v1.StepRun"> & {
    * @generated from field: string error_type = 13;
    */
   errorType: string;
+
+  /**
+   * The item of a for_each step the call belongs to (from 0); absent
+   * for a step without for_each.
+   *
+   * @generated from field: optional uint32 item = 14;
+   */
+  item?: number | undefined;
+
+  /**
+   * The id of the for_each step whose body the call's step belongs to:
+   * "<outer>/<inner>" in a nested body; empty at the top level.
+   *
+   * @generated from field: string parent = 15;
+   */
+  parent: string;
 };
 
 /**

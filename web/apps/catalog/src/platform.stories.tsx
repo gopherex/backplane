@@ -36,6 +36,7 @@ function Wiring({ mode, initial }: { mode: 'dark' | 'light'; initial: WiringStat
 }
 export const WiringYaml: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ target: { kind: 'binding', hook: 'hello.Greet' }, view: 'yaml' }} /> };
 export const WiringGraph: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ target: { kind: 'binding', hook: 'hello.Greet' }, view: 'graph' }} /> };
+export const WiringLoop: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ target: { kind: 'binding', hook: 'hello.Batch' }, view: 'graph' }} /> };
 export const WiringRule: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ view: 'yaml' }} /> };
 export const Workflows: Story = { render: (_, context) => <WorkflowRuns service="hello" mode={mode(context)} /> };
 export const Schedules: Story = { render: (_, context) => <SchedulesPanel service="hello" mode={mode(context)} /> };

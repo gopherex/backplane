@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,11 +80,7 @@ type runner struct {
 	in    Input
 	ctx   workflow.Context
 	prog  *bindings.Program
-	scope bindings.Scope
 	trace map[string]string
-	// done are the steps that completed, in completion order: what undo
-	// compensates.
-	done []string
 }
 
 func (r *runner) source() string {
@@ -99,33 +96,35 @@ func (r *runner) source() string {
 }
 
 func (r *runner) run() (*backplanev1.HookResult, error) {
-	if err := r.start(); err != nil {
+	scope, err := r.start()
+	if err != nil {
 		return nil, err
 	}
 
 	r.trace = workflowTrace(r.ctx, r.in.Trace)
+	top := &flow{r: r, ctx: r.ctx, prog: r.prog, scope: scope}
 
-	if err := r.steps(); err != nil {
-		return nil, r.fail(err)
+	if err := top.steps(); err != nil {
+		return nil, r.fail(top, err)
 	}
 
 	if r.prog.Kind() == bindings.KindRule {
 		return &backplanev1.HookResult{}, nil
 	}
 
-	out, err := r.prog.Result(r.scope)
+	out, err := r.prog.Result(top.scope)
 	if err != nil {
-		return nil, r.fail(transform(err))
+		return nil, r.fail(top, transform(err))
 	}
 
 	return &backplanev1.HookResult{Payload: out}, nil
 }
 
 // start reads the program and the input into the first scope.
-func (r *runner) start() error {
+func (r *runner) start() (bindings.Scope, error) {
 	prog := new(bindings.Program)
 	if err := json.Unmarshal(r.in.Program, prog); err != nil {
-		return failure(fmt.Sprintf("transform failed at program: %v", err), wire.TransformFailedType)
+		return bindings.Scope{}, failure(fmt.Sprintf("transform failed at program: %v", err), wire.TransformFailedType)
 	}
 
 	r.prog = prog
@@ -135,23 +134,26 @@ func (r *runner) start() error {
 		payload = []byte("{}")
 	}
 
-	var err error
+	var (
+		scope bindings.Scope
+		err   error
+	)
 
 	switch {
 	case prog.Kind() == bindings.KindRule && r.in.Kind == KindRule:
-		r.scope, err = prog.StartEvent(payload, r.in.Meta.meta())
+		scope, err = prog.StartEvent(payload, r.in.Meta.meta())
 	case prog.Kind() == bindings.KindBinding && r.in.Kind == KindBinding:
-		r.scope, err = prog.Start(payload)
+		scope, err = prog.Start(payload)
 	default:
-		return failure(fmt.Sprintf("transform failed at program: a %s program in a %s run", kindName(prog.Kind()), r.in.Kind),
-			wire.TransformFailedType)
+		return bindings.Scope{}, failure(fmt.Sprintf("transform failed at program: a %s program in a %s run",
+			kindName(prog.Kind()), r.in.Kind), wire.TransformFailedType)
 	}
 
 	if err != nil {
-		return transform(err)
+		return bindings.Scope{}, transform(err)
 	}
 
-	return nil
+	return scope, nil
 }
 
 func kindName(k bindings.Kind) string {
@@ -162,24 +164,47 @@ func kindName(k bindings.Kind) string {
 	return string(KindBinding)
 }
 
-// launched is a step in flight.
-type launched struct {
+// flow runs one frame of steps: the run's, or the body of one item of a
+// for-each step, whose steps see the item and everything the step sees.
+type flow struct {
+	r     *runner
+	ctx   workflow.Context
+	prog  *bindings.Program
+	scope bindings.Scope
+	// prefix labels the frame's calls: "" at the top, "<step>[<item>]."
+	// in a body.
+	prefix string
+	// done is what completed, in completion order: what undo compensates.
+	done []undoEntry
+}
+
+// undoEntry is a completed call with an undo: its undo input is evaluated
+// on scope, or on its flow's scope when compensating (a step at the top).
+type undoEntry struct {
+	flow  *flow
 	plan  bindings.StepPlan
-	fut   workflow.Future
-	start time.Time
+	label string
+	scope *bindings.Scope
+}
+
+// launched is a step in flight: bind takes its outcome into the scope.
+type launched struct {
+	plan bindings.StepPlan
+	fut  workflow.Future
+	bind func(f workflow.Future) error
 }
 
 // steps runs every step once its dependencies are settled: the ready ones
 // start at once, by name (a skip settles a step at once and may make
-// others ready), then the run waits for any call in flight. After a
-// failure nothing new starts and the calls in flight are awaited, so every
+// others ready), then the frame waits for any step in flight. After a
+// failure nothing new starts and the steps in flight are awaited, so every
 // step that did its work is known to undo. The error is the first in
 // completion order (an expression's before the calls it prevents).
-func (r *runner) steps() error {
-	plans := r.prog.Steps()
+func (f *flow) steps() error {
+	plans := f.prog.Steps()
 	settled := make(map[string]bool, len(plans))
 	started := make(map[string]bool, len(plans))
-	sel := workflow.NewSelector(r.ctx)
+	sel := workflow.NewSelector(f.ctx)
 
 	var (
 		first    error
@@ -198,7 +223,7 @@ func (r *runner) steps() error {
 
 				started[plan.Name] = true
 
-				l, err := r.launch(plan)
+				l, err := f.launch(plan)
 				if err != nil {
 					first = err
 
@@ -213,11 +238,11 @@ func (r *runner) steps() error {
 
 				inFlight++
 
-				sel.AddFuture(l.fut, func(f workflow.Future) {
+				sel.AddFuture(l.fut, func(fut workflow.Future) {
 					inFlight--
 					settled[l.plan.Name] = true
 
-					if err := r.settle(*l, f); err != nil && first == nil {
+					if err := l.bind(fut); err != nil && first == nil {
 						first = err
 					}
 				})
@@ -230,7 +255,7 @@ func (r *runner) steps() error {
 			break
 		}
 
-		sel.Select(r.ctx)
+		sel.Select(f.ctx)
 	}
 
 	if first == nil && len(settled) < len(plans) {
@@ -250,58 +275,289 @@ func allSettled(deps []string, settled map[string]bool) bool {
 	return true
 }
 
-// launch starts a step's call; nil when its when skips it.
-func (r *runner) launch(plan bindings.StepPlan) (*launched, error) {
-	run, err := r.prog.When(plan.Name, r.scope)
+// launch starts a step: its call, or its items; nil when its when skips
+// it.
+func (f *flow) launch(plan bindings.StepPlan) (*launched, error) {
+	if plan.ForEach != nil {
+		return f.launchItems(plan)
+	}
+
+	run, err := f.prog.When(plan.Name, f.scope)
 	if err != nil {
 		return nil, transform(err)
 	}
 
 	if !run {
-		if r.scope, err = r.prog.Skip(r.scope, plan.Name); err != nil {
+		if f.scope, err = f.prog.Skip(f.scope, plan.Name); err != nil {
 			return nil, transform(err)
 		}
 
 		return nil, nil //nolint:nilnil // skipped: nothing to await
 	}
 
-	input, err := r.prog.Input(plan.Name, r.scope)
+	input, err := f.prog.Input(plan.Name, f.scope)
 	if err != nil {
 		return nil, transform(err)
 	}
 
+	label, start := f.prefix+plan.Name, workflow.Now(f.ctx)
+
+	fut := f.r.call(f.ctx, plan, label, plan.Activity, plan.Service, plan.Kind, input, false)
+
 	return &launched{
-		plan: plan, fut: r.call(r.ctx, plan, plan.Activity, plan.Service, plan.Kind, input, false),
-		start: workflow.Now(r.ctx),
+		plan: plan, fut: fut,
+		bind: func(fut workflow.Future) error {
+			out, err := f.r.result(f.ctx, fut, plan, label, start)
+			if err != nil {
+				return err
+			}
+
+			if plan.Undo != "" {
+				f.done = append(f.done, undoEntry{flow: f, plan: plan, label: label})
+			}
+
+			scope, err := f.prog.Bind(f.scope, plan.Name, out)
+			if err != nil {
+				return transform(err)
+			}
+
+			f.scope = scope
+
+			return nil
+		},
 	}, nil
 }
 
-// settle takes a finished step's output into the scope.
-func (r *runner) settle(l launched, f workflow.Future) error {
+// result is a finished call's output: ActivityResult.payload, {} when
+// empty; a failure is the step's.
+func (r *runner) result(
+	ctx workflow.Context, fut workflow.Future, plan bindings.StepPlan, label string, start time.Time,
+) ([]byte, error) {
 	var res backplanev1.ActivityResult
 
-	err := f.Get(r.ctx, &res)
-	r.observe(l.plan.Activity, false, err, l.start)
+	err := fut.Get(ctx, &res)
+	r.observe(plan.Activity, false, err, start)
 
 	if err != nil {
-		return stepFailure(l.plan.Name, l.plan.Activity, err)
+		return nil, stepFailure(label, plan.Activity, err)
 	}
 
-	r.done = append(r.done, l.plan.Name)
-
-	out := res.GetPayload()
-	if len(out) == 0 {
-		out = []byte("{}")
+	if len(res.GetPayload()) == 0 {
+		return []byte("{}"), nil
 	}
 
-	scope, err := r.prog.Bind(r.scope, l.plan.Name, out)
+	return res.GetPayload(), nil
+}
+
+// itemsOutcome is what a for-each step's items produced.
+type itemsOutcome struct {
+	outputs [][]byte
+	failed  []bindings.ItemError
+}
+
+// launchItems runs a for-each step's items in a coroutine of the run; the
+// step settles when they all have.
+func (f *flow) launchItems(plan bindings.StepPlan) (*launched, error) {
+	items, err := f.prog.Items(plan.Name, f.scope)
 	if err != nil {
-		return transform(err)
+		return nil, transform(err)
 	}
 
-	r.scope = scope
+	if len(items) > plan.ForEach.MaxItems {
+		return nil, failure(fmt.Sprintf("step %s: %d items, more than its %d", plan.Name, len(items), plan.ForEach.MaxItems),
+			wire.StepFailedType)
+	}
 
-	return nil
+	base := f.scope
+	fut, set := workflow.NewFuture(f.ctx)
+
+	var outcome itemsOutcome
+
+	workflow.Go(f.ctx, func(ctx workflow.Context) {
+		var err error
+
+		outcome, err = f.runItems(ctx, plan, base, items)
+		set.Set(nil, err)
+	})
+
+	return &launched{plan: plan, fut: fut, bind: func(done workflow.Future) error {
+		if err := done.Get(f.ctx, nil); err != nil {
+			return err //nolint:wrapcheck // the item's own error
+		}
+
+		scope, err := f.prog.BindItems(f.scope, plan.Name, outcome.outputs, outcome.failed)
+		if err != nil {
+			return transform(err)
+		}
+
+		f.scope = scope
+
+		return nil
+	}}, nil
+}
+
+// itemCall is one item in flight: finish is its output once fut is ready.
+type itemCall struct {
+	fut    workflow.Future
+	finish func(ctx workflow.Context, fut workflow.Future) ([]byte, error)
+}
+
+// runItems runs the items, at most Concurrency at once, in item order. A
+// failed item stops new ones and is the error, unless the step continues
+// on errors: then it is collected and its output null.
+func (f *flow) runItems(
+	ctx workflow.Context, plan bindings.StepPlan, base bindings.Scope, items []any,
+) (itemsOutcome, error) {
+	out := itemsOutcome{outputs: make([][]byte, len(items))}
+	sel := workflow.NewSelector(ctx)
+
+	var (
+		first    error
+		inFlight int
+		next     int
+	)
+
+	fail := func(index int, err error) {
+		if plan.ForEach.Continue {
+			msg, _ := readableFailure(err)
+			out.failed = append(out.failed, bindings.ItemError{Index: index, Message: msg})
+		} else if first == nil {
+			first = err
+		}
+	}
+
+	for {
+		for first == nil && next < len(items) && inFlight < plan.ForEach.Concurrency {
+			index := next
+			next++
+
+			call, err := f.startItem(ctx, plan, base, index, items[index])
+			if err != nil {
+				fail(index, err)
+
+				continue
+			}
+
+			if call == nil {
+				continue
+			}
+
+			inFlight++
+
+			sel.AddFuture(call.fut, func(fut workflow.Future) {
+				inFlight--
+
+				if output, err := call.finish(ctx, fut); err != nil {
+					fail(index, err)
+				} else {
+					out.outputs[index] = output
+				}
+			})
+		}
+
+		if inFlight == 0 {
+			break
+		}
+
+		sel.Select(ctx)
+	}
+
+	slices.SortFunc(out.failed, func(a, b bindings.ItemError) int { return a.Index - b.Index })
+
+	return out, first
+}
+
+// startItem starts one item: its activity call, or its body in a
+// coroutine; nil when its when skips it.
+func (f *flow) startItem(
+	ctx workflow.Context, plan bindings.StepPlan, base bindings.Scope, index int, item any,
+) (*itemCall, error) {
+	scope, err := f.prog.ItemScope(plan.Name, base, index, item)
+	if err != nil {
+		return nil, transform(err)
+	}
+
+	label := fmt.Sprintf("%s%s[%d]", f.prefix, plan.Name, index)
+
+	run, err := f.prog.When(plan.Name, scope)
+	if err != nil {
+		return nil, transform(err)
+	}
+
+	if !run {
+		return nil, nil //nolint:nilnil // skipped: its output is null
+	}
+
+	if body, ok := f.prog.Body(plan.Name); ok {
+		return f.startBody(ctx, body, scope, label), nil
+	}
+
+	input, err := f.prog.Input(plan.Name, scope)
+	if err != nil {
+		return nil, transform(err)
+	}
+
+	start := workflow.Now(ctx)
+
+	return &itemCall{
+		fut: f.r.call(ctx, plan, label, plan.Activity, plan.Service, plan.Kind, input, false),
+		finish: func(ctx workflow.Context, fut workflow.Future) ([]byte, error) {
+			output, err := f.r.result(ctx, fut, plan, label, start)
+			if err != nil {
+				return nil, err
+			}
+
+			if plan.Undo != "" {
+				// The item's undo input sees the item and, as the step's output,
+				// the item's output.
+				bound, err := f.prog.Bind(scope, plan.Name, output)
+				if err != nil {
+					return nil, transform(err)
+				}
+
+				f.done = append(f.done, undoEntry{flow: f, plan: plan, label: label, scope: &bound})
+			}
+
+			return output, nil
+		},
+	}, nil
+}
+
+// startBody runs one item's body as its own flow in a coroutine. A failed
+// body compensates what it did at once (an item is all or nothing); a
+// successful one hands its compensations to the enclosing flow.
+func (f *flow) startBody(ctx workflow.Context, body *bindings.Program, scope bindings.Scope, label string) *itemCall {
+	fut, set := workflow.NewFuture(ctx)
+	child := &flow{r: f.r, prog: body, scope: body.Begin(scope), prefix: label + "."}
+
+	var output []byte
+
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		child.ctx = ctx
+
+		err := child.steps()
+		if err == nil {
+			if output, err = body.ItemOutput(child.scope); err != nil {
+				err = transform(err)
+			}
+		}
+
+		if err != nil {
+			err = withUndos(err, f.r.compensate(ctx, child.done))
+		}
+
+		set.Set(nil, err)
+	})
+
+	return &itemCall{fut: fut, finish: func(ctx workflow.Context, fut workflow.Future) ([]byte, error) {
+		if err := fut.Get(ctx, nil); err != nil {
+			return nil, err //nolint:wrapcheck // the body's own error
+		}
+
+		f.done = append(f.done, child.done...)
+
+		return output, nil
+	}}
 }
 
 func (r *runner) observe(activity string, undo bool, err error, start time.Time) {
@@ -318,14 +574,15 @@ func (r *runner) observe(activity string, undo bool, err error, start time.Time)
 }
 
 // call executes activity full (a step's or its undo) on service's queue:
-// an activity, or a child workflow for kind WORKFLOW.
+// an activity, or a child workflow for kind WORKFLOW. label names the call
+// (bindings.CallLabel): the envelope's step and the child workflow's id.
 func (r *runner) call(
-	ctx workflow.Context, plan bindings.StepPlan, full, service string, kind backplanev1.ActivityKind, input []byte,
-	undo bool,
+	ctx workflow.Context, plan bindings.StepPlan, label, full, service string, kind backplanev1.ActivityKind,
+	input []byte, undo bool,
 ) workflow.Future {
 	_, name := bindings.SplitName(full)
 	call := &backplanev1.ActivityCall{
-		Activity: full, Payload: input, Trace: r.trace, Binding: r.in.Identity.String(), Step: plan.Name,
+		Activity: full, Payload: input, Trace: r.trace, Binding: r.in.Identity.String(), Step: label,
 	}
 	retry := &temporal.RetryPolicy{
 		InitialInterval: plan.Retry.InitialInterval, BackoffCoefficient: plan.Retry.Backoff,
@@ -334,7 +591,7 @@ func (r *runner) call(
 	}
 
 	if kind == backplanev1.ActivityKind_ACTIVITY_KIND_WORKFLOW {
-		id := workflow.GetInfo(ctx).WorkflowExecution.ID + "/" + plan.Name
+		id := workflow.GetInfo(ctx).WorkflowExecution.ID + "/" + label
 		if undo {
 			id += "/undo"
 		}
@@ -354,48 +611,65 @@ func (r *runner) call(
 	return workflow.ExecuteActivity(actx, name, call)
 }
 
-// fail compensates the steps done, newest first, and is the run's error:
-// cause's message with the failed undos appended. A canceled run ends
-// canceled.
-func (r *runner) fail(cause error) error {
+// fail compensates what the run did, newest first, and is the run's
+// error: cause's message with the failed undos appended. A canceled run
+// ends canceled.
+func (r *runner) fail(top *flow, cause error) error {
 	canceled := temporal.IsCanceledError(cause) || r.ctx.Err() != nil
 	ctx, _ := workflow.NewDisconnectedContext(r.ctx)
+	err := withUndos(cause, r.compensate(ctx, top.done))
 
+	if canceled {
+		msg, _ := readableFailure(err)
+
+		return temporal.NewCanceledError(msg) //nolint:wrapcheck // the error Temporal carries
+	}
+
+	return err
+}
+
+// compensate runs the undo of each entry, newest first: what failed.
+func (r *runner) compensate(ctx workflow.Context, done []undoEntry) []string {
 	var undone []string
 
-	for i := len(r.done) - 1; i >= 0; i-- {
-		plan, ok := r.prog.Step(r.done[i])
-		if !ok || plan.Undo == "" {
-			continue
+	for i := len(done) - 1; i >= 0; i-- {
+		e := done[i]
+
+		scope := e.flow.scope
+		if e.scope != nil {
+			scope = *e.scope
 		}
 
-		input, err := r.prog.UndoInput(plan.Name, r.scope)
+		input, err := e.flow.prog.UndoInput(e.plan.Name, scope)
 		if err != nil {
-			undone = append(undone, "undo "+plan.Name+": "+err.Error())
+			undone = append(undone, "undo "+e.label+": "+err.Error())
 
 			continue
 		}
 
 		start := workflow.Now(ctx)
-		err = r.call(ctx, plan, plan.Undo, plan.UndoService, plan.UndoKind, input, true).Get(ctx, nil)
-		r.observe(plan.Undo, true, err, start)
+		err = r.call(ctx, e.plan, e.label, e.plan.Undo, e.plan.UndoService, e.plan.UndoKind, input, true).Get(ctx, nil)
+		r.observe(e.plan.Undo, true, err, start)
 
 		if err != nil {
 			msg, _ := readable(err)
-			undone = append(undone, "undo "+plan.Name+": "+prefixed(plan.Undo, msg))
+			undone = append(undone, "undo "+e.label+": "+prefixed(e.plan.Undo, msg))
 		}
 	}
 
+	return undone
+}
+
+// withUndos is cause with the failed undos appended to its message, as a
+// non-retryable failure of cause's type.
+func withUndos(cause error, undone []string) error {
+	if len(undone) == 0 {
+		return cause
+	}
+
 	msg, typ := readableFailure(cause)
-	if len(undone) > 0 {
-		msg += " (" + strings.Join(undone, "; ") + ")"
-	}
 
-	if canceled {
-		return temporal.NewCanceledError(msg) //nolint:wrapcheck // the error Temporal carries
-	}
-
-	return failure(msg, typ)
+	return failure(msg+" ("+strings.Join(undone, "; ")+")", typ)
 }
 
 // failure is a non-retryable application error of type typ.

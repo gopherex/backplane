@@ -10,6 +10,9 @@ const schema = create(SchemaSchema, { id: { name: 'input' }, fields: [
 const source = { name: 'hello', latestVersion: '1.0.0', instances: 1, healthy: 1, health: api.ServiceHealth.HEALTHY };
 const traceId = '1234567890abcdef1234567890abcdef';
 const bindingDefinition = () => fromJson(api.BindingDefinitionSchema, { hook: 'hello.Greet', description: 'Greets through the formatter.', steps: { format: { activity: 'formatter.Format', input: { name: 'req.name' } } }, result: { text: 'format.text' } });
+/** A binding with a for-each step whose body is two steps: one greeting per person. */
+const batchDefinition = () => fromJson(api.BindingDefinitionSchema, { hook: 'hello.Batch', steps: { each: { forEach: 'req.people', as: 'person', concurrency: 4, onError: 'continue',
+  steps: { format: { activity: 'formatter.Format', input: { name: 'person.name' } }, record: { activity: 'formatter.Record', input: { name: 'person.name', text: 'format.text' } } }, result: 'format.text' } } });
 const ruleDefinition = () => fromJson(api.RuleDefinitionSchema, { event: 'hello.Greeted', when: 'event.name != "skip"', steps: { record: { activity: 'formatter.Record', input: { name: 'event.name', text: 'event.text' } } } });
 const field = (name: string, required = true) => ({ name, required, kind: { case: 'string' as const, value: {} } });
 const textSchema = (...names: string[]) => create(SchemaSchema, { fields: names.map((name) => field(name)) });
@@ -19,22 +22,40 @@ const wiringCatalog = () => create(api.GetWiringCatalogResponseSchema, { service
     { name: 'Format', input: textSchema('name'), output: textSchema('text'), description: 'Formats a greeting' },
     { name: 'Record', input: textSchema('name', 'text'), description: 'Records a greeting' },
   ] },
-  { service: 'hello', version: '1.0.0', hooks: [{ name: 'Greet', required: true, input: textSchema('name'), output: textSchema('text') }], events: [{ name: 'Greeted', schema: textSchema('name', 'text') }] },
+  { service: 'hello', version: '1.0.0', hooks: [{ name: 'Greet', required: true, input: textSchema('name'), output: textSchema('text') },
+    { name: 'Batch', input: create(SchemaSchema, { fields: [{ name: 'people', required: true, kind: { case: 'list', value: { items: [{ kind: { case: 'object', value: { schema: textSchema('name') } } }] } } }] }) }], events: [{ name: 'Greeted', schema: textSchema('name', 'text') }] },
 ] });
 
-/** A fixture analysis: every read of a variable in the definition's expressions (by pattern, not CEL). */
-function analyze(json: { steps?: Record<string, { input?: JsonValue; when?: string; after?: string[]; activity?: string }>; result?: JsonValue }) {
-  const steps = json.steps ?? {}, references: { path: string; variable: string; fields: string[]; expr: { start: number; end: number } }[] = [];
-  const walk = (value: JsonValue | undefined, path: string) => {
+type FixtureStep = { input?: JsonValue; when?: string; after?: string[]; activity?: string; forEach?: string; as?: string; steps?: Record<string, FixtureStep>; result?: JsonValue };
+/** A fixture analysis: every read of a variable in the definition's expressions (by pattern, not CEL), bodies included. */
+function analyze(json: { steps?: Record<string, FixtureStep>; result?: JsonValue }) {
+  const references: { path: string; variable: string; fields: string[]; expr: { start: number; end: number } }[] = [];
+  const steps: { name: string; parent: string; level: number; data: string[]; after: string[]; when: string[]; itemType: string }[] = [];
+  const walk = (value: JsonValue | undefined, path: string, names: Set<string>) => {
     if (typeof value === 'string') for (const match of value.matchAll(/[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*/g)) {
       const [variable, ...fields] = match[0].split('.');
-      if (variable === 'req' || variable === 'event' || variable === 'meta' || variable === 'steps' || variable! in steps) references.push({ path, variable: variable!, fields, expr: { start: match.index, end: match.index + match[0].length } });
-    } else if (value && typeof value === 'object' && !Array.isArray(value)) for (const [key, item] of Object.entries(value)) walk(item, `${path}/${key}`);
+      if (variable === 'req' || variable === 'event' || variable === 'meta' || variable === 'steps' || names.has(variable!)) references.push({ path, variable: variable!, fields, expr: { start: match.index, end: match.index + match[0].length } });
+    } else if (value && typeof value === 'object' && !Array.isArray(value)) for (const [key, item] of Object.entries(value)) walk(item, `${path}/${key}`, names);
   };
-  for (const [name, step] of Object.entries(steps)) { walk(step.input, `/steps/${name}/input`); if (step.when) walk(step.when, `/steps/${name}/when`); }
-  walk(json.result, '/result');
-  const violations = Object.values(steps).some((step) => !step.activity) ? [{ path: '/steps', code: 'UNKNOWN_ACTIVITY', message: 'Every step needs an activity' }] : [];
-  return { violations, references, steps: Object.keys(steps).sort().map((name) => ({ name, level: 0, data: [], after: steps[name]!.after ?? [], when: [] })) };
+  let missing = false;
+  const frame = (map: Record<string, FixtureStep>, prefix: string, parent: string, outer: Set<string>) => {
+    const names = new Set([...outer, ...Object.keys(map)]);
+    for (const [name, step] of Object.entries(map).sort(([a], [b]) => a.localeCompare(b))) {
+      const path = `${prefix}/steps/${name}`, body = Object.keys(step.steps ?? {}).length > 0;
+      const inner = step.forEach ? new Set([...names, step.as || 'item']) : names;
+      if (!step.activity && !body) missing = true;
+      // Levels by reads of siblings: enough for the fixture's layout.
+      const data = Object.keys(map).filter((other) => other !== name && JSON.stringify(step.input ?? '').includes(`${other}.`));
+      steps.push({ name, parent, level: data.length ? 1 : 0, data, after: step.after ?? [], when: [], itemType: step.forEach ? 'object' : '' });
+      if (step.forEach) walk(step.forEach, `${path}/forEach`, names);
+      walk(step.input, `${path}/input`, inner); if (step.when) walk(step.when, `${path}/when`, inner);
+      if (body) { frame(step.steps!, path, parent ? `${parent}/${name}` : name, inner); walk(step.result, `${path}/result`, new Set([...inner, ...Object.keys(step.steps!)])); }
+    }
+  };
+  frame(json.steps ?? {}, '', '', new Set());
+  walk(json.result, '/result', new Set(Object.keys(json.steps ?? {})));
+  const violations = missing ? [{ path: '/steps', code: 'UNKNOWN_ACTIVITY', message: 'Every step needs an activity' }] : [];
+  return { violations, references, steps };
 }
 function untilAbort(signal?: AbortSignal): Promise<void> { return new Promise((resolve) => { if (!signal || signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); }); }
 
@@ -81,7 +102,7 @@ export class PlatformFixture implements ClientRuntime {
       async runActivity(request: api.RunActivityRequest) { beforeWrite(); fixture.lastInput = request.input; return create(api.RunActivityResponseSchema, { result: { output: request.input } }); },
       async publishTestEvent(request: api.PublishTestEventRequest) { beforeWrite(); fixture.lastInput = request.payload; return create(api.PublishTestEventResponseSchema, { id: 'event-1', seq: 9007199254740993n }); },
       async startWorkflow(request: api.StartWorkflowRequest) { beforeWrite(); fixture.lastInput = request.input; if (request.workflowId === 'welcome-1') throw new WsStatusError(6, 'Already running'); return create(api.StartWorkflowResponseSchema, { workflowId: request.workflowId || 'workflow-1', runId: 'run-1' }); },
-      async getBinding(request: api.GetBindingRequest) { return create(api.GetBindingResponseSchema, { version: { hook: request.hook, version: 1n, author: 'fixture', definition: { ...bindingDefinition(), hook: request.hook } } }); },
+      async getBinding(request: api.GetBindingRequest) { return create(api.GetBindingResponseSchema, { version: { hook: request.hook, version: 1n, author: 'fixture', definition: request.hook === 'hello.Batch' ? batchDefinition() : { ...bindingDefinition(), hook: request.hook } } }); },
       async validateBinding(request: api.ValidateBindingRequest) { return create(api.ValidateBindingResponseSchema, { violations: Object.keys(request.definition?.steps ?? {}).length ? [] : [{ path: '/steps', message: 'At least one step is required' }] }); },
       async getWiringCatalog() { return wiringCatalog(); },
       async analyzeBinding(request: api.AnalyzeBindingRequest) { return create(api.AnalyzeBindingResponseSchema, { analysis: analyze(toJson(api.BindingDefinitionSchema, request.definition ?? create(api.BindingDefinitionSchema)) as Parameters<typeof analyze>[0]) }); },
@@ -95,14 +116,14 @@ export class PlatformFixture implements ClientRuntime {
       },
       async saveBinding(request: api.SaveBindingRequest) { beforeWrite(); return create(api.SaveBindingResponseSchema, { version: { version: 2n, hook: request.definition?.hook, definition: request.definition } }); },
       async getRule(request: api.GetRuleRequest) { return create(api.GetRuleResponseSchema, request.id ? { rule: { id: request.id, state: api.RuleState.ACTIVE, current: { ruleId: request.id, version: 1n, name: 'Greeted rule', author: 'fixture', definition: ruleDefinition() } }, version: { ruleId: request.id, version: 1n, name: 'Greeted rule', author: 'fixture', definition: ruleDefinition() } } : {}); },
-      watchBindings(_request: unknown, options: api.CallOptions) { return snapshot(create(api.WatchBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }] }), options.signal); },
+      watchBindings(_request: unknown, options: api.CallOptions) { return snapshot(create(api.WatchBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }, { hook: 'hello.Batch', service: 'hello', declared: true, state: api.BindingState.BOUND, current: { hook: 'hello.Batch', version: 1n, definition: batchDefinition() } }] }), options.signal); },
       watchRules(_request: unknown, options: api.CallOptions) { return snapshot(create(api.WatchRulesResponseSchema, { rules: [{ id: 'rule-1', state: api.RuleState.ACTIVE, current: { ruleId: 'rule-1', version: 1n, name: 'Greeted rule', definition: ruleDefinition() } }] }), options.signal); },
       async getStream() { return create(api.GetStreamResponseSchema, { service: 'hello', events: { name: 'BP_EVENTS_hello', exists: true, messages: 9007199254740993n, bytes: 2048n, consumers: 2, replicas: 1 }, deadLetters: { name: 'BP_DLQ_hello', exists: true, messages: 1n, bytes: 128n, consumers: 0, replicas: 1 }, deadLetterCounts: [{ consumer: 'audit', count: 1n }] }); },
       async cancelBindingRun() { beforeWrite(); return create(api.CancelBindingRunResponseSchema); },
       async cancelRuleRun() { beforeWrite(); return create(api.CancelRuleRunResponseSchema); },
       async getRuleRun() { return create(api.GetRuleRunResponseSchema, { run: { run: { workflowId: 'rule/rule-1/1', runId: 'run-3', status: api.RunStatus.COMPLETED } }, version: 1n, steps: [{ step: 'record', activity: 'formatter.Record', status: api.StepRunStatus.COMPLETED, attempt: 1 }] }); },
       async revokeSession() { beforeWrite(); return create(api.RevokeSessionResponseSchema); },
-      async listBindings() { return create(api.ListBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }] }); },
+      async listBindings() { return create(api.ListBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }, { hook: 'hello.Batch', service: 'hello', declared: true, state: api.BindingState.BOUND, current: { hook: 'hello.Batch', version: 1n, definition: batchDefinition() } }] }); },
       async listRules() { return create(api.ListRulesResponseSchema, { rules: [{ id: 'rule-1', state: api.RuleState.ACTIVE, current: { ruleId: 'rule-1', version: 1n, name: 'Greeted rule', definition: ruleDefinition() } }] }); },
       async listBindingVersions() { return create(api.ListBindingVersionsResponseSchema, { versions: [{ hook: 'hello.Greet', version: 1n, author: 'fixture', comment: 'Initial', definition: bindingDefinition() }] }); },
       async listRuleVersions() { return create(api.ListRuleVersionsResponseSchema, { versions: [{ ruleId: 'rule-1', version: 1n, name: 'Greeted rule', author: 'fixture', definition: ruleDefinition() }] }); },

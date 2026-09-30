@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -566,5 +567,101 @@ func TestBadProgram(t *testing.T) {
 
 	if app := appError(t, e.GetWorkflowError()); app.Type() != wire.TransformFailedType {
 		t.Errorf("error: %v", app)
+	}
+}
+
+// Items run one call each, labeled by position; with onError continue a
+// failed item is null in the list and counted, and the run goes on.
+func TestForEachActivities(t *testing.T) {
+	t.Parallel()
+
+	rec := &calls{}
+	e := env(t, rec, map[string]handler{
+		"Send": func(in map[string]any) (any, error) {
+			if in["to"] == "bad" {
+				return nil, errors.New("refused")
+			}
+
+			return map[string]any{"id": in["to"]}, nil
+		},
+	})
+
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  send:
+    forEach: req.to
+    as: who
+    when: who != "skip"
+    concurrency: 2
+    onError: continue
+    activity: smtp.Send
+    input: {to: who}
+    retry: {attempts: 1}
+result: {ids: send, failed: steps.send.failed, first: "steps.send.errors[0].index"}
+`)
+
+	out, err := run(t, e, p, `{"to":["a","bad","skip","b"]}`)
+	if err != nil || out != `{"failed":1,"first":1,"ids":[{"id":"a"},null,null,{"id":"b"}]}` {
+		t.Fatalf("result: %s %v", out, err)
+	}
+
+	got := rec.steps()
+	slices.Sort(got)
+
+	if want := []string{"send[0]:smtp.Send", "send[1]:smtp.Send", "send[3]:smtp.Send"}; !slices.Equal(got, want) {
+		t.Fatalf("calls %v, want %v", got, want)
+	}
+}
+
+// A body is a sub-flow per item. A failed item undoes its own work at once;
+// the run's failure then undoes the items that succeeded.
+func TestForEachBodyCompensates(t *testing.T) {
+	t.Parallel()
+
+	rec := &calls{}
+	e := env(t, rec, map[string]handler{
+		"Charge": func(in map[string]any) (any, error) { return map[string]any{"id": "c-" + in["v"].(string)}, nil },
+		"Refund": func(map[string]any) (any, error) { return map[string]any{}, nil },
+		"Send": func(in map[string]any) (any, error) {
+			if in["text"] == "c-y" {
+				return nil, errors.New("refused")
+			}
+
+			return map[string]any{"id": in["text"]}, nil
+		},
+	})
+
+	p := program(t, `
+hook: iam.SendEmail
+steps:
+  pay:
+    forEach: req.users
+    concurrency: 1
+    steps:
+      charge: {activity: billing.Charge, input: {v: item}, undo: billing.Refund}
+      send: {activity: smtp.Send, input: {text: charge.id}, retry: {attempts: 1}}
+    result: {id: send.id}
+`)
+
+	_, err := run(t, e, p, `{"users":["x","y"]}`)
+
+	app := appError(t, err)
+	if !strings.HasPrefix(app.Message(), "step pay[1].send: smtp.Send: ") {
+		t.Fatalf("error: %q", app.Message())
+	}
+
+	var refunds []string
+
+	for _, call := range rec.list {
+		if call.GetActivity() == "billing.Refund" {
+			refunds = append(refunds, call.GetStep()+":"+string(call.GetPayload()))
+		}
+	}
+
+	// y's own charge first (its body failed), then x's (the run failed).
+	want := []string{`pay[1].charge:{"id":"c-y"}`, `pay[0].charge:{"id":"c-x"}`}
+	if !slices.Equal(refunds, want) {
+		t.Fatalf("refunds %v, want %v", refunds, want)
 	}
 }

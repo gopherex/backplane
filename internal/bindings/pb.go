@@ -73,6 +73,9 @@ func stepsFromPB(in map[string]*consolev1.Step) []Step {
 			},
 			StartToClose: durationOf(s.GetStartToClose()), Heartbeat: durationOf(s.GetHeartbeat()),
 			Description: s.GetDescription(),
+			ForEach:     s.GetForEach(), As: s.GetAs(), Concurrency: int(min(s.GetConcurrency(), math.MaxInt32)),
+			OnError: s.GetOnError(), MaxItems: int(min(s.GetMaxItems(), math.MaxInt32)),
+			Steps: stepsFromPB(s.GetSteps()), Result: ValueOf(s.GetResult()),
 		})
 	}
 
@@ -92,6 +95,9 @@ func stepsPB(in []Step) map[string]*consolev1.Step {
 			Activity: s.Activity, Input: s.Input.PB(), When: s.When,
 			After: append([]string(nil), s.After...), Undo: s.Undo, UndoInput: s.UndoInput.PB(),
 			StartToClose: durationPB(s.StartToClose), Heartbeat: durationPB(s.Heartbeat), Description: s.Description,
+			ForEach: s.ForEach, As: s.As, OnError: s.OnError, Steps: stepsPB(s.Steps), Result: s.Result.PB(),
+			Concurrency: uint32(min(max(s.Concurrency, 0), math.MaxInt32)), //nolint:gosec // bounded
+			MaxItems:    uint32(min(max(s.MaxItems, 0), math.MaxInt32)),    //nolint:gosec // bounded
 		}
 
 		if !s.Retry.IsZero() {

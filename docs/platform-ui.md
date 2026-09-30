@@ -33,9 +33,11 @@ keeps its comments.
   `AnalyzeRule` 250 ms after typing stops, underlined at their place (a JSON
   Pointer mapped to the YAML node, an expression range inside the scalar).
   Completion: keys by position, hook/event/activity names from the catalog,
-  step names, CEL variables and schema fields after `x.`. The panel beside it
-  shows the path, CEL type, expected type, description and reads at the
-  cursor.
+  step names, CEL variables and schema fields after `x.` — inside a for-each
+  step also its item (typed from the list's schema when the list is a plain
+  field path), `<item>Index` and the steps of its body. The panel beside it
+  shows the path, CEL type, expected type, description, reads, and for a
+  for-each step the item type at the cursor.
 - Graph: the trigger (hook input or event and meta), one node per step with
   typed input ports (the expression of each field) and output ports, the
   result. Edges come from the analysis: data reads, `when` reads (dashed
@@ -48,6 +50,18 @@ keeps its comments.
   edits the selected step: rename (server-side, by syntax trees), activity,
   when, input fields with inline CEL and completion, after, undo, retry and
   timeouts; its fields commit on blur, one undo step each.
+- For-each steps: one whose body is an activity is a step node with an
+  "each <item> in <list>" band (concurrency, `continue`, limit) and a list
+  output; one whose body is steps is a dashed frame holding them, its item
+  a port inside, the body's result a port on its right. A step dropped into
+  a frame joins that body; body steps connect only to what they see (their
+  body, enclosing bodies, the item). Node ids and `editor` positions of body
+  steps are `<for-each step>/<name>` (positions relative to the frame). The
+  inspector turns a step into a loop ("Run for each item…") and edits the
+  list, item name, concurrency, error policy, limit and a body's result;
+  a body step links back to its loop. Run overlays count items (`ok/total`,
+  failed) on loops and body steps; the run timeline lists calls as
+  `<parent>/<step>[<item>]`.
 - Save sends `base_version`; a concurrent save shows a banner with a diff
   against the latest and "continue from" it. Drafts survive switching items;
   leaving the page with drafts asks first. A version opens as a YAML diff

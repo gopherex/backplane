@@ -32,7 +32,18 @@ const rootOrder: Record<WiringKind, string[]> = {
   binding: ['hook', 'description', 'steps', 'result', 'editor'],
   rule: ['event', 'description', 'when', 'steps', 'editor'],
 };
-const stepOrder = ['description', 'activity', 'when', 'after', 'input', 'undo', 'undoInput', 'retry', 'startToClose', 'heartbeat'];
+const stepOrder = ['description', 'forEach', 'as', 'concurrency', 'onError', 'maxItems', 'activity', 'when', 'after', 'input', 'steps', 'result', 'undo', 'undoInput', 'retry', 'startToClose', 'heartbeat'];
+
+/** Steps by name, each with its keys in reading order and its body's steps likewise. */
+function orderSteps(steps: JsonValue | undefined): JsonValue | undefined {
+  if (!steps || typeof steps !== 'object' || Array.isArray(steps)) return steps;
+  const map = steps as Record<string, Record<string, JsonValue>>;
+  return Object.fromEntries(Object.keys(map).sort().map((name) => {
+    const step = ordered(map[name]!, stepOrder);
+    if (step.steps) step.steps = orderSteps(step.steps)!;
+    return [name, step];
+  }));
+}
 
 function ordered(json: Record<string, JsonValue>, order: readonly string[]): Record<string, JsonValue> {
   const out: Record<string, JsonValue> = {};
@@ -44,8 +55,7 @@ function ordered(json: Record<string, JsonValue>, order: readonly string[]): Rec
 /** The YAML text of a definition: keys in reading order, steps by name, the editor's layout compact. */
 export function toYAML(kind: WiringKind, definition: Definition): string {
   const json = toJson(definitionSchema(kind), definition) as Record<string, JsonValue>;
-  const steps = json.steps as Record<string, Record<string, JsonValue>> | undefined;
-  if (steps) json.steps = Object.fromEntries(Object.keys(steps).sort().map((name) => [name, ordered(steps[name]!, stepOrder)]));
+  if (json.steps) json.steps = orderSteps(json.steps)!;
   const doc = new Document(ordered(json, rootOrder[kind]));
   compact(doc);
   return doc.toString({ lineWidth: 0 });
@@ -54,8 +64,11 @@ export function toYAML(kind: WiringKind, definition: Definition): string {
 /** Layout points, `after` lists and retry policies read best on one line. */
 function compact(doc: Document) {
   const flow = (node: unknown) => { if (isMap(node) || isSeq(node)) node.flow = true; };
-  const steps = doc.get('steps');
-  if (isMap(steps)) for (const pair of steps.items) if (isMap(pair.value)) { flow(pair.value.get('after')); flow(pair.value.get('retry')); }
+  const stepsOf = (steps: unknown) => {
+    if (!isMap(steps)) return;
+    for (const pair of steps.items) if (isMap(pair.value)) { flow(pair.value.get('after')); flow(pair.value.get('retry')); stepsOf(pair.value.get('steps')); }
+  };
+  stepsOf(doc.get('steps'));
   const editor = doc.get('editor');
   if (isMap(editor)) {
     const nodes = editor.get('nodes'); if (isMap(nodes)) for (const pair of nodes.items) flow(pair.value);
@@ -104,13 +117,18 @@ export function parseDraft(kind: WiringKind, text: string): Draft {
 /** Durations to protojson; everything else as it reads. */
 function normalize(value: unknown): unknown {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const out = value as Record<string, unknown>, steps = out.steps;
-  if (steps && typeof steps === 'object') for (const step of Object.values(steps as Record<string, Record<string, unknown> | null>)) {
-    if (!step || typeof step !== 'object') continue;
-    for (const key of ['startToClose', 'start_to_close', 'heartbeat']) if (typeof step[key] === 'string') step[key] = protoDuration(step[key]);
-    const retry = step.retry as Record<string, unknown> | undefined;
-    if (retry && typeof retry === 'object') for (const key of ['initialInterval', 'initial_interval', 'maxInterval', 'max_interval']) if (typeof retry[key] === 'string') retry[key] = protoDuration(retry[key]);
-  }
+  const out = value as Record<string, unknown>;
+  const steps = (map: unknown) => {
+    if (!map || typeof map !== 'object') return;
+    for (const step of Object.values(map as Record<string, Record<string, unknown> | null>)) {
+      if (!step || typeof step !== 'object') continue;
+      for (const key of ['startToClose', 'start_to_close', 'heartbeat']) if (typeof step[key] === 'string') step[key] = protoDuration(step[key]);
+      const retry = step.retry as Record<string, unknown> | undefined;
+      if (retry && typeof retry === 'object') for (const key of ['initialInterval', 'initial_interval', 'maxInterval', 'max_interval']) if (typeof retry[key] === 'string') retry[key] = protoDuration(retry[key]);
+      steps(step.steps);
+    }
+  };
+  steps(out.steps);
   return out;
 }
 
@@ -298,17 +316,36 @@ export function stepNameFor(activity: string, taken: readonly string[]): string 
   return name;
 }
 
-/** Changes that add a step of an activity at a canvas position. */
-export function addStep(definition: Definition | undefined, activity: string, at: { x: number; y: number }): { name: string; changes: Change[] } {
-  const name = stepNameFor(activity, Object.keys(definition?.steps ?? {}));
-  return { name, changes: [{ path: ['steps', name], value: { activity } }, { path: ['editor', 'nodes', name], value: { x: Math.round(at.x), y: Math.round(at.y) } }] };
+/**
+ * A step's id in the graph and the editor's layout: its name, or
+ * "<for-each step>/<name>" for a step of a body (nested bodies nest).
+ */
+export const stepPathOf = (id: string): string[] => id.split('/').flatMap((name) => ['steps', name]);
+
+/** The step with an id, and the steps it sits among. */
+export function stepAt(definition: Definition | undefined, id: string): { step?: api.Step; siblings: Record<string, api.Step> } {
+  let siblings: Record<string, api.Step> = definition?.steps ?? {}, step: api.Step | undefined;
+  const names = id.split('/');
+  names.forEach((name, position) => {
+    step = siblings[name];
+    if (position < names.length - 1) siblings = step?.steps ?? {};
+  });
+  return { step, siblings };
 }
 
-/** Changes that remove a step: the step, its position, and its name from every `after`. */
-export function removeStep(definition: Definition | undefined, name: string): Change[] {
-  const changes: Change[] = [{ path: ['steps', name], value: undefined }, { path: ['editor', 'nodes', name], value: undefined }];
-  for (const [other, step] of Object.entries(definition?.steps ?? {})) {
-    if (other !== name && step.after.includes(name)) changes.push({ path: ['steps', other, 'after'], value: step.after.filter((entry) => entry !== name) });
+/** Changes that add a step of an activity at a canvas position, in a for-each step's body when parent is set. */
+export function addStep(definition: Definition | undefined, activity: string, at: { x: number; y: number }, parent?: string): { name: string; id: string; changes: Change[] } {
+  const siblings = parent ? stepAt(definition, parent).step?.steps ?? {} : definition?.steps ?? {};
+  const name = stepNameFor(activity, Object.keys(siblings)), id = parent ? `${parent}/${name}` : name;
+  return { name, id, changes: [{ path: stepPathOf(id), value: { activity } }, { path: ['editor', 'nodes', id], value: { x: Math.round(at.x), y: Math.round(at.y) } }] };
+}
+
+/** Changes that remove a step: the step, its position, and its name from its siblings' `after`. */
+export function removeStep(definition: Definition | undefined, id: string): Change[] {
+  const { siblings } = stepAt(definition, id), name = id.split('/').at(-1)!, base = stepPathOf(id).slice(0, -2);
+  const changes: Change[] = [{ path: stepPathOf(id), value: undefined }, { path: ['editor', 'nodes', id], value: undefined }];
+  for (const [other, step] of Object.entries(siblings)) {
+    if (other !== name && step.after.includes(name)) changes.push({ path: [...base, 'steps', other, 'after'], value: step.after.filter((entry) => entry !== name) });
   }
   return changes;
 }

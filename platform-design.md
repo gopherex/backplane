@@ -1201,9 +1201,9 @@ result: {message_id: send.id}
 
 IAM знает только свою `SendEmail`; template и smtp — только свои `Exec` и
 `Send`; биндинг знает всех троих. В другой установке `iam.SendEmail`
-реализуется через `courier.Send` одним шагом — IAM не меняется. Нужно
-больше, чем шаги с `when`, — ни циклов, ни ветвлений, ни состояния, — это
-сервис.
+реализуется через `courier.Send` одним шагом — IAM не меняется. Шаг
+бывает условным (`when`) и повторяемым по списку (`forEach`); нужно
+больше — ветвления, состояние между запусками, — это сервис.
 
 Нет биндинга: `required` хук → читаемая ошибка `no binding for
 iam.SendEmail` и красный слот в карточке, как только манифест появился;
@@ -1225,15 +1225,61 @@ protojson определения (ключи camelCase); YAML — её запи�
   `after` — явные зависимости. `undo` — активити-компенсация, `undoInput` —
   её вход (нет — выход шага). `retry {attempts, initialInterval,
   maxInterval, backoff}`, `startToClose`, `heartbeat` (консоль принимает и
-  длительности Go: `500ms`, `1m30s`), `description`.
+  длительности Go: `500ms`, `1m30s`), `description`; опции цикла — ниже.
 - Значение (`input`, `undoInput`, `result`) — дерево JSON
   (`google.protobuf.Value`): строка — выражение CEL, объект — объект по
   полям (рекурсивно), список — список по элементам, число, bool, null —
   литералы. Строковый литерал пишется как CEL: `"'hello'"`.
 
+**Цикл (`forEach`).** Шаг с `forEach` выполняется по разу на элемент:
+
+```yaml
+steps:
+  notify:                         # тело — одна активити
+    forEach: req.recipients       # CEL: список, или map — элементы {key, value} по ключам
+    as: who                       # имя элемента (нет — item); позиция — whoIndex
+    when: who.email != ""         # по элементу: false — элемент пропущен
+    concurrency: 5                # элементов одновременно (нет — 10, максимум 100)
+    onError: continue             # fail (нет) | continue
+    maxItems: 500                 # больше — шаг падает (нет — 1000, максимум 10000)
+    activity: smtp.Send
+    input: {to: who.email, subject: render.subject}
+  offboard:                       # тело — под-поток шагов на элемент
+    forEach: req.accounts
+    steps:
+      charge: {activity: billing.Charge, input: {account: item.id}, undo: billing.Refund}
+      close:  {activity: crm.Close, input: {id: item.id, receipt: charge.id}}
+    result: {id: item.id, receipt: charge.id}   # элемент выхода; нет — null
+```
+
+- Тело — либо активити (`activity`, `input`, `undo`, `retry`, … как у
+  обычного шага; всё, кроме списка, видит элемент), либо `steps` —
+  под-поток со своим `result` (без `activity`, `input`, `undo`). Шаги тела
+  видят элемент, друг друга и шаги всех объемлющих уровней; имена
+  уникальны внутри тела и не перекрывают имена объемлющих шагов и
+  элементов. Тела вкладываются.
+- Выход шага для остальных — **список в порядке элементов**: выходы
+  активити (тип — `list(<выход активити>)`) или `result` тела
+  (`list(dyn)`); пропущенный `when` или упавший при `continue` элемент —
+  `null`. `steps.<шаг>` цикла — `{skipped, failed, errors: [{index,
+  message}]}`.
+- `onError: fail` — первый упавший элемент валит шаг: элементы в полёте
+  доделываются, новые не стартуют, запуск компенсируется. `continue` —
+  упавший элемент в `failed`/`errors`, шаг завершается.
+- Зависимости цикла — чтения его списка, `when`, входа и всех выражений
+  тела шагов своего уровня; тело внутри упорядочено так же, как верхний
+  уровень. Упавший элемент-под-поток сразу компенсирует сделанное им
+  (элемент — всё или ничего); удавшийся отдаёт свои `undo` запуску — при
+  последующей ошибке они откатываются вместе с остальными.
+- Вызов в Temporal помечен меткой элемента: `notify[3]`,
+  `offboard[0].charge` (сегменты через `.` от внешнего цикла внутрь) —
+  id дочернего workflow и таймлайн (`StepRun.item`, `StepRun.parent` —
+  id тела `<внешний>/<внутренний>`) по ней.
+
 **Выражения.** CEL над JSON. Переменные: `req` — вход хука; `<шаг>` —
-выход выполненного шага (у пропущенного — `{}`); `steps.<шаг>.skipped` —
-пропущен ли шаг своим `when`. Язык — стандартный CEL, расширения strings,
+выход выполненного шага (у пропущенного — `{}`, у цикла — список);
+`steps.<шаг>.skipped` — пропущен ли шаг своим `when`; в цикле — элемент
+(`item` или `as`) и его позиция `<элемент>Index`. Язык — стандартный CEL, расширения strings,
 encoders, math, lists, optional-значения (`req.?x.orValue("")`), числа
 сравниваются через int/uint/double. Вычисление **детерминировано**: ни
 часов, ни случайности, ни I/O; макросы `all`, `exists`, `exists_one`,
@@ -1269,7 +1315,8 @@ JSON с отсортированными ключами. Поэтому оно �
 инстанса): хук и активити (`undo` тоже) объявлены; имена шагов; `after`
 и ссылки — на существующие шаги, без циклов; `undoInput` — только на шаг и
 его предков; опции (попытки ≥ 0, интервалы ≥ 0, `initial ≤ max`,
-множитель ≥ 1); каждое выражение компилируется и **проверяется по типам
+множитель ≥ 1; опции цикла — только при `forEach`, тело — активити или
+`steps`, не оба; `forEach` — список или map); каждое выражение компилируется и **проверяется по типам
 схем**: schemapb-схема → тип CEL (объект — struct-тип с полями схемы,
 list, map, скаляры; остальное — `dyn`), так что `req.nope` и
 `render.nope` — ошибка сохранения. Узлы значения сверяются со схемой
@@ -1283,7 +1330,8 @@ timestamp/duration — к строке, `dyn` — ко всему; `when` — bo
 
 Нарушение — `{path, code, message, expr}`: `path` — JSON Pointer места по
 ключам (`/hook`, `/steps/send/input/to`, `/steps/x/after/0`,
-`/steps/x/retry/backoff`, `/result/message_id`); `expr` — диапазон внутри
+`/steps/x/retry/backoff`, `/result/message_id`; шаг тела —
+`/steps/offboard/steps/charge/input/account`); `expr` — диапазон внутри
 выражения (кодовые точки, конец не включён), нет — если проблема в самом
 месте; `code` — `INVALID_NAME`, `RESERVED_NAME`, `UNKNOWN_HOOK`,
 `UNKNOWN_EVENT`, `UNKNOWN_ACTIVITY`, `UNKNOWN_STEP`, `CYCLE`,
@@ -1321,9 +1369,11 @@ Save/Rollback/Delete — версия, с которой началась пра
 активити и события всех сервисов со схемами — палитра и типы портов),
 `AnalyzeBinding`/`AnalyzeRule` (нарушения; уровни и зависимости шагов по
 видам — данные, `after`, `when`, `undo`; тип CEL каждого узла значения;
-каждое чтение переменной с местом — рёбра графа), `RenameStep` (по
-синтаксическим деревьям выражений: строка или поле с тем же именем не
-меняются).
+каждое чтение переменной с местом — рёбра графа; у шага тела — `parent`,
+id его цикла, у цикла — `item_type`, тип элемента), `RenameStep` (шаг по
+id — `<цикл>/<имя>` для шага тела; по синтаксическим деревьям выражений
+там, где шаг виден: строка или поле с тем же именем не меняются; позиции
+графа тела переезжают вместе с циклом).
 
 **Для исполнителя** (`internal/bindings`): `Manager.Active(ctx, hook)` —
 действующее определение и версия (`ErrNoBinding`); `Manager.Changes(ctx)`
@@ -1336,7 +1386,11 @@ kind, разрешённые опции), выражения скомпилир�
 восстанавливается `json.Unmarshal` в тот же. Вычисление — чистые функции
 над `Scope` (значение; `Bind`/`Skip` возвращают новый): `Start(input)`,
 `When(step, s)`, `Input(step, s)`, `Bind(s, step, output)`,
-`Skip(s, step)`, `UndoInput(step, s)`, `Result(s)`, `Eval(expr, vars)`.
+`Skip(s, step)`, `UndoInput(step, s)`, `Result(s)`, `Eval(expr, vars)`;
+цикл — `Items(step, s)` (элементы), `ItemScope(step, s, i, item)`
+(область элемента), `Body(step)` (под-программа тела), `Begin(item)`,
+`ItemOutput(s)`, `BindItems(s, step, outputs, failed)`;
+`ParseCallLabel(label)` читает метку вызова.
 `BindingYAML`/`RuleYAML` читают YAML определения (демо, тесты).
 
 ### 7.2 Исполнение — Temporal Nexus
@@ -1872,6 +1926,25 @@ steps:
   send:
     activity: smtp.Send
     input: {to: event.email, subject: render.subject, text: render.text}
+```
+
+Реакция на событие по многим получателям — цикл (§7.1): удалили
+пользователя — каждый его ресурс освобождается своей активити, упавшие
+не мешают остальным:
+
+```yaml
+event: iam.UserDeleted
+steps:
+  release:
+    forEach: event.resources        # [{service, id}]
+    as: resource
+    onError: continue
+    activity: storage.Release
+    input: {owner: event.id, id: resource.id}
+  report:
+    when: steps.release.failed > 0
+    activity: ops.Notify
+    input: {text: "'release failed: ' + steps.release.errors.map(e, e.message).join(', ')"}
 ```
 
 Отличия от биндинга хука: вход называется `event` (payload события), к

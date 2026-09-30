@@ -16,10 +16,15 @@ import (
 // SDK reflects these types into the manifests' schemas.
 type (
 	email struct {
-		To       string            `json:"to"`
-		Template string            `json:"template"`
-		Data     map[string]string `json:"data,omitempty"`
-		Priority int64             `json:"priority,omitempty"`
+		To         string            `json:"to"`
+		Template   string            `json:"template"`
+		Data       map[string]string `json:"data,omitempty"`
+		Priority   int64             `json:"priority,omitempty"`
+		Recipients []recipient       `json:"recipients,omitempty"`
+	}
+	recipient struct {
+		Email string `json:"email"`
+		Name  string `json:"name,omitempty"`
 	}
 	sent struct {
 		MessageID string `json:"message_id"`
