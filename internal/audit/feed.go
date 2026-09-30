@@ -601,11 +601,9 @@ func (s *Service) AuditFields(
 	response := &consolev1.AuditFieldsResponse{}
 
 	for _, row := range rows {
-		if row.Attribute != nil {
-			response.Fields = append(response.Fields, &consolev1.AuditFieldCount{
-				Attribute: *row.Attribute, Count: uint64(max(row.Count, 0)),
-			})
-		}
+		response.Fields = append(response.Fields, &consolev1.AuditFieldCount{
+			Attribute: row.Attribute, Count: uint64(max(row.Count, 0)),
+		})
 	}
 
 	return response, nil

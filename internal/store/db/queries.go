@@ -1894,7 +1894,7 @@ type AuditFieldsParams struct {
 }
 
 type AuditFieldsRow struct {
-	Attribute *string
+	Attribute string
 	Count     int64
 }
 
@@ -1902,7 +1902,7 @@ func (q *Queries) AuditFields(ctx context.Context, arg AuditFieldsParams) ([]Aud
 	var b strings.Builder
 	var args []any
 	positions := make(map[uint32]int)
-	b.WriteString("SELECT k.key::text AS attribute, count(*) AS count\nFROM backplane.audit_feed f, LATERAL jsonb_object_keys(f.attributes) AS k(key)")
+	b.WriteString("SELECT k.key AS attribute, count(*) AS count\nFROM backplane.audit_feed f, LATERAL jsonb_object_keys(f.attributes) AS k(key)")
 	var cond0 string
 	var cond0Parts []string
 	var cond1 string
@@ -2173,7 +2173,7 @@ func (q *Queries) AuditFacet(ctx context.Context, arg AuditFacetParams) ([]Audit
 		args = append(args, arg.TargetKey)
 		positions[2] = len(args)
 	}
-	b.WriteString(fmt.Sprintf("SELECT t.value, count(*) AS count, sum(count(*)) OVER ()::bigint AS total\nFROM backplane.audit_feed f,\n  LATERAL (SELECT COALESCE(to_jsonb(f) -> $%d::text, f.attributes -> $%d::text)::jsonb AS value) AS t", positions[1], positions[2]))
+	b.WriteString(fmt.Sprintf("SELECT t.value, count(*) AS count, sum(count(*)) OVER ()::bigint AS total\nFROM backplane.audit_feed f,\n  LATERAL (SELECT COALESCE(to_jsonb(f) -> $%d::text, f.attributes -> $%d::text) AS value) AS t", positions[1], positions[2]))
 	var cond0 string
 	var cond0Parts []string
 	var cond1 string

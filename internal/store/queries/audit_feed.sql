@@ -114,7 +114,7 @@ GROUP BY bucket
 ORDER BY bucket;
 
 -- name: AuditFields :many
-SELECT k.key::text AS attribute, count(*) AS count
+SELECT k.key AS attribute, count(*) AS count
 FROM backplane.audit_feed f, LATERAL jsonb_object_keys(f.attributes) AS k(key)
 WHERE f.time >= @start_at?::timestamptz AND f.time < @end_at?::timestamptz
   AND f.source = ANY(@sources?::text[])
@@ -152,7 +152,7 @@ LIMIT @limit_fields;
 -- name: AuditFacet :many
 SELECT t.value, count(*) AS count, sum(count(*)) OVER ()::bigint AS total
 FROM backplane.audit_feed f,
-  LATERAL (SELECT COALESCE(to_jsonb(f) -> @target_field?::text, f.attributes -> @target_key?::text)::jsonb AS value) AS t
+  LATERAL (SELECT COALESCE(to_jsonb(f) -> @target_field?::text, f.attributes -> @target_key?::text) AS value) AS t
 WHERE f.time >= @start_at?::timestamptz AND f.time < @end_at?::timestamptz
   AND f.source = ANY(@sources?::text[])
   AND f.service = ANY(@services?::text[])
