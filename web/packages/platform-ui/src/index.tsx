@@ -3,9 +3,13 @@ export { usePlatformQuery, usePlatformAction, ConnectionNotice, QueryState, Muta
 export { AuditFeed, useAuditFeed } from './audit.js';
 export { ServiceCatalog, ServiceInspector } from './services.js';
 export { ConfigurationPanel } from './config.js';
-export { ExplorePanel, ObsResults, TraceLookup } from './explore.js';
+export { ExplorePanel, ObsResults, TraceLookup, type ExploreState, type ExploreSignal, type ExploreRange, type ExploreRun } from './explore.js';
+export { TraceView } from './explore-traces.js';
 export { parseTelemetryJSON, telemetryJSON, tempoToSpans, rowsToLogs, seriesToCharts, traceSearchToList } from './telemetry-model.js';
 export { OperationSelector, ServiceOperations, nativeJSON, type OperationKind } from './operations.js';
-export { DefinitionEditor, BindingEditor, RuleEditor } from './definitions.js';
-export { WorkflowRuns, RunInspector, SchedulesPanel, CommandForm } from './workflows.js';
+export { DefinitionEditor } from './definitions.js';
+export { AutomationPanel, BindingEditor, RuleEditor } from './automation.js';
+export { RunDrawer, RunTable, RunStatusBadge, RunStatusFilter, type RunSource } from './runs.js';
+export { WorkflowRuns, WorkflowsPanel, RunInspector, SchedulesPanel, CommandForm } from './workflows.js';
 export { EventStreams, DeadLettersPanel } from './events.js';
+export { SystemMap, collectWires, type Wire, type WireKind } from './map.js';

@@ -1,7 +1,9 @@
 export default {
   stats: 'Service statistics', refresh: 'Refresh statistics', greetings: 'Greetings', audited: 'Audited greetings', greeting: 'Current greeting',
   workbench: 'Kit workbench', query: 'Trace query', configuration: 'Local input', sequence: 'Sequence', samples: 'Request duration', logs: 'Correlated logs',
-  overview: 'Overview', settings: 'Settings', title: 'Hello module',
+  overview: 'Overview', settings: 'Settings', title: 'Hello module', description: 'Greets names and keeps statistics of every greeting.',
+  statsError: 'Could not load statistics.', settingsDescription: 'Preferences of this module. The template keeps them in page state only.',
+  display: 'Display', displayNameHelp: 'Shown in greetings produced by this page.', workbenchDescription: 'Kit components a module can use without its own styles.',
   standalone: 'Standalone · local fixtures', embedded: 'Embedded in Backplane',
   toSettings: 'Open settings', toOverview: 'Back to overview',
   services: 'Discovered services', loading: 'Loading services', error: 'Could not load services',

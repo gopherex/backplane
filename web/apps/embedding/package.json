@@ -29,11 +29,14 @@
     "@gopherex/backplane-editors": "0.1.0",
     "@gopherex/backplane-charts": "0.1.0",
     "@gopherex/backplane-observability-ui": "0.1.0",
-    "@gopherex/backplane-platform-ui": "0.1.0"
+    "@gopherex/backplane-platform-ui": "0.1.0",
+    "@xyflow/react": "12.10.2"
   },
   "devDependencies": {
     "@gopherex/backplane-plugin-build": "0.1.0",
     "vite": "8.3.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "@tailwindcss/vite": "4.3.1",
+    "tailwindcss": "4.3.1"
   }
 }

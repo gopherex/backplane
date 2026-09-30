@@ -6,6 +6,14 @@ export function nanos(value: string): bigint | null {
 export function duration(start: string, end: string): string {
   const from = nanos(start), to = nanos(end); return from === null || to === null || to < from ? '—' : `${to - from} ns`;
 }
+/** Readable span length keeping sub-microsecond precision: 850 ns, 12.4 µs, 3.21 ms, 1.50 s. */
+export function humanDuration(nanoseconds: bigint): string {
+  if (nanoseconds < 1000n) return `${nanoseconds} ns`;
+  const value = Number(nanoseconds);
+  if (value < 1e6) return `${(value / 1e3).toFixed(value < 1e4 ? 2 : 1)} µs`;
+  if (value < 1e9) return `${(value / 1e6).toFixed(value < 1e7 ? 2 : 1)} ms`;
+  return `${(value / 1e9).toFixed(2)} s`;
+}
 export function nanoDate(value: string, timeZone = 'UTC'): string {
   const ns = nanos(value); if (ns === null) return value;
   const ms = Number(ns / 1000000n); if (!Number.isFinite(ms) || ms > 8640000000000000) return value;

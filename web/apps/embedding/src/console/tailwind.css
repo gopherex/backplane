@@ -1,0 +1,15 @@
+/* Utilities for the console shell, generated from its own sources over the
+   kit's theme preset. Preflight comes from the kit stylesheet. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "@gopherex/backplane-ui/theme.css";
+@source "./";
+/* Utilities of the whole kit are regenerated here too: two stylesheets that both
+   emit a utility must agree on its order, or a later sheet silently wins. */
+@source "../../../../packages/ui/src";
+@source "../../../../packages/platform-ui/src";
+@source "../../../../packages/schema-forms/src";
+@source "../../../../packages/observability-ui/src";
+@source "../../../../packages/editors/src";
+@source "../../../../packages/charts/src";

@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { BackplaneProvider } from '@gopherex/backplane-react';
-import { AuditFeed, BindingEditor, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, RuleEditor, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, WorkflowRuns } from '@gopherex/backplane-platform-ui';
+import { AuditFeed, AutomationPanel, BindingEditor, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, RuleEditor, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, SystemMap, WorkflowRuns, WorkflowsPanel } from '@gopherex/backplane-platform-ui';
+import { ServiceHealth } from '@gopherex/backplane-api';
+import '@xyflow/react/dist/base.css';
 import { Button, Checkbox, Stack } from '@gopherex/backplane-ui';
 import { PlatformFixture } from './platform-fixture';
 
@@ -33,3 +35,7 @@ export const Rules: Story = { render: (_, context) => <RuleEditor event="hello.G
 export const Workflows: Story = { render: (_, context) => <WorkflowRuns service="hello" mode={mode(context)} /> };
 export const Schedules: Story = { render: (_, context) => <SchedulesPanel service="hello" mode={mode(context)} /> };
 export const EventsAndDeadLetters: Story = { render: (_, context) => <><EventStreams service="hello" mode={mode(context)} /><DeadLettersPanel subscriber="hello" consumer="audit" mode={mode(context)} /></> };
+export const Automation: Story = { render: (_, context) => <AutomationPanel service="hello" mode={mode(context)} /> };
+export const WorkflowsWorkspace: Story = { render: (_, context) => <WorkflowsPanel service="hello" mode={mode(context)} /> };
+const mapServices = ['hello', 'formatter'].map((name) => ({ $typeName: 'backplane.console.v1.ServiceSummary' as const, name, latestVersion: '1.0.0', versions: ['1.0.0'], instances: 1, healthy: 1, health: ServiceHealth.HEALTHY, internalApi: false, ui: name === 'hello' }));
+export const SystemMapView: Story = { render: (_, context) => <SystemMap services={mapServices} mode={mode(context)} height={420} /> };

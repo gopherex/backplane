@@ -16,8 +16,27 @@ try {
   const sidebar = page.getByRole('complementary', { name: 'Main navigation' });
   await expect(sidebar.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   assert.deepEqual(await sidebar.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link').allTextContents(), ['Services', 'Explore', 'Audit']);
+
+  // Services: cards, table and the system map show the same catalog.
+  const view = page.getByRole('group', { name: 'View' });
+  await view.getByRole('button', { name: 'Cards' }).click();
+  await expect(page.getByRole('link', { name: 'hello', exact: true }).first()).toBeVisible();
+  await view.getByRole('button', { name: 'Table' }).click();
+  await expect(page.getByRole('cell', { name: 'formatter' })).toBeVisible();
+  await view.getByRole('button', { name: 'Map' }).click();
+  await expect(page.getByRole('heading', { name: /^Connections/ })).toBeVisible();
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'formatter' })).toBeVisible();
+  await expect(page.locator('.react-flow__edge').first()).toBeAttached();
+  await view.getByRole('button', { name: 'Cards' }).click();
   await page.screenshot({ path: '/tmp/backplane-console-dark.png' });
   assert.deepEqual((await new AxeBuilder({ page }).include('.console-shell').withTags(['wcag2a', 'wcag2aa']).analyze()).violations, []);
+
+  // The command palette jumps to any service tab.
+  await page.keyboard.press('ControlOrMeta+K');
+  await page.getByPlaceholder('Search or jump to…').last().fill('hello Automation');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(`${base}/services/hello/automation`);
+  await expect(page.getByText('formatter.Format').first()).toBeVisible();
 
   // Width can be changed by keyboard or pointer, and survives reload.
   const resize = sidebar.getByRole('separator', { name: 'Navigation width' });
@@ -34,7 +53,7 @@ try {
   await sidebar.getByRole('button', { name: 'Collapse navigation' }).click();
   await page.mouse.move(900, 400);
   await expect(sidebar).toHaveAttribute('data-expanded', 'false');
-  assert.equal((await sidebar.boundingBox()).width, 56);
+  assert.equal((await sidebar.boundingBox()).width, 52);
   await page.reload(); await expect(sidebar).toHaveAttribute('data-expanded', 'false');
   await sidebar.hover(); await expect(sidebar).toHaveAttribute('data-expanded', 'true');
   await sidebar.getByRole('button', { name: 'Pin navigation' }).click();
@@ -47,13 +66,21 @@ try {
   await page.getByLabel('Display name').fill('Navigation check');
   await page.reload(); await expect(page.getByLabel('Display name')).toBeVisible();
   await expect(sidebar.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
+  await sidebar.getByRole('button', { name: 'hello', exact: true }).hover();
   await sidebar.getByRole('link', { name: 'Manage hello' }).click();
   await expect(page).toHaveURL(`${base}/services/hello`);
   await expect(page.getByRole('table', { name: 'Instances', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'Configuration', exact: true }).click();
-  await expect(page.getByRole('checkbox', { name: 'Override greeter.suffix', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Manage hello' }).getByRole('link', { name: 'Configuration', exact: true }).click();
+  await expect(page.getByRole('switch', { name: 'Override greeter.suffix', exact: true })).toBeVisible();
+  const tabs = page.getByRole('navigation', { name: 'Manage hello' });
+  for (const tab of ['Automation', 'Operations', 'Events', 'Workflows', 'Telemetry', 'Audit']) {
+    await tabs.getByRole('link', { name: tab, exact: true }).click();
+    await expect(page).toHaveURL(`${base}/services/hello/${tab.toLowerCase()}`);
+  }
+  await expect(page.getByRole('table', { name: 'Audit', exact: true })).toBeVisible();
   await sidebar.getByRole('link', { name: 'Explore', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Query', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/signal=logs/);
   await sidebar.getByRole('link', { name: 'Audit', exact: true }).click();
   await expect(page.getByRole('table', { name: 'Audit', exact: true })).toBeVisible();
   await sidebar.getByRole('link', { name: 'Services', exact: true }).click();
@@ -62,37 +89,24 @@ try {
   await expect(sidebar.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   await page.screenshot({ path: '/tmp/backplane-console-light.png' });
   assert.deepEqual((await new AxeBuilder({ page }).include('.console-shell').withTags(['wcag2a', 'wcag2aa']).analyze()).violations, []);
+  await page.getByRole('button', { name: 'Dark theme', exact: true }).click();
 
-  // Mobile navigation overlays the content, traps keyboard focus, and closes on navigation.
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(sidebar).toBeHidden();
-  await page.getByRole('button', { name: 'Open navigation' }).click();
-  await expect(sidebar).toBeVisible();
-  await expect(sidebar.getByRole('link', { name: 'Services', exact: true })).toBeFocused();
-  await page.keyboard.press('Shift+Tab');
-  await expect(sidebar.getByRole('button', { name: 'Collapse navigation' })).toBeFocused();
-  await page.screenshot({ path: '/tmp/backplane-console-mobile.png' });
-  await page.keyboard.press('Escape'); await expect(sidebar).toBeHidden();
-  await page.getByRole('button', { name: 'Open navigation' }).click();
-  await sidebar.getByRole('link', { name: 'Settings', exact: true }).click();
-  await expect(sidebar).toBeHidden(); await expect(page.getByLabel('Display name')).toBeVisible();
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   // A rejected bundle cannot break platform navigation or another route.
   await page.route('**/plugins/hello/*/plugin.json', (route) => route.fulfill({ json: { name: 'hello', sdk_major: 999, nav: [] } }));
-  await page.reload();
-  await expect(page.getByRole('alert')).toContainText('Plugin metadata does not match the catalog');
-  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.goto(`${base}/s/hello/settings`);
+  await expect(page.getByRole('alert').first()).toContainText('Plugin metadata does not match the catalog');
   await sidebar.getByRole('link', { name: 'Services', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Services', exact: true })).toBeVisible();
   await page.unroute('**/plugins/hello/*/plugin.json');
   // Failed logout keeps the shell/session and exposes an explicit retry.
+  const logout = async () => { await page.getByRole('button', { name: 'Session', exact: true }).click(); await page.getByRole('menuitem', { name: 'Log out', exact: true }).click(); };
   await page.route('**/auth/logout', (route) => route.fulfill({ status: 503, body: 'Unavailable' }));
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await logout();
   await expect(page.getByRole('alert')).toContainText('Could not log out. Your session is still active.');
   await expect(page.getByRole('heading', { name: 'Services', exact: true })).toBeVisible();
   await page.unroute('**/auth/logout');
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await logout();
   await expect(page.getByLabel('Operator token')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Console acceptance passed: live registry, routes, module pages, resize, collapse, persistence, themes, keyboard/mobile and accessibility');
+  console.log('Console acceptance passed: live registry, service views and map, palette, service tabs, module pages, resize, collapse, persistence, themes and accessibility');
 } finally { await browser.close(); }

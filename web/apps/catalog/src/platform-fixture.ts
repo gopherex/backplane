@@ -1,4 +1,4 @@
-import { create } from '@bufbuild/protobuf';
+import { create, fromJsonString, toJsonString } from '@bufbuild/protobuf';
 import * as api from '@gopherex/backplane-api';
 import { WsStatusError, type ClientConstructor, type ClientRuntime, type ClientState } from '@gopherex/backplane-client';
 import { SchemaSchema } from '@gopherex/backplane-api/schemapb/schema_pb';
@@ -9,6 +9,12 @@ const schema = create(SchemaSchema, { id: { name: 'input' }, fields: [
 ] });
 const source = { name: 'hello', latestVersion: '1.0.0', instances: 1, healthy: 1, health: api.ServiceHealth.HEALTHY };
 const traceId = '1234567890abcdef1234567890abcdef';
+const bindingDefinition = () => create(api.BindingDefinitionSchema, { hook: 'hello.Greet', steps: [{ name: 'format', activity: 'formatter.Format' }] });
+const ruleDefinition = () => create(api.RuleDefinitionSchema, { event: 'hello.Greeted', steps: [{ name: 'record', activity: 'formatter.Record' }] });
+// The fixture's text form of definitions is their protobuf JSON.
+function parsed<S extends typeof api.BindingDefinitionSchema | typeof api.RuleDefinitionSchema>(schema: S, text: string) {
+  try { return { definition: fromJsonString(schema, text), errors: [] }; } catch (error) { return { errors: [{ line: 1, column: 1, message: error instanceof Error ? error.message : 'Invalid definition' }] }; }
+}
 function untilAbort(signal?: AbortSignal): Promise<void> { return new Promise((resolve) => { if (!signal || signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); }); }
 
 /** Explicit catalog-only transport. Missing methods fail; it never contacts a platform. */
@@ -57,11 +63,41 @@ export class PlatformFixture implements ClientRuntime {
       async getBinding(request: api.GetBindingRequest) { return create(api.GetBindingResponseSchema, { version: { hook: request.hook, version: 1n, definition: { hook: request.hook, steps: [{ name: 'format', activity: 'formatter.Format' }] } } }); },
       async validateBinding(request: api.ValidateBindingRequest) { return create(api.ValidateBindingResponseSchema, { violations: request.definition?.steps.length ? [] : [{ path: 'steps', message: 'At least one step is required' }] }); },
       async saveBinding(request: api.SaveBindingRequest) { beforeWrite(); return create(api.SaveBindingResponseSchema, { version: { version: 2n, hook: request.definition?.hook, definition: request.definition } }); },
-      async getRule() { return create(api.GetRuleResponseSchema); },
+      async getRule(request: api.GetRuleRequest) { return create(api.GetRuleResponseSchema, request.id ? { rule: { id: request.id, current: { ruleId: request.id, version: 1n, name: 'Greeted rule', definition: ruleDefinition() } } } : {}); },
+      watchBindings(_request: unknown, options: api.CallOptions) { return snapshot(create(api.WatchBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }] }), options.signal); },
+      watchRules(_request: unknown, options: api.CallOptions) { return snapshot(create(api.WatchRulesResponseSchema, { rules: [{ id: 'rule-1', current: { ruleId: 'rule-1', version: 1n, name: 'Greeted rule', definition: ruleDefinition() } }] }), options.signal); },
+      async getStream() { return create(api.GetStreamResponseSchema, { service: 'hello', events: { name: 'BP_EVENTS_hello', exists: true, messages: 9007199254740993n, bytes: 2048n, consumers: 2, replicas: 1 }, deadLetters: { name: 'BP_DLQ_hello', exists: true, messages: 1n, bytes: 128n, consumers: 0, replicas: 1 }, deadLetterCounts: [{ consumer: 'audit', count: 1n }] }); },
+      async cancelBindingRun() { beforeWrite(); return create(api.CancelBindingRunResponseSchema); },
+      async cancelRuleRun() { beforeWrite(); return create(api.CancelRuleRunResponseSchema); },
+      async getRuleRun() { return create(api.GetRuleRunResponseSchema, { run: { run: { workflowId: 'rule/rule-1/1', runId: 'run-3', status: api.RunStatus.COMPLETED } } }); },
+      async revokeSession() { beforeWrite(); return create(api.RevokeSessionResponseSchema); },
+      async listBindings() { return create(api.ListBindingsResponseSchema, { bindings: [{ hook: 'hello.Greet', service: 'hello', declared: true, required: true, state: api.BindingState.BOUND, current: { hook: 'hello.Greet', version: 1n, definition: bindingDefinition() } }] }); },
+      async listRules() { return create(api.ListRulesResponseSchema, { rules: [{ id: 'rule-1', current: { ruleId: 'rule-1', version: 1n, name: 'Greeted rule', definition: ruleDefinition() } }] }); },
+      async formatBinding(request: api.FormatBindingRequest) { return create(api.FormatBindingResponseSchema, { text: toJsonString(api.BindingDefinitionSchema, request.definition ?? create(api.BindingDefinitionSchema)) }); },
+      async parseBinding(request: api.ParseBindingRequest) { return create(api.ParseBindingResponseSchema, parsed(api.BindingDefinitionSchema, request.text)); },
+      async formatRule(request: api.FormatRuleRequest) { return create(api.FormatRuleResponseSchema, { text: toJsonString(api.RuleDefinitionSchema, request.definition ?? create(api.RuleDefinitionSchema)) }); },
+      async parseRule(request: api.ParseRuleRequest) { return create(api.ParseRuleResponseSchema, parsed(api.RuleDefinitionSchema, request.text)); },
+      async listBindingVersions() { return create(api.ListBindingVersionsResponseSchema, { versions: [{ hook: 'hello.Greet', version: 1n, author: 'fixture', comment: 'Initial', definition: bindingDefinition() }] }); },
+      async listRuleVersions() { return create(api.ListRuleVersionsResponseSchema, { versions: [{ ruleId: 'rule-1', version: 1n, name: 'Greeted rule', author: 'fixture', definition: ruleDefinition() }] }); },
+      async listBindingRuns() { return create(api.ListBindingRunsResponseSchema, { runs: [{ workflowId: 'binding/hello.Greet/1', runId: 'run-2', status: api.RunStatus.COMPLETED, historyLength: 11n }] }); },
+      async listRuleRuns() { return create(api.ListRuleRunsResponseSchema); },
+      async getBindingRun() { return create(api.GetBindingRunResponseSchema, { run: { run: { workflowId: 'binding/hello.Greet/1', runId: 'run-2', status: api.RunStatus.COMPLETED } }, hook: 'hello.Greet', version: 1n, steps: [{ step: 'format', activity: 'formatter.Format', status: api.StepRunStatus.COMPLETED, attempt: 1 }] }); },
+      async testBinding(request: api.TestBindingRequest) { beforeWrite(); fixture.lastInput = request.input; return create(api.TestBindingResponseSchema, { result: { output: request.input } }); },
+      async testRule(request: api.TestRuleRequest) { beforeWrite(); fixture.lastInput = request.event; return create(api.TestRuleResponseSchema, { matched: true }); },
+      async deleteBinding() { beforeWrite(); return create(api.DeleteBindingResponseSchema); },
+      async rollbackBinding() { beforeWrite(); return create(api.RollbackBindingResponseSchema); },
+      async rollbackRule() { beforeWrite(); return create(api.RollbackRuleResponseSchema); },
+      async deleteRule() { beforeWrite(); return create(api.DeleteRuleResponseSchema); },
+      async pauseRule() { beforeWrite(); return create(api.PauseRuleResponseSchema); },
+      async resumeRule() { beforeWrite(); return create(api.ResumeRuleResponseSchema); },
+      async listWorkflows() { return create(api.ListWorkflowsResponseSchema, { workflows: [{ service: 'hello', name: 'Welcome', kind: api.WorkflowKind.WORKFLOW, description: 'Greets a new user', input: schema }] }); },
+      async getObsSelectors() { return create(api.GetObsSelectorsResponseSchema, { sources: { selectors: [{ resource: { 'service.name': 'hello' } }] } }); },
+      async listObsFieldValues() { return create(api.ListObsFieldValuesResponseSchema, { values: ['hello', 'kratos'] }); },
+      async listSessions() { return create(api.ListSessionsResponseSchema, { sessions: [{ id: 'fixture', current: true, address: '127.0.0.1' }] }); },
       async validateRule() { return create(api.ValidateRuleResponseSchema); },
       async saveRule(request: api.SaveRuleRequest) { beforeWrite(); return create(api.SaveRuleResponseSchema, { version: { ruleId: request.id || 'rule-1', version: 2n, name: request.name, definition: request.definition } }); },
       async listRuns() { return create(api.ListRunsResponseSchema, { runs: [{ workflowId: 'welcome-1', runId: 'run-1', status: api.RunStatus.FAILED, historyLength: 9007199254740993n }] }); },
-      async getRun() { return create(api.GetRunResponseSchema, { run: { workflowId: 'welcome-1', runId: 'run-1' }, input: '{"sequence":18446744073709551615}', failure: 'Activity failed', failureType: 'DatabaseError', history: [{ id: 9007199254740993n, type: 'ActivityTaskFailed', failure: 'DatabaseError' }] }); },
+      async getRun() { return create(api.GetRunResponseSchema, { run: { workflowId: 'welcome-1', runId: 'run-1', status: api.RunStatus.RUNNING }, input: '{"sequence":18446744073709551615}', failure: 'Activity failed', failureType: 'DatabaseError', history: [{ id: 9007199254740993n, type: 'ActivityTaskFailed', failure: 'DatabaseError' }] }); },
       async cancelRun() { beforeWrite(); return create(api.CancelRunResponseSchema); },
       async terminateRun() { beforeWrite(); return create(api.TerminateRunResponseSchema); },
       async signalRun() { beforeWrite(); return create(api.SignalRunResponseSchema); },
@@ -69,9 +105,9 @@ export class PlatformFixture implements ClientRuntime {
       async pauseSchedule() { beforeWrite(); return create(api.PauseScheduleResponseSchema); },
       async unpauseSchedule() { beforeWrite(); return create(api.UnpauseScheduleResponseSchema); },
       async triggerSchedule() { beforeWrite(); return create(api.TriggerScheduleResponseSchema); },
-      async listEvents() { return create(api.ListEventsResponseSchema, { events: [{ event: 'hello.Greeted', messages: 9007199254740993n }] }); },
+      async listEvents() { return create(api.ListEventsResponseSchema, { events: [{ event: 'hello.Greeted', service: 'hello', name: 'Greeted', declared: true, messages: 9007199254740993n, lastSeq: 9007199254740993n, subscribers: [{ kind: api.SubscriberKind.REACTOR, service: 'hello', consumer: 'audit', durable: 'hello-audit', deadLetters: 1n, state: { numPending: 2n } }] }] }); },
       async peekMessages() { return create(api.PeekMessagesResponseSchema, { messages: [{ seq: 9007199254740993n, event: 'hello.Greeted', data: '{"name":"World"}' }] }); },
-      async listDeadLetters() { return create(api.ListDeadLettersResponseSchema, { deadLetters: [{ consumer: 'audit', error: 'DatabaseError', message: { seq: 9007199254740993n, event: 'hello.Greeted' } }] }); },
+      async listDeadLetters() { return create(api.ListDeadLettersResponseSchema, { deadLetters: [{ consumer: 'audit', error: 'DatabaseError', delivered: 5, message: { seq: 9007199254740993n, event: 'hello.Greeted' } }], counts: [{ consumer: 'audit', count: 1n }] }); },
       async redriveDeadLetters(request: api.RedriveDeadLettersRequest) { beforeWrite(); fixture.lastInput = request.seqs.map(String).join(','); return create(api.RedriveDeadLettersResponseSchema, { redriven: 1n }); },
       async purgeDeadLetters(request: api.PurgeDeadLettersRequest) { beforeWrite(); fixture.lastInput = request.seqs.map(String).join(','); return create(api.PurgeDeadLettersResponseSchema, { purged: 1n }); },
     };

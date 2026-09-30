@@ -33,3 +33,8 @@ for RadialGauge but does not export it. Our radial gauge is an SVG composition
 with the same public value/threshold contract; it does not import private Grafana
 paths. Values are accompanied by exact accessible text. Gauge min/max/threshold
 positions are finite display numbers, not a replacement for exact source values.
+
+Series use the theme's `chart-1…5` colors (canvas plots need concrete colors).
+Time axis labels adapt their precision to the visible span. `controls={false}`
+hides the series toggles and the data table when the caller renders its own
+legend, as Explore does.

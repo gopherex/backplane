@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { create, fromJsonString, toJsonString, type DescMessage, type MessageShape } from '@bufbuild/protobuf';
-import * as api from '@gopherex/backplane-api';
-import { useClient } from '@gopherex/backplane-react';
+import { fromJsonString, toJsonString, type DescMessage, type MessageShape } from '@bufbuild/protobuf';
 import { Button, Input } from '@gopherex/backplane-ui';
 import { CodeEditor, DiffViewer } from '@gopherex/backplane-editors';
-import { QueryState, MutationState, usePlatformAction, usePlatformQuery } from './runtime.js';
+import { MutationState, usePlatformAction } from './runtime.js';
 import { usePlatformText } from './locales.js';
 
 export function DefinitionEditor<S extends DescMessage>({ schema, initialValue, mode, validate, save }: {
@@ -29,24 +27,4 @@ export function DefinitionEditor<S extends DescMessage>({ schema, initialValue, 
     {!!violations.length && <ul role="alert">{violations.map((item, index) => <li key={index}>{item.path}: {item.message}</li>)}</ul>}
     {dirty && <DiffViewer label={text('definition')} before={baseline} after={value} mode={mode} language="json" />}
   </div>;
-}
-export function BindingEditor({ hook, mode }: { hook: string; mode: 'dark' | 'light' }) {
-  const client = useClient(api.BindingServiceClient);
-  const state = usePlatformQuery(`binding:${hook}`, (signal) => client.getBinding(create(api.GetBindingRequestSchema, { hook }), { signal }));
-  return <QueryState state={state}>{state.value && <DefinitionEditor key={hook} schema={api.BindingDefinitionSchema} initialValue={state.value?.version?.definition ?? create(api.BindingDefinitionSchema, { hook })} mode={mode}
-    validate={async (definition, signal) => (await client.validateBinding(create(api.ValidateBindingRequestSchema, { definition }), { signal })).violations}
-    save={async (definition, comment, signal) => { const response = await client.saveBinding(create(api.SaveBindingRequestSchema, { definition, comment }), { signal }); return { violations: response.violations, version: response.version?.version }; }} />}</QueryState>;
-}
-export function RuleEditor({ id = '', event = '', mode }: { id?: string; event?: string; mode: 'dark' | 'light' }) {
-  return <RuleDraft key={`${id}:${event}`} id={id} event={event} mode={mode} />;
-}
-function RuleDraft({ id, event, mode }: { id: string; event: string; mode: 'dark' | 'light' }) {
-  const client = useClient(api.RuleServiceClient), text = usePlatformText(), [name, setName] = useState<string>();
-  const state = usePlatformQuery(`rule:${id}`, (signal) => id ? client.getRule(create(api.GetRuleRequestSchema, { id }), { signal }) : Promise.resolve(create(api.GetRuleResponseSchema)));
-  const [createdId, setCreatedId] = useState('');
-  return <QueryState state={state}>{state.value && <><Input aria-label={text('name')} value={name ?? state.value?.rule?.current?.name ?? ''} onChange={(event) => setName(event.target.value)} />
-    <DefinitionEditor key={`${id}:${event}`} schema={api.RuleDefinitionSchema} initialValue={state.value?.rule?.current?.definition ?? create(api.RuleDefinitionSchema, { event })} mode={mode}
-      validate={async (definition, signal) => (await client.validateRule(create(api.ValidateRuleRequestSchema, { definition }), { signal })).violations}
-      save={async (definition, comment, signal) => { const response = await client.saveRule(create(api.SaveRuleRequestSchema, { id: id || createdId, name: name ?? state.value?.rule?.current?.name, definition, comment }), { signal }); if (!signal.aborted && response.version) setCreatedId(response.version.ruleId); return { violations: response.violations, version: response.version?.version }; }} />
-  </>}</QueryState>;
 }

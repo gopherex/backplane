@@ -4,7 +4,7 @@
 
 The UI agent owns visual design and product workflow composition in
 `web/apps/embedding`, component styles/stories and corresponding UI tests.
-The existing visual design is not accepted. The brief is [UI handoff](ui-handoff.md).
+Working notes for the UI are in [console UI](ui-handoff.md).
 The backend lane owns `internal/`, `pkg/backplane/`, migrations and Go conformance.
 
 Preserve these shared contracts during UI work. A needed change should identify

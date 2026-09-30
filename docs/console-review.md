@@ -1,75 +1,52 @@
 # Product console layout
 
-Status: navigation structure approved; the current shell is a functional draft,
-not an accepted visual design. UI work is handed to another agent; see
-[UI handoff](ui-handoff.md). The component fixture at `/backplane/dev` remains
-separate from product navigation.
+The console is a desktop operator workspace. Screens are composed only from kit
+and platform compositions ([UI kit](ui-kit.md), [platform compositions](platform-ui.md)),
+so the shell, platform pages and module pages share one look. The component
+fixture at `/backplane/dev` is a technical acceptance page outside navigation.
 
 ## Shell
 
-Use the existing HyperDX-derived dark/light tokens, compact 14px typography and
-one platform-owned header and left navigation tree. The top of the sidebar
-contains Services, Explore and Audit. Below it, service branches come from the
-live catalog and their page leaves from the plugin navigation registry.
-Modules own the labels, relative routes, page count and content of their group.
-Services without a UI link to platform administration. Each module branch also
-has an explicit administration link. The host owns authentication, theme, route mount and loading/error
-states. Deployment settings and storage topology are absent from these pages.
+- Header: brand, breadcrumbs (`Services / hello / Configuration`), a search and
+  jump command palette (⌘K / Ctrl+K: services, every service tab, module pages,
+  theme), connection state, theme switch and the session menu (current session,
+  managing and revoking sessions, log out).
+- Navigation: Services, Explore and Audit, then one branch per service from the
+  live catalog with a health dot, its module pages as leaves and a manage link.
+  Only the current destination is highlighted. The rail collapses to icons,
+  expands temporarily on hover or focus, can be pinned and resized (keyboard and
+  pointer); width and pinning persist per browser.
+- Pages fill the window. Headers and filter bars stay in place; panels scroll
+  their own content with sticky table headers. Banners report a lost connection,
+  a stale catalog and failures to load modules.
 
-The sidebar uses an icon rail when collapsed, temporary expansion on hover or
-keyboard focus, and a pin button. Expanded width is adjustable by dragging or
-keyboard; width and pinning persist locally. The visual treatment uses compact
-service branches, vertical connectors and a green active-page marker. Stroppy
-Cloud is the behavioral reference for rail/expansion/pinning, not a copied
-layout. Mobile uses an overlay drawer with focus containment and Escape dismissal.
-Module removal removes its navigation and route content; changing a bundle hash
-loads and validates the new descriptor. One failed module does not hide others.
+## Screens
 
-The first product landing page is Services. It lists version, instances,
-readiness and transport state, with filtering and a link to each service.
-Inside a service, use tabs for Overview, Configuration, Operations, Automation,
-Events and Runs. The module's own pages remain separately registered at
-`/s/<service>/...`; platform service administration lives at
-`/services/<service>/...` so it cannot collide with module routes.
-
-Explore is an installation-wide workspace for logs, metrics and traces. Keep a
-signal/query/time toolbar above results, with source discovery beside it and
-span/log detail in a resizable panel. Preserve query, selected source and time
-range in navigation. Expose native languages according to capabilities; do not
-invent a universal query language or require module telemetry declarations.
-
-Audit is a filterable installation-wide list with actor/action/subject/outcome,
-a detail panel and visible reconnect/cursor-expiry states. Service views can
-link to Audit with their filter preselected. Commands require explicit action;
-uncertain mutation outcomes are never silently repeated.
-
-## Routes
-
-| Route | Owner / screen |
+| Route | Screen |
 | --- | --- |
-| `/services` | Platform catalog; landing page |
-| `/services/:service` | Platform service overview and administration tabs |
-| `/explore` | Platform logs/metrics/traces workspace |
-| `/audit` | Platform control audit |
-| `/s/:service/*` | Service-owned plugin routes |
+| `/services` | Stat tiles (services, healthy instances, attention, bound hooks, rules, workflows) and the catalog as cards, a table or the system map |
+| `/services/:service` | Entity header (health, version, instances, SDK, uptime) with tabs |
+| `…/` (Overview) | Instances and instance drawer, contract panels, component tree, metadata |
+| `…/configuration` | Live settings editor, rollout, revisions with diff and rollback |
+| `…/automation` | Bindings of the service's hooks and rules on its events |
+| `…/operations` | Call hooks, run activities, publish test events, start workflows |
+| `…/events` | Streams, published/consumed events, subscribers, messages, dead letters |
+| `…/workflows` | Declared workflows, runs, schedules |
+| `…/telemetry` | Explore scoped to the service's telemetry selectors |
+| `…/audit` | Audit entries attributed to the service |
+| `/explore` | Logs, metrics and traces workspace; query state in the URL |
+| `/audit` | Installation audit with value pickers, live tail and entry drawer |
+| `/s/:service/*` | Module-owned pages |
 
-These paths are relative to the console prefix. Build with
-`BACKPLANE_CONSOLE_BASE` matching the backend prefix (default `/backplane/`).
+Paths are relative to the console prefix (`BACKPLANE_CONSOLE_BASE`, default
+`/backplane/`). `/services/<service>/…` belongs to the platform and
+`/s/<service>/…` to the module, so they cannot collide. Modules own the labels,
+routes, page count and content of their branch; removing a module removes its
+navigation, and one failed module does not hide the others.
 
-## Remaining product work
+## Principles
 
-The shell, responsive navigation, Services list/detail and routes are implemented.
-Configuration, operations, events, runs, schedules, Explore and Audit use the
-existing API-aware kit compositions. Further page-specific design remains:
-
-1. Configuration and Automation screens with schema-assisted input, previews,
-   revision comparison and explicit command outcomes.
-2. Explore and Audit, preserving filters/navigation and supporting large inputs.
-3. Live acceptance against hello/formatter and independent telemetry storage,
-   in both themes, keyboard navigation and failure/reconnect scenarios.
-
-The kit already supplies the building blocks. Binding/rule controls currently
-include contract JSON editing, validation and revision diff; product pages may
-add structured step composition after the interaction design is reviewed.
-The console does not introduce ErrOtel, another application module, or a
-platform-owned error grouping engine.
+Color carries status only. Destructive and installation-changing actions ask
+for confirmation and never repeat automatically after an uncertain outcome.
+Where a filter has known values, it offers them. The console introduces no
+error-grouping engine, deployment settings or telemetry storage management.

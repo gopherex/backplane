@@ -28,6 +28,8 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
   const [visibility, setVisibility] = useState<VisibilityState>({}), [order, setOrder] = useState<string[]>([]);
   const [pinning, setPinning] = useState<ColumnPinningState>({}), [selection, setSelection] = useState<RowSelectionState>({});
   const [expanded, setExpanded] = useState<ExpandedState>({}), [query, setQuery] = useState(''), [focused, setFocused] = useState<string>();
+  const [showFilters, setShowFilters] = useState(false);
+  const headerHeight = showFilters ? 66 : 34;
   const columns = useMemo<ColumnDef<T>[]>(() => definitions.map((definition) => ({
     id: definition.id, header: definition.label, accessorFn: definition.value,
     size: definition.width ?? 180, minSize: 80,
@@ -59,7 +61,7 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
   const rows = table.getRowModel().rows;
   const scroll = useRef<HTMLDivElement>(null);
   const key = useCallback((index: number) => rows[index].id, [rows]);
-  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 40, overscan: 6, getItemKey: key, scrollMargin: 80 });
+  const virtual = useVirtualizer({ count: rows.length, getScrollElement: () => scroll.current, estimateSize: () => 36, overscan: 6, getItemKey: key, scrollMargin: headerHeight });
   const rowWidth = table.getTotalSize() + (selectable ? 44 : 0) + (getChildren ? 44 : 0);
   const reorder = (id: string, delta: number) => {
     const current = table.getAllLeafColumns().map((column) => column.id); const at = current.indexOf(id); const next = at + delta;
@@ -73,11 +75,12 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
     const pinned = column.getIsPinned();
     return { width: column.getSize(), minWidth: column.getSize(), position: pinned ? 'sticky' as const : 'relative' as const,
       left: pinned === 'left' ? column.getStart('left') : undefined, right: pinned === 'right' ? column.getAfter('right') : undefined,
-      zIndex: pinned ? 2 : undefined, background: 'var(--background)' };
+      zIndex: pinned ? 2 : undefined, background: pinned ? 'var(--card)' : undefined };
   };
-  return <section aria-label={label} className="flex flex-col gap-3">
-    <div className="flex flex-wrap items-center gap-2"><Input type="search" aria-label={t('filterTable', { name: label })} value={query} onChange={(event) => setQuery(event.target.value)} />
-      <Popover><PopoverTrigger asChild><Button type="button" variant="outline">{t('columns')}</Button></PopoverTrigger>
+  return <section aria-label={label} className="flex flex-col gap-2">
+    <div className="flex flex-wrap items-center gap-1.5"><Input className="h-7 w-64 text-xs" type="search" placeholder={t('search')} aria-label={t('filterTable', { name: label })} value={query} onChange={(event) => setQuery(event.target.value)} />
+      <Button type="button" size="sm" variant={showFilters ? 'secondary' : 'ghost'} aria-pressed={showFilters} onClick={() => setShowFilters((value) => !value)}>{t('filters')}</Button>
+      <Popover><PopoverTrigger asChild><Button type="button" size="sm" variant="ghost">{t('columns')}</Button></PopoverTrigger>
         <PopoverContent className="w-96"><div className="flex flex-col gap-3">{table.getAllLeafColumns().map((column, index, all) => <div key={column.id} className="flex items-center gap-2">
           <Checkbox aria-label={t('showColumn', { name: String(column.columnDef.header) })} checked={column.getIsVisible()} disabled={column.getIsVisible() && table.getVisibleLeafColumns().length === 1} onCheckedChange={(value) => column.toggleVisibility(value === true)} />
           <span>{String(column.columnDef.header)}</span>
@@ -89,19 +92,19 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
         </div>)}</div></PopoverContent>
       </Popover>
     </div>
-    {loading && <p role="status">{t('loading')}</p>}{error && <p role="alert">{error}</p>}{partial && <p role="status">{t('partialResults')}</p>}
-    <div ref={scroll} style={{ height, overflow: 'auto' }} className="rounded-md border">
+    {loading && <p role="status" className="m-0 text-xs text-muted-foreground">{t('loading')}</p>}{error && <p role="alert" className="m-0 text-xs text-destructive">{error}</p>}{partial && <p role="status" className="m-0 text-xs text-warning">{t('partialResults')}</p>}
+    <div ref={scroll} style={{ height, overflow: 'auto' }} className="rounded-lg border border-border bg-card text-sm">
       <table aria-label={label} aria-rowcount={rows.length + 1} style={{ display: 'grid', width: rowWidth, minWidth: '100%' }}>
-        <thead style={{ display: 'grid', position: 'sticky', top: 0, zIndex: 3, background: 'var(--background)' }}>
-          {table.getHeaderGroups().map((group) => <tr key={group.id} style={{ display: 'flex', minHeight: 80 }}>
-            {selectable && <th style={{ width: 44 }}><Checkbox aria-label={t('selectAllRows')} checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() ? 'indeterminate' : false)} onCheckedChange={(value) => table.toggleAllRowsSelected(value === true)} /></th>}
+        <thead style={{ display: 'grid', position: 'sticky', top: 0, zIndex: 3 }} className="bg-raised">
+          {table.getHeaderGroups().map((group) => <tr key={group.id} style={{ display: 'flex', minHeight: headerHeight }} className="border-b border-border">
+            {selectable && <th style={{ width: 44, padding: '8px 12px' }}><Checkbox aria-label={t('selectAllRows')} checked={table.getIsAllRowsSelected() || (table.getIsSomeRowsSelected() ? 'indeterminate' : false)} onCheckedChange={(value) => table.toggleAllRowsSelected(value === true)} /></th>}
             {getChildren && <th style={{ width: 44 }}><span className="sr-only">{t('expand')}</span></th>}
-            {group.headers.map((header) => <th key={header.id} aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'} style={{ ...pinnedStyle(header.column), textAlign: 'left', padding: 8 }}>
-              <button type="button" disabled={!header.column.getCanSort()} onClick={header.column.getToggleSortingHandler()} className="font-medium focus-visible:ring-2 focus-visible:ring-ring">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getIsSorted() === 'asc' ? ' ↑' : header.column.getIsSorted() === 'desc' ? ' ↓' : ''}</button>
-              {header.column.getCanFilter() && <Input className="mt-1 h-7" aria-label={t('filterColumn', { name: String(header.column.columnDef.header) })} value={String(header.column.getFilterValue() ?? '')} onChange={(event) => header.column.setFilterValue(event.target.value)} />}
+            {group.headers.map((header) => <th key={header.id} aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : 'none'} style={{ ...pinnedStyle(header.column), textAlign: 'left', padding: '6px 12px' }} className="text-xs font-medium text-muted-foreground">
+              <button type="button" disabled={!header.column.getCanSort()} onClick={header.column.getToggleSortingHandler()} className="inline-flex h-5 items-center gap-1 font-medium whitespace-nowrap hover:text-foreground disabled:hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring">{flexRender(header.column.columnDef.header, header.getContext())}{header.column.getIsSorted() === 'asc' ? ' ↑' : header.column.getIsSorted() === 'desc' ? ' ↓' : ''}</button>
+              {showFilters && header.column.getCanFilter() && <Input className="mt-1 h-6 bg-background text-xs text-foreground dark:bg-background" aria-label={t('filterColumn', { name: String(header.column.columnDef.header) })} value={String(header.column.getFilterValue() ?? '')} onChange={(event) => header.column.setFilterValue(event.target.value)} />}
               <div role="separator" aria-orientation="vertical" aria-label={t('resizeColumn', { name: String(header.column.columnDef.header) })} aria-valuenow={header.getSize()} tabIndex={0}
                 onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()} onKeyDown={(event) => { if (['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); header.column.resetSize(); table.setColumnSizing((old) => ({ ...old, [header.column.id]: Math.max(80, header.getSize() + (event.key === 'ArrowLeft' ? -10 : 10)) })); } }}
-                style={{ position: 'absolute', top: 0, right: 0, width: 6, height: '100%', cursor: 'col-resize', touchAction: 'none' }} />
+                style={{ position: 'absolute', top: 0, right: 0, width: 6, height: '100%', cursor: 'col-resize', touchAction: 'none' }} className="hover:bg-primary/40 focus-visible:bg-primary/40" />
             </th>)}
           </tr>)}
         </thead>
@@ -117,17 +120,17 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
                 if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) { event.preventDefault(); focusRow(event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, item.index + (event.key === 'ArrowDown' ? 1 : -1)))); }
                 if (event.key === ' ' && selectable) { event.preventDefault(); row.toggleSelected(); }
                 if (event.key === 'Enter') onActivate?.(row.original);
-              }} style={{ display: 'flex', position: 'absolute', transform: `translateY(${item.start - 80}px)`, width: '100%', minHeight: 40, cursor: onActivate ? 'pointer' : undefined, background: row.getIsSelected() ? 'var(--accent)' : undefined }} className="border-b focus-visible:outline-2 focus-visible:outline-ring">
-              {selectable && <td style={{ width: 44, padding: 8 }}><Checkbox aria-label={t('selectRow', { name: row.id })} checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(value === true)} /></td>}
+              }} style={{ display: 'flex', position: 'absolute', transform: `translateY(${item.start - headerHeight}px)`, width: '100%', minHeight: 36, cursor: onActivate ? 'pointer' : undefined }} className="border-b border-border hover:bg-raised focus-visible:bg-raised focus-visible:outline-none aria-selected:bg-primary/10">
+              {selectable && <td style={{ width: 44, padding: '8px 12px' }}><Checkbox aria-label={t('selectRow', { name: row.id })} checked={row.getIsSelected()} onCheckedChange={(value) => row.toggleSelected(value === true)} /></td>}
               {getChildren && <td style={{ width: 44 }}>{row.getCanExpand() && <Button type="button" variant="ghost" size="icon-sm" aria-label={t(row.getIsExpanded() ? 'collapseRow' : 'expandRow', { name: row.id })} onClick={row.getToggleExpandedHandler()}>{row.getIsExpanded() ? '−' : '+'}</Button>}</td>}
-              {row.getVisibleCells().map((cell) => <td key={cell.id} style={{ ...pinnedStyle(cell.column), ...(row.getIsSelected() ? { background: 'var(--accent)' } : {}), padding: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}
+              {row.getVisibleCells().map((cell) => <td key={cell.id} style={{ ...pinnedStyle(cell.column), padding: '8px 12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}
             </tr>;
           })}
         </tbody>
       </table>
-      {!loading && !rows.length && <p className="p-4">{t('noRows')}</p>}
+      {!loading && !rows.length && <p className="m-0 p-6 text-center text-sm text-muted-foreground">{t('noRows')}</p>}
     </div>
-    <div className="flex items-center gap-2" role="status"><span>{t('rowCount', { count: table.getFilteredRowModel().rows.length })}</span>{selectable && <span>{t('selectedCount', { count: Object.values(selection).filter(Boolean).length })}</span>}</div>
+    <div className="flex items-center gap-3 text-xs text-muted-foreground" role="status"><span>{t('rowCount', { count: table.getFilteredRowModel().rows.length })}</span>{selectable && <span>{t('selectedCount', { count: Object.values(selection).filter(Boolean).length })}</span>}</div>
     {pageSize && <nav aria-label={t('pagination')} className="flex gap-2"><Button type="button" variant="outline" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>{t('previous')}</Button><span>{table.getState().pagination.pageIndex + 1} / {Math.max(1, table.getPageCount())}</span><Button type="button" variant="outline" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>{t('next')}</Button></nav>}
   </section>;
 }

@@ -9,7 +9,7 @@ for (const theme of ['dark', 'light']) for (const story of ['plots-and-data', 'v
       await expect(page.getByText('Showing a bounded sample of the data.')).toBeVisible();
       const chart = page.getByRole('region', { name: 'Requests over time', exact: true }).nth(1);
       await chart.getByRole('button', { name: 'Sequence', exact: true }).click(); await expect(chart.getByRole('button', { name: 'Sequence', exact: true })).toHaveAttribute('aria-pressed', 'false');
-      await chart.getByRole('button', { name: 'Show data' }).click(); await chart.getByLabel('Filter column Value', { exact: true }).fill('18446744073709551615');
+      await chart.getByRole('button', { name: 'Show data' }).click(); await chart.getByRole('button', { name: 'Filters', exact: true }).click(); await chart.getByLabel('Filter column Value', { exact: true }).fill('18446744073709551615');
       await expect(chart.getByRole('cell', { name: '18446744073709551615', exact: true }).first()).toBeVisible();
       await chart.getByLabel('Range start', { exact: true }).fill('10'); await chart.getByLabel('Range end', { exact: true }).fill('20');
       await chart.getByRole('button', { name: 'Apply range' }).click(); await expect(page.getByLabel('Selected range')).toHaveText('{"from":10,"to":20}');

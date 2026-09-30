@@ -1,9 +1,42 @@
 # Base UI kit
 
-`@gopherex/backplane-ui` supplies 47 shadcn/Radix primitive modules and platform
-compositions. Import its `style.css` alongside `@gopherex/backplane-theme/style.css`.
-Register `englishResources` under the `backplane.ui` i18next namespace. Both
-themes use the same semantic CSS tokens and focus behavior.
+`@gopherex/backplane-ui` supplies 47 shadcn/Radix primitive modules, page
+compositions and platform building blocks. Import its `style.css` alongside
+`@gopherex/backplane-theme/style.css`. Register `englishResources` under the
+`backplane.ui` i18next namespace. Both themes use the same semantic CSS tokens
+and focus behavior.
+
+## Styles and tokens
+
+The visual language is a dense operator console: 13px text, 28–32px controls
+and rows, 2–6px radii, 1px borders and no nested cards. Surfaces go from back
+to front as `background` (page) → `chrome` (header, navigation) → `card`
+(panels) → `raised` (table headers, hover). Color carries meaning only:
+`success`, `warning`, `destructive`, `info`, `primary` and `chart-1…5`. Light
+theme status colors keep WCAG AA contrast on their tinted badges.
+
+`style.css` is one stylesheet for the whole kit family: its Tailwind build also
+scans platform-ui, schema-forms, observability-ui, editors and charts. Apps and
+modules that use Tailwind themselves import the preset
+`@gopherex/backplane-ui/theme.css` and should also `@source` the kit sources, so
+that both stylesheets agree on utility order. Modules without their own Tailwind
+build compose pages from kit components only; kit components never rely on
+classes the module would have to generate.
+
+## Page compositions
+
+| Composition | Use |
+| --- | --- |
+| `PageHeader` | Page title, description, meta line and actions |
+| `EntityHeader`, `TabBar`, `TabItem` | Entity title with icon, status badge, meta line, actions and a router-agnostic tab bar (active via `aria-current`) |
+| `Panel` | Titled section with count, actions and footer. The body scrolls itself: `fill` stretches the panel over the remaining height, `maxBodyHeight` caps it; such bodies are keyboard scroll regions |
+| `StatRow`, `StatTile` | Metric tiles with tone |
+| `StatusBadge`, `StatusDot`, `StatusText` | One status vocabulary: success, warning, danger, info, neutral, accent |
+| `KeyValueList`, `MetaList`, `MetaItem`, `Count`, `SectionLabel` | Metadata lists, inline meta lines, counters, caps group labels |
+| `EntityCard`, `Figure`, `Meter` | Entity cards with figures and proportion bars |
+| `EmptyState`, `ViewToggle`, `DetailDrawer` | Empty/failure blocks, segmented view switch, right-side detail drawer (`md`, `lg`, `xl`, `full`) |
+| `FilterCombo` | Filter picker over known values (static or loaded on open) with search and optional free input |
+| `Timestamp`, `Duration`, `formatRelative`, `formatDuration`, `nanosToDate` | Relative time with absolute tooltip on one shared ticker; compact durations |
 
 ## Composition APIs
 
@@ -18,7 +51,7 @@ themes use the same semantic CSS tokens and focus behavior.
 | Time | DateTimeInput, TimeRangeControl, RefreshControl | ISO calendar/time controls; relative/absolute ranges, timezone, week start; no overlapping refreshes |
 | Files | FileUpload | Type/size/count limits, drag/drop, progress, retry and cancellation; caller-owned upload transport |
 | Feedback | StateMessage, Toaster, toast | Empty/error/offline/partial state and token-styled notifications |
-| Tables | DataTable, DataColumn | Stable IDs, exact values, sorting, global/column filters, visibility/order/pinning/resize, selection, hierarchy, optional paging |
+| Tables | DataTable, DataColumn | Stable IDs, exact values, sorting, global filter and column filters behind a Filters toggle, visibility/order/pinning/resize, selection, hierarchy, optional paging |
 | Trees | ResourceTree, TreeNode | Unique IDs, flattened virtual hierarchy, levels/positions, keyboard selection and expansion |
 
 Schema-driven forms are a separate [package](schema-forms.md). Editors,

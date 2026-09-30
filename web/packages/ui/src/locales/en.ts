@@ -17,7 +17,7 @@ export const englishResources = {
   file_uploading: 'Uploading', file_uploaded: 'Uploaded', file_failed: 'Upload failed',
   file_cancelled: 'Upload cancelled', file_rejected: 'File type or size is not allowed',
   uploadProgress: 'Upload progress for {{name}}',
-  filterTable: 'Filter {{name}}', columns: 'Columns', showColumn: 'Show {{name}}',
+  filterTable: 'Filter {{name}}', columns: 'Columns', filters: 'Filters', showColumn: 'Show {{name}}',
   moveLeft: 'Move {{name}} left', moveRight: 'Move {{name}} right', pinColumn: 'Pin {{name}}',
   unpinned: 'Unpinned', pinLeft: 'Left', pinRight: 'Right', partialResults: 'Results are incomplete.',
   selectAllRows: 'Select all rows', selectRow: 'Select row {{name}}', expand: 'Expand',
@@ -26,5 +26,5 @@ export const englishResources = {
   noRows: 'No matching rows', rowCount: '{{count}} rows', selectedCount: '{{count}} selected',
   refresh: 'Refresh', refreshInterval: 'Refresh interval', off: 'Off',
   refreshFailed: 'Could not refresh. Existing data is preserved.', weekStart: 'Week starts on',
-  saving: 'Saving…', invalidTimeRange: 'The selected time range is invalid.',
+  saving: 'Saving…', any: 'any', clearFilter: 'Clear {{name}}', useValue: 'Use “{{value}}”', invalidTimeRange: 'The selected time range is invalid.',
 } as const;

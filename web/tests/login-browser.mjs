@@ -49,7 +49,8 @@ try {
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByLabel('Display name')).toBeVisible();
   await expect(page).toHaveURL(`${base}/s/hello/settings`);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.getByRole('button', { name: 'Session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(token).toHaveValue('');
   await expect(token).toHaveAttribute('type', 'password');
   // Session-check outages keep the same composed screen and recover explicitly.

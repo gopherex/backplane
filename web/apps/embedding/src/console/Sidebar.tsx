@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Boxes, Compass, History, ChevronRight, ChevronsLeft, PanelLeftOpen, Settings2, Box } from 'lucide-react';
-import { Button, Input } from '@gopherex/backplane-ui';
+import { Button, Input, StatusDot } from '@gopherex/backplane-ui';
+import { healthTone } from './services/model';
 import type { ServiceSummary } from '@gopherex/backplane-api';
 import type { ModuleEntry } from './registry';
 
@@ -12,6 +13,10 @@ function readPreferences() {
     const value = JSON.parse(localStorage.getItem(KEY) ?? '{}');
     return { pinned: typeof value.pinned === 'boolean' ? value.pinned : true, width: Number.isFinite(value.width) ? Math.max(MIN, Math.min(MAX, value.width)) : DEFAULT };
   } catch { return { pinned: true, width: DEFAULT }; }
+}
+
+function ServiceIcon({ tone }: { tone: Parameters<typeof StatusDot>[0]['tone'] }) {
+  return <span className="console-service-icon"><Box size={16} /><StatusDot tone={tone} /></span>;
 }
 
 export default function Sidebar({ services, modules, mobile, onClose }: { services: ServiceSummary[]; modules: Record<string, ModuleEntry>; mobile: boolean; onClose: () => void }) {
@@ -50,19 +55,21 @@ export default function Sidebar({ services, modules, mobile, onClose }: { servic
           }
         }}>
         <nav aria-label={t('platform')} className="console-fixed-nav">
-          {fixed.map(({ to, key, icon: Icon }) => <NavLink key={key} to={to} className="console-nav-item" aria-label={t(key)} title={!expanded ? t(key) : undefined}><Icon size={18} /><span className="console-nav-label">{t(key)}</span></NavLink>)}
+          <span className="console-group-caption console-nav-label">{t('platform')}</span>
+          {fixed.map(({ to, key, icon: Icon }) => <NavLink key={key} to={to} end className="console-nav-item" aria-label={t(key)} title={!expanded ? t(key) : undefined}><Icon size={16} /><span className="console-nav-label">{t(key)}</span></NavLink>)}
         </nav>
         <div className="console-tree-caption"><span className="console-nav-label">{t('servicePages')}</span><span className="console-count">{services.length}</span></div>
         {expanded && <div className="console-nav-search"><Input aria-label={t('filter')} placeholder={t('filter')} value={filter} onChange={(event) => setFilter(event.target.value)} /></div>}
         <nav className="console-service-tree" aria-label={t('servicePages')}>
           {services.filter((service) => !expanded || service.name.toLowerCase().includes(filter.toLowerCase())).map((service) => {
-            const entry = modules[service.name], plugin = entry?.plugin, opened = !closed.has(service.name), active = location.pathname.startsWith(`/s/${service.name}/`) || location.pathname === `/s/${service.name}`;
+            const entry = modules[service.name], plugin = entry?.plugin, opened = !closed.has(service.name);
+            const active = [`/s/${service.name}`, `/services/${service.name}`].some((prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`));
             return <div key={service.name} className="console-service-branch" data-active={active}>
               <div className="console-service-row">
                 {service.ui ? <button className="console-nav-item console-branch-button" aria-label={service.name} aria-expanded={expanded && opened} onClick={() => { setPreferences((old) => ({ ...old, pinned: true })); setClosed((old) => { const next = new Set(old); if (next.has(service.name)) next.delete(service.name); else next.add(service.name); return next; }); }}>
-                  <Box size={17} /><span className="console-nav-label">{service.name}</span><ChevronRight size={14} className="console-chevron" data-open={opened} />
-                </button> : <NavLink to={`/services/${service.name}`} className="console-nav-item" aria-label={service.name} title={service.name}><Box size={17} /><span className="console-nav-label">{service.name}</span></NavLink>}
-                {expanded && service.ui && <Link className="console-manage" to={`/services/${service.name}`} aria-label={t('admin', { service: service.name })} title={t('admin', { service: service.name })}><Settings2 size={14} /></Link>}
+                  <ServiceIcon tone={healthTone[service.health]} /><span className="console-nav-label">{service.name}</span><ChevronRight size={14} className="console-chevron" data-open={opened} />
+                </button> : <NavLink to={`/services/${service.name}`} className="console-nav-item" aria-label={service.name} title={service.name}><ServiceIcon tone={healthTone[service.health]} /><span className="console-nav-label">{service.name}</span></NavLink>}
+                {expanded && service.ui && <Link className="console-manage" to={`/services/${service.name}`} aria-label={t('admin', { service: service.name })} title={t('admin', { service: service.name })}><Settings2 size={13} /></Link>}
               </div>
               {expanded && opened && service.ui && <div className="console-leaves">
                 {plugin ? plugin.navigation.nav.map((page) => <NavLink key={page.path} to={`/s/${service.name}/${page.path}`} end={page.path === ''} className="console-page-link">{i18n.t(page.labelKey, { ns: `module.${service.name}` })}</NavLink>) : <span className="console-tree-note">{t(entry?.error ? 'failed' : entry ? 'loading' : 'unavailable')}</span>}
@@ -72,7 +79,7 @@ export default function Sidebar({ services, modules, mobile, onClose }: { servic
           })}
           {expanded && !services.some((service) => service.name.toLowerCase().includes(filter.toLowerCase())) && <p className="console-tree-note">{t(services.length ? 'empty' : 'noServices')}</p>}
         </nav>
-        <div className="console-sidebar-footer"><Button variant="ghost" size="icon" aria-label={t(preferences.pinned ? 'unpin' : 'pin')} aria-pressed={preferences.pinned} onClick={() => { setPreferences((old) => ({ ...old, pinned: !old.pinned })); setHover(false); setFocus(false); document.getElementById('console-nav-toggle')?.focus(); }}>{preferences.pinned ? <ChevronsLeft size={17} /> : <PanelLeftOpen size={17} />}</Button>{expanded && <span>Backplane</span>}</div>
+        <div className="console-sidebar-footer"><Button variant="ghost" size="icon" aria-label={t(preferences.pinned ? 'unpin' : 'pin')} aria-pressed={preferences.pinned} onClick={() => { setPreferences((old) => ({ ...old, pinned: !old.pinned })); setHover(false); setFocus(false); document.getElementById('console-nav-toggle')?.focus(); }}>{preferences.pinned ? <ChevronsLeft size={17} /> : <PanelLeftOpen size={17} />}</Button>{expanded && <span className="console-nav-label">{t(preferences.pinned ? 'unpin' : 'pin')}</span>}</div>
         {expanded && <div className="console-resize" role="separator" aria-label={t('resize')} aria-orientation="vertical" aria-valuemin={MIN} aria-valuemax={MAX} aria-valuenow={preferences.width} tabIndex={0}
           onDoubleClick={() => resize(DEFAULT)} onKeyDown={(event) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) { event.preventDefault(); resize(event.key === 'Home' ? MIN : event.key === 'End' ? MAX : preferences.width + (event.key === 'ArrowRight' ? 16 : -16)); } }}
           onPointerDown={(event) => { if (event.button !== 0) return; event.preventDefault(); drag.current = { x: event.clientX, width: preferences.width }; event.currentTarget.setPointerCapture(event.pointerId); }}

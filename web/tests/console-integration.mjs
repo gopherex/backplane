@@ -36,7 +36,8 @@ try {
   await page.goto(new URL('s/hello/settings', base).href);
   await expect(page.getByLabel('Display name')).toBeVisible();
   await expect(input).toHaveCount(0);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.getByRole('button', { name: 'Session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(input).toHaveValue('');
   assert.equal((await context.cookies()).some((item) => item.name === 'bp_session'), false);
   await page.reload();

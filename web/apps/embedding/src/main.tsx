@@ -17,7 +17,9 @@ import { fixtureClient } from '../../../templates/module/src/fixtures';
 import '@gopherex/backplane-ui/style.css';
 import '@gopherex/backplane-theme/style.css';
 import '@fontsource/ibm-plex-sans/400.css';
-import '../../../templates/module/src/standalone.css';
+import '@fontsource/ibm-plex-sans/500.css';
+import '@fontsource/ibm-plex-sans/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
 import { consoleEnglish } from './console/locales';
 import { Login } from './console/Login';
 import { loginEnglish } from './console/login-locales';
@@ -26,6 +28,9 @@ const Console = lazy(() => import('./console/ConsoleRuntime'));
 
 const Development = lazy(() => import('./dev'));
 const live = document.querySelector('meta[name=backplane-fixture]')?.getAttribute('content') === 'live';
+// The compatibility fixture renders the module template's standalone page and
+// its global element styles; the live console must not inherit them.
+if (!live) await import('../../../templates/module/src/standalone.css');
 const consoleBase = import.meta.env.BASE_URL;
 const runtime = live ? new BackplaneClient({ baseURL: new URL(consoleBase, location.origin).href }) : fixtureClient;
 const i18n = i18next.createInstance();
@@ -33,7 +38,7 @@ await i18n.use(initReactI18next).init({ lng: 'en', fallbackLng: 'en', supportedL
   'backplane.ui': englishResources,
   console: consoleEnglish,
   login: loginEnglish,
-  host: { development: 'Development acceptance', developmentDescription: 'Live kit components. Product console design is a separate review.', services: 'Services', configuration: 'Configuration', operations: 'Operations', binding: 'Binding', events: 'Events', runs: 'Runs', schedules: 'Schedules', audit: 'Audit', explore: 'Explore', title: 'Embedding fixture', home: 'Platform home', loading: 'Loading module', error: 'Module could not be loaded', light: 'Light theme', dark: 'Dark theme', token: 'Operator token', login: 'Log in', logout: 'Log out', loginError: 'Login failed', state: 'Connection: {{state}}' },
+  host: { development: 'Development acceptance', developmentDescription: 'Live kit components. Product console design is a separate review.', services: 'Services', configuration: 'Configuration', operations: 'Operations', binding: 'Binding', automation: 'Automation', events: 'Events', runs: 'Runs', schedules: 'Schedules', audit: 'Audit', explore: 'Explore', title: 'Embedding fixture', home: 'Platform home', loading: 'Loading module', error: 'Module could not be loaded', light: 'Light theme', dark: 'Dark theme', token: 'Operator token', login: 'Log in', logout: 'Log out', loginError: 'Login failed', state: 'Connection: {{state}}' },
 } } });
 
 function Host() {

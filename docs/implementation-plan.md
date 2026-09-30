@@ -5,9 +5,9 @@ Kratos wrappers and mail services are excluded. Step 9 uses kit fixtures and
 representative workflows, not an application migration. Existing hello and
 formatter examples remain the platform acceptance fixtures.
 
-Product UI work is being transferred to another agent. The current screen design
-is not accepted; see [UI handoff](ui-handoff.md) for code locations, runtime
-contracts, pending workflows and the boundary for independent backend work.
+The console UI is described in [console layout](console-review.md) and its
+working notes in [console UI](ui-handoff.md): code locations, runtime contracts
+and verification.
 The local [engineering baseline](handoff-baseline.md) records the shared API/SDK
 contracts and current validation limits, including pending live dev/HMR checks.
 
@@ -82,11 +82,12 @@ pass. No application module or error grouping backend was implemented.
 
 Step 8 shell: header, fixed Services/Explore/Audit entries, service-owned page
 tree, resizing/pinning, mobile navigation, theme preferences and live module
-loading. Services includes catalog/administration; Explore and Audit currently
-compose the existing platform controls. See [console layout and remaining
-work](console-review.md). This does not mark every product workflow complete.
+loading. Services has cards, a table and the system map; every service has
+overview, configuration, automation, operations, events, workflows, telemetry
+and audit tabs; Explore and Audit are full workspaces. See [console
+layout](console-review.md).
 Shell acceptance checks the live registry and hello routes, service administration,
-pointer/keyboard resizing, persisted pinning/theme, mobile focus/navigation and
+pointer/keyboard resizing, persisted pinning/theme, service views, map, palette and
 axe in both themes. Typecheck, seven existing browser scenarios and live dev
 API/component acceptance also pass.
 
