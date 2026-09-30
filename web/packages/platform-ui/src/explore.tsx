@@ -5,13 +5,14 @@ import { useClient } from '@gopherex/backplane-react';
 import { Badge, Button, DetailDrawer, EmptyState, FilterCombo, Input, NativeSelect, NativeSelectOption, Panel, Skeleton, Switch } from '@gopherex/backplane-ui';
 import { CodeEditor, type QueryLanguage } from '@gopherex/backplane-editors';
 import type { CorrelationTarget } from '@gopherex/backplane-observability-ui';
-import { Activity, ChevronRight, CircleAlert, FileText, Play, Radio, Search, Waypoints } from 'lucide-react';
+import { Activity, ChevronRight, CircleAlert, FileText, LayoutDashboard, Play, Radio, Search, Waypoints } from 'lucide-react';
 import { usePlatformAction, usePlatformQuery } from './runtime.js';
 import { usePlatformText } from './locales.js';
 import { buildQuery, defaultFunction, languageIds, languageLabel, languageNames, nanosNow, ranges, signalIds, stepFor, type ExploreRange, type ExploreSignal, type MetricFunction, type QueryBuilder } from './explore-query.js';
 import { LogResults } from './explore-logs.js';
 import { MetricResults } from './explore-metrics.js';
 import { TraceLookup, TraceResults } from './explore-traces.js';
+import { MetricsOverview } from './explore-overview.js';
 
 export { TraceLookup } from './explore-traces.js';
 export type { ExploreSignal, ExploreRange } from './explore-query.js';
@@ -24,11 +25,11 @@ const metricFunctions: MetricFunction[] = ['raw', 'rate', 'sum', 'p50', 'p95', '
 
 export interface ExploreRun { response: QueryObsResponse; from: bigint; to: bigint; query: string; signal: ExploreSignal; language: string }
 
-export function ExplorePanel({ mode, service, state: controlled, onStateChange, onNavigate }: {
-  mode: 'dark' | 'light'; service?: string; state?: ExploreState; onStateChange?: (state: ExploreState) => void; onNavigate?: (target: CorrelationTarget) => void;
+export function ExplorePanel({ mode, service, state: controlled, onStateChange, onNavigate, defaultSignal = 'logs' }: {
+  mode: 'dark' | 'light'; service?: string; state?: ExploreState; onStateChange?: (state: ExploreState) => void; onNavigate?: (target: CorrelationTarget) => void; defaultSignal?: ExploreSignal;
 }) {
   const client = useClient(ObsServiceClient), text = usePlatformText();
-  const [local, setLocal] = useState<ExploreState>(controlled ?? defaultState);
+  const [local, setLocal] = useState<ExploreState>(controlled ?? { ...defaultState, signal: defaultSignal });
   const state = controlled ?? local;
   const update = (patch: Partial<ExploreState>) => { const next = { ...state, ...patch }; setLocal(next); onStateChange?.(next); };
   const capabilities = usePlatformQuery('obs:capabilities', (signal) => client.getObsCapabilities(create(GetObsCapabilitiesRequestSchema), { signal }));
@@ -69,6 +70,8 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
   const openTrace = (id: string) => update({ trace: id });
   const navigate = (target: CorrelationTarget) => { if (target.signal === 'traces' && target.traceId) openTrace(target.traceId); else onNavigate?.(target); };
   const result = action.value;
+  // Metrics without a chosen metric or a typed query show the generated dashboard.
+  const overview = state.signal === 'metrics' && !builder.metric && !(draft ?? state.query)?.trim();
   const serviceField = state.signal === 'traces' ? fields['service.name'] ?? 'resource_attr:service.name' : state.signal === 'metrics' ? 'service.name' : fields['service.name'] ?? 'service.name';
   return <section aria-label={text('explore')} className="flex h-full min-h-0 flex-col gap-3">
     <div className="grid shrink-0 gap-2 rounded-lg border border-border bg-card p-2">
@@ -88,6 +91,7 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
           <SearchText value={builder.text ?? ''} onCommit={(value) => changeBuilder({ text: value || undefined })} />
         </>}
         {state.signal === 'metrics' && <>
+          <Button size="sm" variant={overview ? 'secondary' : 'outline'} aria-pressed={overview} onClick={() => { setDraft(undefined); setBuilder({ service: builder.service }); update({ query: undefined }); }}><LayoutDashboard />{text('dashboard')}</Button>
           <FilterCombo mono className="max-w-96" label={text('metric')} value={builder.metric ?? ''} onChange={(metric) => changeBuilder({ metric: metric || undefined, fn: metric ? defaultFunction(metric) : undefined })} loadOptions={options('__name__', builder.service ? `{service.name=${JSON.stringify(builder.service)}}` : '')} />
           <NativeSelect className="h-8 w-28" aria-label={text('aggregation')} value={builder.fn ?? (builder.metric ? defaultFunction(builder.metric) : 'raw')} onChange={(event) => changeBuilder({ fn: event.target.value as MetricFunction })}>
             {metricFunctions.map((fn) => <NativeSelectOption key={fn} value={fn}>{text(`fn_${fn}`)}</NativeSelectOption>)}</NativeSelect>
@@ -121,9 +125,11 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
         {action.error !== undefined && <div className="flex shrink-0 items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert"><CircleAlert className="size-4" />{text('queryFailed')}</div>}
         {result?.response.info && (result.response.info.partial || result.response.info.truncated || result.response.info.warnings.length > 0) && <div className="shrink-0 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning" role="status">
           {(result.response.info.partial || result.response.info.truncated) && <div>{text('partial')}</div>}{result.response.info.warnings.map((warning, index) => <div key={index}>{warning}</div>)}</div>}
+        {overview ? <MetricsOverview service={builder.service} range={state.range} mode={mode} onOpen={(metric, fn) => changeBuilder({ metric, fn })} /> : <>
         {action.pending && !result && <Skeleton className="h-64 shrink-0" />}
         {result && <ObsResults run={result} mode={mode} onNavigate={navigate} limit={limit} />}
         {!result && !action.pending && action.error === undefined && <Panel fill><EmptyState icon={<Search />} title={text('runToSee')} /></Panel>}
+        </>}
       </div>
     </div>
     <DetailDrawer open={!!state.trace} onOpenChange={(open) => { if (!open) update({ trace: undefined }); }} size="full" title={<span className="font-mono">{state.trace}</span>} description={text('traceDetail')}>

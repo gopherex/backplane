@@ -33,7 +33,8 @@ export function buildQuery(signal: ExploreSignal, language: string | undefined, 
   if (signal === 'metrics') {
     const promql = language === 'promql', label = (key: string) => promql ? quote(key) : key;
     const matchers = [builder.metric ? `__name__=${quote(builder.metric)}` : '', builder.service ? `${label(field('service.name'))}=${quote(builder.service)}` : ''].filter(Boolean);
-    if (!matchers.length) return '';
+    // Without a metric there is nothing to plot: the generated dashboard is shown instead.
+    if (!builder.metric) return '';
     const selector = `{${matchers.join(', ')}}`, by = builder.groupBy ? ` by (${label(builder.groupBy)})` : '';
     switch (builder.fn ?? (builder.metric ? defaultFunction(builder.metric) : 'raw')) {
       case 'rate': return `sum(rate(${selector}[5m]))${by}`;

@@ -6,11 +6,11 @@ const signals: ExploreSignal[] = ['logs', 'metrics', 'traces'];
 const ranges: ExploreRange[] = ['5m', '15m', '1h', '3h', '6h', '12h', '24h', '7d'];
 
 /** Explore with its query, signal, time range and open trace kept in the URL. */
-export function ExploreRoute({ mode, service }: { mode: ThemeMode; service?: string }) {
+export function ExploreRoute({ mode, service, defaultSignal = 'logs' }: { mode: ThemeMode; service?: string; defaultSignal?: ExploreSignal }) {
   const [params, setParams] = useSearchParams();
   const signal = params.get('signal'), range = params.get('range');
   const state: ExploreState = {
-    signal: signals.includes(signal as ExploreSignal) ? signal as ExploreSignal : 'logs',
+    signal: signals.includes(signal as ExploreSignal) ? signal as ExploreSignal : defaultSignal,
     range: ranges.includes(range as ExploreRange) ? range as ExploreRange : '15m',
     query: params.get('q') ?? undefined, language: params.get('lang') ?? undefined, trace: params.get('trace') ?? undefined,
     limit: Number(params.get('limit')) || undefined,

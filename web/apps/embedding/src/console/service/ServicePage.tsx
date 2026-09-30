@@ -43,7 +43,7 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
       {tab === 'operations' && <ServiceOperations service={service} mode={mode} />}
       {tab === 'events' && <EventStreams service={service} mode={mode} />}
       {tab === 'workflows' && <WorkflowsPanel service={service} mode={mode} />}
-      {tab === 'telemetry' && <ExploreRoute service={service} mode={mode} />}
+      {tab === 'telemetry' && <ExploreRoute service={service} mode={mode} defaultSignal="metrics" />}
       {tab === 'audit' && <AuditFeed service={service} mode={mode} />}
     </div>
   </>;
