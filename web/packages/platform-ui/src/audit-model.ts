@@ -1,76 +1,61 @@
 import { create, type JsonValue } from '@bufbuild/protobuf';
 import { timestampFromMs, ValueSchema } from '@bufbuild/protobuf/wkt';
 import { AuditConditionSchema, AuditField, AuditFilterSchema, AuditOperator, type AuditCondition, type AuditFilter, type AuditRecord } from '@gopherex/backplane-api';
+import { allOps, type FeedChip, type FeedOp } from './feed.js';
 
 /** A fixed field of an audit record, as the feed names it. */
 export type AuditFieldName = 'source' | 'service' | 'action' | 'actor' | 'subject' | 'outcome' | 'operation' | 'severity' | 'trace_id';
-export type AuditOp = 'is' | 'is_not' | 'contains' | 'not_contains' | 'prefix' | 'exists' | 'not_exists' | 'gt' | 'gte' | 'lt' | 'lte';
-export type AuditTarget = { field: AuditFieldName } | { attribute: string };
-/** One filter condition as the page keeps it (and the URL carries it). */
-export interface AuditChip { target: AuditTarget; op: AuditOp; values: JsonValue[] }
+/** An audit chip targets `field:<name>` or `attr:<key>`. */
+export type AuditChip = FeedChip;
 
 export const auditFields: readonly AuditFieldName[] = ['source', 'service', 'action', 'actor', 'subject', 'outcome', 'operation', 'severity', 'trace_id'];
-export const auditOps: readonly AuditOp[] = ['is', 'is_not', 'contains', 'not_contains', 'prefix', 'exists', 'not_exists', 'gt', 'gte', 'lt', 'lte'];
 const fieldEnum: Record<AuditFieldName, AuditField> = {
   source: AuditField.SOURCE, service: AuditField.SERVICE, action: AuditField.ACTION, actor: AuditField.ACTOR, subject: AuditField.SUBJECT,
   outcome: AuditField.OUTCOME, operation: AuditField.OPERATION, severity: AuditField.SEVERITY, trace_id: AuditField.TRACE_ID,
 };
-const opEnum: Record<AuditOp, AuditOperator> = {
+const opEnum: Record<FeedOp, AuditOperator> = {
   is: AuditOperator.IS, is_not: AuditOperator.IS_NOT, contains: AuditOperator.CONTAINS, not_contains: AuditOperator.NOT_CONTAINS,
   prefix: AuditOperator.PREFIX, exists: AuditOperator.EXISTS, not_exists: AuditOperator.NOT_EXISTS, gt: AuditOperator.GT,
   gte: AuditOperator.GTE, lt: AuditOperator.LT, lte: AuditOperator.LTE,
 };
-/** Operators a fixed field takes: it is text. */
-export const fieldOps: readonly AuditOp[] = ['is', 'is_not', 'contains', 'not_contains', 'prefix', 'exists', 'not_exists'];
-export const takesValues = (op: AuditOp) => op !== 'exists' && op !== 'not_exists';
-export const numeric = (op: AuditOp) => op === 'gt' || op === 'gte' || op === 'lt' || op === 'lte';
+
+export const fieldKey = (field: AuditFieldName) => `field:${field}`;
+export const attributeKey = (attribute: string) => `attr:${attribute}`;
+const fieldOf = (key: string): AuditFieldName | undefined => key.startsWith('field:') && auditFields.includes(key.slice(6) as AuditFieldName) ? key.slice(6) as AuditFieldName : undefined;
 
 const valueOf = (value: JsonValue) => create(ValueSchema, value === null ? { kind: { case: 'nullValue', value: 0 } }
   : typeof value === 'boolean' ? { kind: { case: 'boolValue', value } } : typeof value === 'number' ? { kind: { case: 'numberValue', value } }
   : { kind: { case: 'stringValue', value: typeof value === 'string' ? value : JSON.stringify(value) } });
 
-export function conditionOf(target: AuditTarget): AuditCondition {
-  return create(AuditConditionSchema, { target: 'field' in target ? { case: 'field', value: fieldEnum[target.field] } : { case: 'attribute', value: target.attribute } });
+/** The condition a chip key targets. */
+export function conditionOf(key: string): AuditCondition {
+  const field = fieldOf(key);
+  return create(AuditConditionSchema, { target: field ? { case: 'field', value: fieldEnum[field] } : { case: 'attribute', value: key.slice(5) } });
+}
+
+/** The chip key of a facet's target. */
+export function keyOf(condition?: AuditCondition): string {
+  const target = condition?.target;
+  return target?.case === 'attribute' ? attributeKey(target.value) : fieldKey(auditFields[(target?.value as number ?? 1) - 1]!);
 }
 
 /** The request filter of the page's chips, text and resolved range. */
 export function filterOf(chips: readonly AuditChip[], text: string, range?: { from: number; to: number }): AuditFilter {
   return create(AuditFilterSchema, {
     text, start: range ? timestampFromMs(range.from) : undefined, end: range ? timestampFromMs(range.to) : undefined,
-    conditions: chips.map((chip) => ({ ...conditionOf(chip.target), op: opEnum[chip.op], values: chip.values.map(valueOf) })),
+    conditions: chips.map((chip) => ({ ...conditionOf(chip.key), op: opEnum[chip.op], values: chip.values.map(valueOf) })),
   });
 }
 
-export const targetKey = (target: AuditTarget) => 'field' in target ? `field:${target.field}` : `attr:${target.attribute}`;
-export const sameTarget = (a: AuditTarget, b: AuditTarget) => targetKey(a) === targetKey(b);
-
-/** The chips with value added to target's is (or is_not) chip: the one-click filter. */
-export function addValue(chips: readonly AuditChip[], target: AuditTarget, value: JsonValue, exclude = false): AuditChip[] {
-  const op: AuditOp = exclude ? 'is_not' : 'is', at = chips.findIndex((chip) => sameTarget(chip.target, target) && chip.op === op);
-  if (at < 0) return [...chips, { target, op, values: [value] }];
-  const chip = chips[at]!;
-  if (chip.values.some((v) => JSON.stringify(v) === JSON.stringify(value))) return [...chips];
-  return chips.map((other, index) => index === at ? { ...chip, values: [...chip.values, value] } : other);
-}
-
-/** A typed value: JSON when it parses as a number, boolean or null, else the text. */
-export function parseValue(text: string): JsonValue {
-  const trimmed = text.trim();
-  if (/^(-?\d+(\.\d+)?([eE][+-]?\d+)?|true|false|null)$/.test(trimmed)) return JSON.parse(trimmed) as JsonValue;
-  return text;
-}
-
 /** Chips as a URL parameter and back; malformed input is dropped. */
-export function encodeChips(chips: readonly AuditChip[]): string { return chips.length ? JSON.stringify(chips) : ''; }
-export function decodeChips(raw: string | null): AuditChip[] {
+export function encodeChips(chips: readonly FeedChip[]): string { return chips.length ? JSON.stringify(chips) : ''; }
+export function decodeChips(raw: string | null, validKey: (key: string) => boolean = (key) => !!fieldOf(key) || (key.startsWith('attr:') && key.length > 5)): FeedChip[] {
   if (!raw) return [];
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((chip): chip is AuditChip => !!chip && typeof chip === 'object' && auditOps.includes((chip as AuditChip).op)
-      && Array.isArray((chip as AuditChip).values) && !!(chip as AuditChip).target
-      && (('field' in (chip as AuditChip).target && auditFields.includes((chip as { target: { field: AuditFieldName } }).target.field))
-        || typeof (chip as { target: { attribute?: unknown } }).target.attribute === 'string'));
+    return parsed.filter((chip): chip is FeedChip => !!chip && typeof chip === 'object' && typeof (chip as FeedChip).key === 'string' && validKey((chip as FeedChip).key)
+      && allOps.includes((chip as FeedChip).op) && Array.isArray((chip as FeedChip).values));
   } catch { return []; }
 }
 

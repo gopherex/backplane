@@ -10,6 +10,7 @@ import { Button, Duration, EntityHeader, MetaItem, MetaList, StatusBadge, TabBar
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import { healthLabel, healthTone } from '../services/model';
 import { AuditRoute } from '../AuditRoute';
+import { ErrorsRoute } from '../ErrorsRoute';
 import { isServiceTab, serviceTabs } from './tabs';
 import { NotFound } from '../shell/NotFound';
 import { ExploreRoute } from '../ExploreRoute';
@@ -46,6 +47,7 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
       {tab === 'events' && <EventStreams service={service} mode={mode} />}
       {tab === 'workflows' && <WorkflowsPanel service={service} mode={mode} />}
       {tab === 'telemetry' && <ExploreRoute service={service} mode={mode} defaultSignal="metrics" />}
+      {tab === 'errors' && <ErrorsRoute service={service} mode={mode} />}
       {tab === 'audit' && <AuditRoute service={service} mode={mode} />}
     </div>
   </>;

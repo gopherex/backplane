@@ -102,5 +102,5 @@ the backend capabilities; TraceQL is not advertised unless enabled by deployment
 - `make lint` and `GOWORK=off go test -race ./...`: backend checks.
 
 The contract/reference and package guides are linked from
-[implementation scope](implementation-plan.md). ErrOtel and other application
-modules are outside this work.
+[implementation scope](implementation-plan.md). Application modules (Kratos
+wrappers, mail services) are outside this work.

@@ -25,7 +25,7 @@ function useCrumbs(modules: Record<string, ModuleEntry>): Crumb[] {
     const path = rest.join('/'), page = modules[service]?.plugin?.navigation.nav.find((entry) => entry.path === path);
     return [{ label: t('services'), to: '/services' }, { label: service, to: `/services/${service}` }, { label: page ? i18n.t(page.labelKey, { ns: `module.${service}` }) : path || t('module') }];
   }
-  return [{ label: t(root === 'explore' || root === 'audit' || root === 'dev' || root === 'wiring' ? root : 'services') }];
+  return [{ label: t(root === 'explore' || root === 'audit' || root === 'errors' || root === 'dev' || root === 'wiring' ? root : 'services') }];
 }
 
 export function Header({ services, modules, mode, onThemeChange, onLogout, logoutPending, navigationOpen, onNavigationToggle }: {

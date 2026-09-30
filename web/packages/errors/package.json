@@ -1,0 +1,55 @@
+{
+  "name": "@gopherex/backplane-errors",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Browser error capture over OpenTelemetry logs, for any web frontend reporting to a Backplane installation",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gopherex/backplane.git",
+    "directory": "web/packages/errors"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./otlp": {
+      "types": "./dist/otlp.d.ts",
+      "import": "./dist/otlp.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "import": "./dist/browser.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "node scripts/version.mjs && tsc -p tsconfig.build.json",
+    "prepack": "yarn build"
+  },
+  "peerDependencies": {
+    "@opentelemetry/api": ">=1.9.0 <1.10.0"
+  },
+  "dependencies": {
+    "@opentelemetry/api-logs": "0.222.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "0.222.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-logs": "0.222.0"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "1.9.1"
+  }
+}

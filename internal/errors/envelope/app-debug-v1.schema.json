@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:app-debug:envelope:1",
+  "title": "App Debug exception envelope — wire version 1",
+  "description": "Draft v0.1. JSON stored as the stringValue of a standard OTLP LogRecord Body. No application state size limit is imposed by this schema.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "const": "app-debug"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "kind": {
+      "const": "exception"
+    },
+    "eventId": {
+      "$ref": "#/$defs/id"
+    },
+    "timestampUnixNano": {
+      "$ref": "#/$defs/unixNano"
+    },
+    "monotonicMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence": {
+          "$ref": "#/$defs/sequence"
+        }
+      },
+      "required": [
+        "id",
+        "sequence"
+      ],
+      "additionalProperties": true
+    },
+    "exception": {
+      "$ref": "#/$defs/exception"
+    },
+    "trace": {
+      "$ref": "#/$defs/trace"
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/snapshot"
+          }
+        },
+        "inline": {
+          "$ref": "#/$defs/capturedValue"
+        }
+      },
+      "required": [
+        "sources"
+      ],
+      "additionalProperties": true
+    },
+    "history": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "sinceUnixNano": {
+          "$ref": "#/$defs/unixNano"
+        },
+        "evictedCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/historyEntry"
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "sinceUnixNano",
+        "evictedCount",
+        "items"
+      ],
+      "additionalProperties": true
+    },
+    "groupKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/json"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/diagnostic"
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "schemaVersion",
+    "kind",
+    "eventId",
+    "timestampUnixNano",
+    "monotonicMs",
+    "runtime",
+    "exception",
+    "state",
+    "history"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "json": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/json"
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/json"
+          }
+        }
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "unixNano": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "diagnostic": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "stage": {
+          "enum": [
+            "read",
+            "serialize",
+            "validate",
+            "capture"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "stage"
+      ],
+      "additionalProperties": true
+    },
+    "trace": {
+      "type": "object",
+      "properties": {
+        "traceId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "not": {
+            "const": "00000000000000000000000000000000"
+          }
+        },
+        "spanId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}$",
+          "not": {
+            "const": "0000000000000000"
+          }
+        },
+        "traceFlags": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "origin": {
+          "enum": [
+            "active",
+            "explicit"
+          ]
+        }
+      },
+      "required": [
+        "traceId",
+        "origin"
+      ],
+      "additionalProperties": true
+    },
+    "capturedValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "ok"
+            },
+            "value": {
+              "$ref": "#/$defs/json"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status": {
+              "const": "error"
+            },
+            "error": {
+              "$ref": "#/$defs/diagnostic"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "exception": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "stacktrace": {
+          "type": "string"
+        },
+        "mechanism": {
+          "enum": [
+            "manual",
+            "window.error",
+            "unhandledrejection"
+          ]
+        },
+        "handled": {
+          "type": "boolean"
+        },
+        "location": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [],
+          "additionalProperties": true
+        },
+        "cause": {
+          "$ref": "#/$defs/exceptionInfo"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exceptionInfo"
+          }
+        },
+        "incomplete": {
+          "enum": [
+            "cycle",
+            "limit",
+            "unreadable"
+          ]
+        }
+      },
+      "required": [
+        "mechanism"
+      ],
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/capturedValue"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "registrationId": {
+              "$ref": "#/$defs/id"
+            },
+            "capturedAtUnixNano": {
+              "$ref": "#/$defs/unixNano"
+            },
+            "monotonicMs": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "name",
+            "registrationId",
+            "capturedAtUnixNano",
+            "monotonicMs"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "historyEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "sequence": {
+              "$ref": "#/$defs/sequence"
+            },
+            "timestampUnixNano": {
+              "$ref": "#/$defs/unixNano"
+            },
+            "monotonicMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "trace": {
+              "$ref": "#/$defs/trace"
+            },
+            "kind": {
+              "const": "breadcrumb"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "data": {
+              "$ref": "#/$defs/capturedValue"
+            }
+          },
+          "required": [
+            "id",
+            "sequence",
+            "timestampUnixNano",
+            "monotonicMs",
+            "kind",
+            "name"
+          ],
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "sequence": {
+              "$ref": "#/$defs/sequence"
+            },
+            "timestampUnixNano": {
+              "$ref": "#/$defs/unixNano"
+            },
+            "monotonicMs": {
+              "type": "number",
+              "minimum": 0
+            },
+            "trace": {
+              "$ref": "#/$defs/trace"
+            },
+            "kind": {
+              "const": "state"
+            },
+            "snapshot": {
+              "$ref": "#/$defs/snapshot"
+            }
+          },
+          "required": [
+            "id",
+            "sequence",
+            "timestampUnixNano",
+            "monotonicMs",
+            "kind",
+            "snapshot"
+          ],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "exceptionInfo": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "stacktrace": {
+          "type": "string"
+        },
+        "cause": {
+          "$ref": "#/$defs/exceptionInfo"
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exceptionInfo"
+          }
+        },
+        "incomplete": {
+          "enum": [
+            "cycle",
+            "limit",
+            "unreadable"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

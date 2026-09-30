@@ -177,6 +177,7 @@ web-check: ## Build packages and fixtures, typecheck, unit and browser tests
 	yarn typecheck
 	yarn test:unit
 	yarn test:browser
+	yarn test:errors-browser
 	yarn build:storybook
 	yarn test:storybook
 	cd ..
@@ -193,11 +194,11 @@ dev-module: ## Run the module template independently of the platform
 .PHONY: release
 
 .PHONY: test-otlp
-test-otlp: ## OTLP admission -> isolated Collector -> Victoria storage (start observability compose first)
+test-otlp: ## OTLP admission and errors -> isolated Collector -> Victoria storage (start observability compose first)
 	GOWORK=off BACKPLANE_TEST_OTLP=http://127.0.0.1:14318 \
 	BACKPLANE_TEST_LOGS_URL=http://127.0.0.1:19428 BACKPLANE_TEST_TRACES_URL=http://127.0.0.1:20428 \
 	BACKPLANE_TEST_METRICS_URL=http://127.0.0.1:18428 \
-		go test -race -count=1 -run '^TestStoredSignals$$' -v ./internal/otlp
+		go test -race -count=1 -run '^(TestStoredSignals|TestErrorsLive)$$' -v ./internal/otlp ./internal/obs
 
 release: ## Interactive tag-driven release (runs `make check` first)
 	cd "$$(git rev-parse --show-toplevel)"

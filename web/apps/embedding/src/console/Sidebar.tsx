@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Box, Boxes, ChevronRight, ChevronsLeft, Compass, History, PanelLeftOpen, Settings2, Workflow } from 'lucide-react';
+import { Box, Boxes, ChevronRight, ChevronsLeft, Compass, History, PanelLeftOpen, Settings2, Workflow, Bug } from 'lucide-react';
 import { Button, Input, StatusDot } from '@gopherex/backplane-ui';
 import { healthTone } from './services/model';
 import type { ServiceSummary } from '@gopherex/backplane-api';
@@ -38,7 +38,7 @@ export default function Sidebar({ services, modules, mobile, onClose }: { servic
     if (service) setClosed((old) => { const next = new Set(old); next.delete(decodeURIComponent(service)); return next; });
   }, [location.pathname]);
   const resize = (width: number) => setPreferences((old) => ({ ...old, width: Math.max(MIN, Math.min(MAX, width)), pinned: true }));
-  const fixed = [{ to: '/services', key: 'services', icon: Boxes }, { to: '/wiring', key: 'wiring', icon: Workflow }, { to: '/explore', key: 'explore', icon: Compass }, { to: '/audit', key: 'audit', icon: History }];
+  const fixed = [{ to: '/services', key: 'services', icon: Boxes }, { to: '/wiring', key: 'wiring', icon: Workflow }, { to: '/explore', key: 'explore', icon: Compass }, { to: '/errors', key: 'errors', icon: Bug }, { to: '/audit', key: 'audit', icon: History }];
   return <>
     {mobile && <button className="console-nav-backdrop" aria-label={t('close')} onClick={onClose} />}
     <div className="console-nav-slot" data-pinned={preferences.pinned} data-mobile={mobile} style={{ '--navigation-width': `${preferences.width}px` } as CSSProperties}>

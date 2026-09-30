@@ -22,10 +22,11 @@ dependencies; the public npm registry is not a publication target.
 | `ui` | Primitives, forms, tables, layout, feedback and accessible interaction | Platform network requests |
 | `editors` | Lazy code, JSON, diff and query editors | Backend credentials |
 | `charts` | Time series, stat, gauges, legends and visualization controls | Queries or storage-specific result parsing |
-| `observability-ui` | Logs, attributes, trace waterfall, span details, stack traces, correlation links | Error grouping, incident state, ErrOtel business logic |
+| `observability-ui` | Logs, attributes, trace waterfall, span details, stack traces, correlation links | Error grouping, incident state, error queries |
 | `schema-forms` | schemapb forms, validation presentation and JSON fallback | Configuration writes |
 | `platform-ui` | API-aware service, operation, audit and telemetry compositions | A second console shell |
-| `plugin-sdk` | Typed plugin definition, relative routes, navigation registry and host context | Service deployment |
+| `plugin-sdk` | Typed plugin definition, relative routes, navigation registry and host context; `usePluginErrorReporter()` reports a module's handled errors to the installation's Errors, marked `backplane.module` | Service deployment |
+| `errors` (`@gopherex/backplane-errors`) | Browser error capture for any frontend (the console, modules, applications) over OTLP logs; see [errors.md](errors.md) | Storage, queries, sourcemaps |
 | `plugin-build` | Pinned build preset, shared dependency contract, remote and manifest output | Running a local platform for authors |
 
 Names are `@gopherex/backplane-<suffix>`. Create packages when they have a real
@@ -160,7 +161,7 @@ retention configuration or retention display in the UI.
 The entire OTel stack is independent of Backplane: Collector processing,
 exporters, telemetry stores, retention and their lifecycle belong to deployment.
 Backplane integrates with it through an OTLP proxy like Komeet's gateway and
-an authenticated storage-query API like ErrOtel. It is also an ordinary telemetry
+an authenticated storage-query API. It is also an ordinary telemetry
 producer. Direct ingestion into the Collector continues without Backplane.
 The first query driver uses VictoriaMetrics, VictoriaLogs and VictoriaTraces.
 
@@ -171,9 +172,9 @@ The implemented [ObsService](obs-api.md) reads the same stored signals through
 the authenticated query API; its acceptance tests also cover native discovery.
 
 External applications can send ordinary OTLP without registering as modules.
-ErrOtel builds error grouping, additional SDKs and domain state itself. Both its
-server and UI query telemetry through the platform API. The platform kit supplies
-the generic data presentation it needs; storage credentials do not reach plugins.
+Errors are part of the platform: `@gopherex/backplane-errors` captures them in
+any frontend, `ErrorService` reads them from the log store and the console
+shows them ([errors.md](errors.md)). Storage credentials do not reach plugins.
 
 One installation is one tenant/trust boundary. Applications and environments
 are resource attributes, not tenant isolation. Isolated tenants use separate

@@ -33,7 +33,8 @@ bigint as decimal text.
 
 Storybook fixtures exercise 10,000 logs, 2,000 spans across two services, missing
 and cyclic parents, event/link details, source context and nested causes in both
-themes. No ErrOtel application logic is implemented by these components.
+themes. Error queries and envelopes belong to platform-ui's Errors
+([errors.md](errors.md)); these components only present.
 
 `humanDuration` formats nanosecond spans (850 ns, 12.4 µs, 3.21 ms, 1.50 s);
 `spanForest` and `spanPosition` are exported for custom trace views such as the

@@ -141,9 +141,9 @@ without cleanup. Neither should be retried blindly after connection loss.
 
 ## Audit
 
-`InvalidArgument`: bad filter/limit/cursor. `OutOfRange` 11: expired cursor;
-refetch history. `Unavailable`: database failure. `Internal`: malformed stored
-metadata. Full [pagination, watch and outbox contract](audit-api.md).
+`InvalidArgument`: bad filter, range, limit or cursor. `Unavailable`: database
+failure. `Internal`: malformed stored metadata. Full [feed, ingest and outbox
+contract](audit-api.md).
 
 ## Observability
 
@@ -153,6 +153,14 @@ absent. `ResourceExhausted`: concurrency/size/result budget.
 `DeadlineExceeded`: query deadline. `Unavailable`: storage/network failure.
 Backend messages are sanitized. A successful response may carry `truncated`,
 `partial` and warnings; show those states. Full [driver contract](obs-api.md).
+
+## Errors
+
+`InvalidArgument`: bad filter, range, limit, reference or cursor.
+`FailedPrecondition`: the log store is not configured. `ResourceExhausted`:
+concurrency or size budget. `DeadlineExceeded`, `Unavailable`: the log store is
+slow or down; its messages are not echoed. A response may be `partial` with
+warnings; show that state. Full [errors contract](errors.md).
 
 ## Snapshot watches
 

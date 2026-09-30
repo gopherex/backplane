@@ -1,7 +1,8 @@
 # Implementation scope
 
-The active scope is steps 1–9 below. Application modules such as ErrOtel,
-Kratos wrappers and mail services are excluded. Step 9 uses kit fixtures and
+The active scope is steps 1–9 below. Application modules such as Kratos
+wrappers and mail services are excluded; errors are a platform feature
+([errors.md](errors.md)). Step 9 uses kit fixtures and
 representative workflows, not an application migration. Existing hello and
 formatter examples remain the platform acceptance fixtures.
 
@@ -21,7 +22,7 @@ contracts and current validation limits, including pending live dev/HMR checks.
 | 6 | Complete standalone and embedded module SDK | implemented | External author workflow without platform; same module embedded with compatible shared context and service-owned delivery |
 | 7 | Full make dev and live hello/formatter UI | implemented | One command, seeded binding/rule, real configuration/operations/audit/telemetry |
 | 8 | Product console M1–M3 | shell implemented; screen composition in progress | Approved header/tree navigation; live shell acceptance, then remaining product workflows |
-| 9 | Validate kit against error investigation workflows | implemented | Representative search/detail/stack/log/trace screens in the component catalog, no ErrOtel module implementation |
+| 9 | Validate kit against error investigation workflows | implemented | Representative search/detail/stack/log/trace screens in the component catalog; the console's Errors uses them |
 
 Twelve public package directories now cover API/client/React, theme/base UI,
 schema forms, editors/charts, generic observability, platform compositions and

@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package backplane.console.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+// ErrorService reads errors from the installation's log store: records the
+// browser SDK (@gopherex/backplane-errors) writes, and any OpenTelemetry log
+// record carrying the exception semantic conventions (exception.type,
+// exception.message, exception.stacktrace; the Go SDK's CaptureError).
+// Errors are retained as long as the log store retains logs; nothing is
+// copied elsewhere. Reads never return raw LogsQL errors. InvalidArgument: a
+// bad filter, range, limit, reference or cursor; FailedPrecondition: the log
+// store is not configured; Unavailable / DeadlineExceeded: it is down or slow.
+service ErrorService {
+  // Occurrences newest first, one per SDK event id (retries collapse).
+  rpc SearchErrors(SearchErrorsRequest) returns (SearchErrorsResponse);
+  // Occurrences per bucket over the filter's range.
+  rpc ErrorHistogram(ErrorHistogramRequest) returns (ErrorHistogramResponse);
+  // The most frequent values of fields over the filter's occurrences.
+  rpc ErrorFacets(ErrorFacetsRequest) returns (ErrorFacetsResponse);
+  // One occurrence in full: the exception, the SDK envelope (state,
+  // history), the stored fields and what did not check out.
+  rpc GetError(GetErrorRequest) returns (GetErrorResponse);
+  // Logs related to an occurrence: of its span, its trace, its SDK runtime
+  // or its service around its time. Its trace itself is ObsService.GetTrace.
+  rpc RelatedLogs(RelatedLogsRequest) returns (RelatedLogsResponse);
+}
+
+enum ErrorOrigin {
+  ERROR_ORIGIN_UNSPECIFIED = 0;
+  // Written by the browser SDK: an envelope with state and history.
+  ERROR_ORIGIN_SDK = 1;
+  // Any other log record with the exception semantic conventions.
+  ERROR_ORIGIN_OTEL_LOG = 2;
+}
+
+// ErrorOccurrence is one captured exception as the list shows it.
+message ErrorOccurrence {
+  // Opaque; GetError and RelatedLogs take it.
+  string ref = 1;
+  ErrorOrigin origin = 2;
+  // SDK: the event id (UUID v4).
+  string event_id = 3;
+  google.protobuf.Timestamp time = 4;
+  string service = 5;
+  string environment = 6;
+  string release = 7;
+  // exception.type and exception.message.
+  string type = 8;
+  string message = 9;
+  // OTel severity number; 0: unset.
+  int32 severity = 10;
+  string trace_id = 11;
+  string span_id = 12;
+  // SDK: the runtime (one SDK instance's lifetime) it came from.
+  string runtime_id = 13;
+  // SDK: the handler that caught it (manual, window.error, unhandledrejection).
+  string mechanism = 14;
+  // SDK: the application's grouping key, as given.
+  string group_key = 15;
+}
+
+// ErrorField is a filterable field of an occurrence.
+enum ErrorField {
+  ERROR_FIELD_UNSPECIFIED = 0;
+  ERROR_FIELD_SERVICE = 1;
+  ERROR_FIELD_ENVIRONMENT = 2;
+  ERROR_FIELD_TYPE = 3;
+  ERROR_FIELD_MESSAGE = 4;
+  ERROR_FIELD_RELEASE = 5;
+  ERROR_FIELD_TRACE_ID = 6;
+  ERROR_FIELD_RUNTIME_ID = 7;
+  ERROR_FIELD_GROUP_KEY = 8;
+  // "sdk" or "otel-log"; IS and IS_NOT only.
+  ERROR_FIELD_ORIGIN = 9;
+}
+
+enum ErrorOperator {
+  ERROR_OPERATOR_UNSPECIFIED = 0;
+  // Equals any of the values.
+  ERROR_OPERATOR_IS = 1;
+  ERROR_OPERATOR_IS_NOT = 2;
+  // Contains any of the values, case-insensitive.
+  ERROR_OPERATOR_CONTAINS = 3;
+  ERROR_OPERATOR_NOT_CONTAINS = 4;
+  // Starts with any of the values.
+  ERROR_OPERATOR_PREFIX = 5;
+  // Stored and not empty; no values.
+  ERROR_OPERATOR_EXISTS = 6;
+  ERROR_OPERATOR_NOT_EXISTS = 7;
+}
+
+message ErrorCondition {
+  ErrorField field = 1;
+  ErrorOperator op = 2;
+  repeated string values = 3;
+}
+
+// ErrorFilter: the range (required, at most 31 days), every condition and the
+// text (a case-insensitive substring of the message).
+message ErrorFilter {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+  repeated ErrorCondition conditions = 3;
+  string text = 4;
+}
+
+message SearchErrorsRequest {
+  ErrorFilter filter = 1;
+  // 0 = 50; at most 200.
+  uint32 page_size = 2;
+  // Opaque. Reuse exactly the same filter on every page.
+  string page_cursor = 3;
+}
+
+message SearchErrorsResponse {
+  repeated ErrorOccurrence occurrences = 1;
+  string next_page_cursor = 2;
+  // The log store answered in part (or a page bound was reached); warnings
+  // say why.
+  bool partial = 3;
+  repeated string warnings = 4;
+}
+
+message ErrorHistogramRequest {
+  ErrorFilter filter = 1;
+}
+
+message ErrorHistogramResponse {
+  // At most 120 buckets of a round width covering the range.
+  repeated ErrorBucket buckets = 1;
+  int64 step_millis = 2;
+  uint64 total = 3;
+  bool partial = 4;
+}
+
+message ErrorBucket {
+  google.protobuf.Timestamp start = 1;
+  uint64 count = 2;
+}
+
+message ErrorFacetsRequest {
+  ErrorFilter filter = 1;
+  repeated ErrorField fields = 2;
+  // Values per field: 0 = 10; at most 50.
+  uint32 limit = 3;
+}
+
+message ErrorFacetsResponse {
+  // In the order of the fields.
+  repeated ErrorFacet facets = 1;
+  bool partial = 2;
+}
+
+message ErrorFacet {
+  ErrorField field = 1;
+  repeated ErrorFacetValue values = 2;
+}
+
+message ErrorFacetValue {
+  string value = 1;
+  uint64 count = 2;
+  google.protobuf.Timestamp last_seen = 3;
+}
+
+message GetErrorRequest {
+  string ref = 1;
+}
+
+message GetErrorResponse {
+  ErrorOccurrence occurrence = 1;
+  // exception.stacktrace as stored (raw text; no symbolication).
+  string stacktrace = 2;
+  // SDK: the envelope's exception (cause chain, aggregate errors, location).
+  google.protobuf.Struct exception = 3;
+  // SDK: the whole envelope (state sources, inline state, history,
+  // extensions) when it checks out against the schema.
+  google.protobuf.Struct envelope = 4;
+  // SDK: available, invalid, unsupported_version; absent for OTel logs.
+  string envelope_status = 5;
+  // Every stored field of the record but its body.
+  map<string, string> fields = 6;
+  // invalid_payload, index_payload_mismatch, event_id_body_conflict, ...
+  repeated string warnings = 7;
+}
+
+enum ErrorRelation {
+  ERROR_RELATION_UNSPECIFIED = 0;
+  // Logs of the occurrence's span.
+  ERROR_RELATION_SAME_SPAN = 1;
+  ERROR_RELATION_SAME_TRACE = 2;
+  // Logs of the SDK runtime that captured it.
+  ERROR_RELATION_SAME_RUNTIME = 3;
+  // Logs of its service around its time.
+  ERROR_RELATION_TIME_WINDOW = 4;
+}
+
+message RelatedLogsRequest {
+  string ref = 1;
+  ErrorRelation relation = 2;
+  // Absent: 15 minutes either side of the occurrence.
+  google.protobuf.Timestamp start = 3;
+  google.protobuf.Timestamp end = 4;
+  // 0 = 50; at most 200.
+  uint32 page_size = 5;
+}
+
+message RelatedLogsResponse {
+  // available, partial, not_found (no such key or no logs), unavailable.
+  string status = 1;
+  string reason = 2;
+  repeated RelatedLog logs = 3;
+}
+
+message RelatedLog {
+  google.protobuf.Timestamp time = 1;
+  map<string, string> fields = 2;
+}

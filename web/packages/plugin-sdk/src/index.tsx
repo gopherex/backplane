@@ -17,7 +17,11 @@ export interface PluginContext {
   mode: ThemeMode;
   /** Explicit fixture marker, never inferred from connection failures. */
   environment: 'standalone' | 'embedded';
+  /** The host's error reporter (the console's @gopherex/backplane-errors client); absent standalone. */
+  reportError?: ErrorReporter;
 }
+/** Reports an exception to the installation's Errors, with attributes that filter it there. */
+export type ErrorReporter = (error: unknown, options?: { handled?: boolean; attributes?: Readonly<Record<string, string>> }) => void;
 
 export function assertRelativePath(path: string) {
   let decoded: string;
@@ -71,5 +75,19 @@ export function usePluginNavigate() {
   return (path: string) => {
     assertRelativePath(path);
     navigate(`${basePath.replace(/\/$/, '')}/${path}`);
+  };
+}
+
+/**
+ * Reports a module's exceptions to the installation's Errors section, marked
+ * backplane.module=<service> (standalone: to the browser console). Unhandled
+ * errors and render failures are reported by the host already; this is for
+ * handled ones worth seeing.
+ */
+export function usePluginErrorReporter(): ErrorReporter {
+  const { service, reportError } = usePluginContext();
+  return (error, options) => {
+    if (!reportError) { console.error(error); return; }
+    reportError(error, { handled: true, ...options, attributes: { ...options?.attributes, 'backplane.module': service } });
   };
 }

@@ -19,11 +19,12 @@
     "test:browser": "playwright test",
     "test:unit": "vitest run",
     "dev:module": "yarn build:packages && yarn workspace @backplane/module-template dev",
-    "build:packages": "yarn workspace @gopherex/backplane-api build && yarn workspace @gopherex/backplane-client build && yarn workspace @gopherex/backplane-react build && yarn workspace @gopherex/backplane-theme build && yarn workspace @gopherex/backplane-ui build && yarn workspace @gopherex/backplane-schema-forms build && yarn workspace @gopherex/backplane-editors build && yarn workspace @gopherex/backplane-charts build && yarn workspace @gopherex/backplane-observability-ui build && yarn workspace @gopherex/backplane-platform-ui build && yarn workspace @gopherex/backplane-plugin-sdk build && yarn workspace @gopherex/backplane-plugin-build build",
+    "build:packages": "yarn workspace @gopherex/backplane-errors build && yarn workspace @gopherex/backplane-api build && yarn workspace @gopherex/backplane-client build && yarn workspace @gopherex/backplane-react build && yarn workspace @gopherex/backplane-theme build && yarn workspace @gopherex/backplane-ui build && yarn workspace @gopherex/backplane-schema-forms build && yarn workspace @gopherex/backplane-editors build && yarn workspace @gopherex/backplane-charts build && yarn workspace @gopherex/backplane-observability-ui build && yarn workspace @gopherex/backplane-platform-ui build && yarn workspace @gopherex/backplane-plugin-sdk build && yarn workspace @gopherex/backplane-plugin-build build",
     "storybook": "storybook dev -c apps/catalog/.storybook -p 6006",
     "build:storybook": "storybook build -c apps/catalog/.storybook -o apps/catalog/storybook-static",
     "test:storybook": "playwright test -c playwright.storybook.config.ts",
-    "test:packed": "node scripts/check-packed.mjs"
+    "test:packed": "node scripts/check-packed.mjs",
+    "test:errors-browser": "playwright test -c tests/errors-browser/playwright.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
@@ -37,6 +38,7 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.1",
+    "ajv": "8.17.1",
     "i18next": "26.4.2",
     "playwright-core": "1.58.2",
     "react": "19.3.0",

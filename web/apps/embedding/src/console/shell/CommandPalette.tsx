@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AppWindow, Box, Compass, History, Moon, Search, Sun, Workflow, type LucideIcon } from 'lucide-react';
+import { AppWindow, Box, Compass, History, Moon, Search, Sun, Workflow, type LucideIcon, Bug } from 'lucide-react';
 import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut, Kbd } from '@gopherex/backplane-ui';
 import type { ServiceSummary } from '@gopherex/backplane-api';
 import type { ThemeMode } from '@gopherex/backplane-theme';
@@ -37,6 +37,7 @@ export function CommandPalette({ services, modules, mode, onThemeChange }: {
             {item('nav-services', '/services', Box, t('services'))}
             {item('nav-wiring', '/wiring', Workflow, t('wiring'))}
             {item('nav-explore', '/explore', Compass, t('explore'))}
+            {item('nav-errors', '/errors', Bug, t('errors'))}
             {item('nav-audit', '/audit', History, t('audit'))}
           </CommandGroup>
           <CommandGroup heading={t('services')}>

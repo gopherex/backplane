@@ -10,6 +10,7 @@
   "dependencies": {
     "lucide-react": "1.48.0",
     "@gopherex/backplane-api": "0.1.0",
+    "@gopherex/backplane-errors": "0.1.0",
     "@gopherex/backplane-client": "0.1.0",
     "@gopherex/backplane-react": "0.1.0",
     "@gopherex/backplane-theme": "0.1.0",

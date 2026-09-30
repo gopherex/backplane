@@ -1,7 +1,10 @@
 export { platformEnglish } from './locales.js';
 export { usePlatformQuery, usePlatformAction, ConnectionNotice, QueryState, MutationState } from './runtime.js';
 export { AuditExplorer, defaultAuditState, type AuditState } from './audit.js';
+export { ErrorsExplorer, defaultErrorsState, type ErrorsState } from './errors.js';
+export { parseStack } from './errors-model.js';
 export { decodeChips, encodeChips, type AuditChip } from './audit-model.js';
+export { FeedFacets, FeedFilterBar, FeedHistogram, FeedTimeBar, useFresh, type FeedChip, type FeedFacet, type FeedOp, type FeedTarget } from './feed.js';
 export { ServiceCatalog, ServiceInspector } from './services.js';
 export { ConfigurationPanel } from './config.js';
 export { ExplorePanel, ObsResults, TraceLookup, type ExploreState, type ExploreSignal, type ExploreRange, type ExploreRun } from './explore.js';

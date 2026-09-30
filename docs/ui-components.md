@@ -28,8 +28,8 @@ storybook example has been reproduced verbatim.
 - [HyperDX theme](https://github.com/hyperdxio/hyperdx/tree/main/packages/app/src/theme/themes/hyperdx):
   color, density and typography reference. Selectively port useful log/trace
   presentation code with notices; do not import its application or Mantine.
-- Local ErrOtel's HyperDX adaptation is a behavioral reference for structured
-  JSON, precise values and timelines. Error grouping/state belongs to ErrOtel.
+- The HyperDX adaptation behind the console's Errors is a behavioral
+  reference for structured JSON, precise values and timelines.
 
 Grafana types stay behind adapters where practical. First try published public
 exports; tightly coupled code needs a deliberate source port and provenance.

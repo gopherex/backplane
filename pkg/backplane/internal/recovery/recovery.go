@@ -1,14 +1,13 @@
 // Package recovery turns a panic in a request handler into an error for
 // that request instead of a crashed process: gRPC and ws-proto calls get
-// codes.Internal, HTTP requests 500. Every recovered panic is logged with
-// its stack and the request's trace ids and counted in
-// backplane.panics{where}.
+// codes.Internal, HTTP requests 500. Every recovered panic is logged as an
+// OpenTelemetry exception record (with its stack and the request's trace)
+// and counted in backplane.panics{where}.
 package recovery
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"runtime/debug"
 
@@ -18,6 +17,7 @@ import (
 
 	"github.com/gopherex/xlog"
 
+	"github.com/gopherex/backplane/pkg/backplane/internal/exception"
 	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 )
 
@@ -33,9 +33,8 @@ const (
 // report logs and counts a recovered panic.
 func report(ctx context.Context, log *xlog.Logger, where, target string, v any) {
 	metrics.Panic(ctx, where)
-	log.Ctx().Error(ctx, "panic recovered",
-		xlog.String("where", where), xlog.String("target", target),
-		xlog.String("panic", fmt.Sprint(v)), xlog.String("stack", string(debug.Stack())))
+	log.Ctx().Error(ctx, "panic recovered", append(exception.Panic(v, debug.Stack()),
+		xlog.String("where", where), xlog.String("target", target))...)
 }
 
 func internal() error {

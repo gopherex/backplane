@@ -19,6 +19,12 @@
       "@gopherex/backplane-theme": [
         "packages/theme/src/index.ts"
       ],
+      "@gopherex/backplane-errors": [
+        "packages/errors/src/index.ts"
+      ],
+      "@gopherex/backplane-errors/*": [
+        "packages/errors/src/*.ts"
+      ],
       "@gopherex/backplane-ui": [
         "packages/ui/src/index.ts"
       ],

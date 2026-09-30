@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { BackplaneProvider } from '@gopherex/backplane-react';
-import { AuditExplorer, AutomationPanel, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, SystemMap, WiringWorkspace, WorkflowRuns, WorkflowsPanel, type WiringState, type AuditState, defaultAuditState } from '@gopherex/backplane-platform-ui';
+import { AuditExplorer, ErrorsExplorer, AutomationPanel, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, SystemMap, WiringWorkspace, WorkflowRuns, WorkflowsPanel, type WiringState, type AuditState, type ErrorsState, defaultAuditState, defaultErrorsState } from '@gopherex/backplane-platform-ui';
 import { ServiceHealth } from '@gopherex/backplane-api';
 import '@xyflow/react/dist/base.css';
 import { Button, Checkbox, Stack } from '@gopherex/backplane-ui';
@@ -32,6 +32,11 @@ function AuditPage({ mode }: { mode: 'dark' | 'light' }) {
   return <div style={{ height: 820 }}><AuditExplorer mode={mode} state={state} onStateChange={setState} onOpenTrace={() => undefined} /></div>;
 }
 export const Audit: Story = { render: (_, context) => <AuditPage mode={mode(context)} /> };
+function ErrorsPage({ mode }: { mode: 'dark' | 'light' }) {
+  const [state, setState] = useState<ErrorsState>({ ...defaultErrorsState, range: { from: '2026-09-30T11:55:00Z', to: '2026-09-30T12:10:00Z', timeZone: 'utc' }, live: 0 });
+  return <div style={{ height: 820 }}><ErrorsExplorer mode={mode} state={state} onStateChange={setState} /></div>;
+}
+export const Errors: Story = { render: (_, context) => <ErrorsPage mode={mode(context)} /> };
 export const Explore: Story = { render: (_, context) => <ExplorePanel mode={mode(context)} /> };
 export const Operations: Story = { render: (_, context) => <ServiceOperations service="hello" mode={mode(context)} /> };
 function Wiring({ mode, initial }: { mode: 'dark' | 'light'; initial: WiringState }) {

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { create } from '@bufbuild/protobuf';
 import { DurationSchema, TimestampSchema } from '@bufbuild/protobuf/wkt';
 import { AuditField, AuditOperator, AuditRecordSchema, AuditSource } from '@gopherex/backplane-api';
-import { addValue, decodeChips, detailFacts, encodeChips, filterOf, humanActor, mergeRecords, parseValue } from '../packages/platform-ui/src/audit-model';
+import { decodeChips, detailFacts, encodeChips, filterOf, humanActor, mergeRecords } from '../packages/platform-ui/src/audit-model';
+import { addValue, parseValue } from '../packages/platform-ui/src/feed';
+import { causesOf, errorFilterOf, historyOf, parseStack, stateOf } from '../packages/platform-ui/src/errors-model';
+import { readFileSync } from 'node:fs';
 import { nativeJSON } from '../packages/platform-ui/src/serialization';
 import { tempoToSpans, parseTelemetryJSON, telemetryJSON, otlpId, decimalMillisToNanos } from '../packages/platform-ui/src/telemetry-model';
 
@@ -29,15 +32,16 @@ describe('platform data adapters', () => {
 
 describe('audit filters', () => {
   it('builds conditions, one-click values and the URL form', () => {
-    let chips = addValue([], { field: 'service' }, 'iam');
-    chips = addValue(chips, { field: 'service' }, 'billing');
-    chips = addValue(chips, { attribute: 'tenant' }, 'acme', true);
-    expect(chips).toEqual([{ target: { field: 'service' }, op: 'is', values: ['iam', 'billing'] }, { target: { attribute: 'tenant' }, op: 'is_not', values: ['acme'] }]);
+    let chips = addValue([], 'field:service', 'iam');
+    chips = addValue(chips, 'field:service', 'billing');
+    chips = addValue(chips, 'attr:tenant', 'acme', true);
+    expect(chips).toEqual([{ key: 'field:service', op: 'is', values: ['iam', 'billing'] }, { key: 'attr:tenant', op: 'is_not', values: ['acme'] }]);
     expect(decodeChips(encodeChips(chips))).toEqual(chips);
-    expect(decodeChips('[{"target":{"field":"nope"},"op":"is","values":[]}]')).toEqual([]);
+    expect(decodeChips('[{"key":"field:nope","op":"is","values":[]}]')).toEqual([]);
     expect(decodeChips('not json')).toEqual([]);
     const filter = filterOf(chips, 'text', { from: 1000, to: 2000 });
     expect(filter.conditions[0]!.target).toEqual({ case: 'field', value: AuditField.SERVICE });
+    expect(filter.conditions[1]!.target).toEqual({ case: 'attribute', value: 'tenant' });
     expect(filter.conditions[1]!.op).toBe(AuditOperator.IS_NOT);
     expect(filter.start?.seconds).toBe(1n);
     expect(parseValue('3')).toBe(3); expect(parseValue('true')).toBe(true); expect(parseValue('acme')).toBe('acme');
@@ -50,5 +54,26 @@ describe('audit filters', () => {
     expect(detailFacts(platform)).toEqual(['rev 3', 'keys a, b', 'workflow wf']);
     const application = create(AuditRecordSchema, { source: AuditSource.APPLICATION, message: 'deleted', attributes: { 'backplane.audit': true, 'event.name': 'x', tenant: 'acme' } });
     expect(detailFacts(application)).toEqual(['deleted', 'tenant acme']);
+  });
+});
+
+describe('errors', () => {
+  it('parses V8, Firefox and Go stacks into frames', () => {
+    expect(parseStack('TypeError: x is undefined\n    at render (https://app/main.js:10:5)\n    at https://app/vendor.js:2:3')).toEqual([
+      { id: '0', function: 'render', file: 'https://app/main.js', line: 10, column: 5 }, { id: '1', function: '<anonymous>', file: 'https://app/vendor.js', line: 2, column: 3 }]);
+    expect(parseStack('render@https://app/main.js:10:5\n@https://app/vendor.js:2:3')).toMatchObject([{ function: 'render', line: 10 }, { function: '<anonymous>', line: 2 }]);
+    expect(parseStack('goroutine 1 [running]:\nmain.charge(0x1)\n\t/src/pay.go:12 +0x1d\nmain.main()\n\t/src/main.go:5 +0x10')).toEqual([
+      { id: '0', function: 'main.charge', file: '/src/pay.go', line: 12 }, { id: '1', function: 'main.main', file: '/src/main.go', line: 5 }]);
+  });
+
+  it('turns chips into an error filter and reads the envelope', () => {
+    const filter = errorFilterOf([{ key: 'service', op: 'is', values: ['web'] }, { key: 'origin', op: 'is_not', values: ['otel-log'] }, { key: 'nope', op: 'is', values: ['x'] }], 'boom', { from: 0, to: 60_000 });
+    expect(filter.conditions).toHaveLength(2);
+    expect(filter.conditions[1]!.values).toEqual(['otel-log']);
+    const envelope = JSON.parse(readFileSync('tests/fixtures/errors/exception-envelope.json', 'utf8'));
+    expect(historyOf(envelope).map((item) => [item.kind, item.name])).toEqual([['breadcrumb', 'command.started'], ['state', 'editor']]);
+    expect(stateOf(envelope).map((source) => source.name)).toEqual(['editor', 'inline']);
+    const cause = causesOf({ exception: envelope.exception, stacktrace: '', occurrence: undefined } as never);
+    expect(cause).toMatchObject({ type: 'FixtureError', message: 'Synthetic fixture exception', frames: [{ function: 'fixture', file: 'synthetic.js' }] });
   });
 });

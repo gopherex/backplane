@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
-  testIgnore: '*storybook.spec.ts',
+  testIgnore: ['*storybook.spec.ts', 'errors-browser/**'],
   use: { baseURL: 'http://127.0.0.1:4178', viewport: { width: 1280, height: 900 } },
   webServer: [{
     command: 'yarn workspace @backplane/catalog preview --port 4178 --strictPort',

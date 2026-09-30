@@ -1,0 +1,100 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "fixture-browser"
+            }
+          }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "app-debug.browser",
+            "version": "0.1.0"
+          },
+          "logRecords": [
+            {
+              "timeUnixNano": "1789034400000000000",
+              "observedTimeUnixNano": "1789034400000000000",
+              "severityNumber": 17,
+              "severityText": "ERROR",
+              "body": {
+                "stringValue": "{\"schema\":\"app-debug\",\"schemaVersion\":1,\"kind\":\"exception\",\"eventId\":\"d45238c7-4ff0-4e5f-819b-f8d0f4c3c143\",\"timestampUnixNano\":\"1789034400000000000\",\"monotonicMs\":100,\"runtime\":{\"id\":\"b35e19ae-b217-4f30-ab89-0a9084b7f144\",\"sequence\":3},\"exception\":{\"type\":\"FixtureError\",\"message\":\"Synthetic fixture exception\",\"stacktrace\":\"FixtureError: Synthetic fixture exception\\n    at fixture (synthetic.js:1:1)\",\"mechanism\":\"manual\",\"handled\":true},\"trace\":{\"traceId\":\"4bf92f3577b34da6a3ce929d0e0e4736\",\"spanId\":\"00f067aa0ba902b7\",\"traceFlags\":0,\"origin\":\"explicit\"},\"state\":{\"sources\":[{\"name\":\"editor\",\"registrationId\":\"3c1e2150-d90c-4e81-bb25-ea1a00414b08\",\"capturedAtUnixNano\":\"1789034400000000000\",\"monotonicMs\":100,\"status\":\"ok\",\"value\":{\"revision\":2,\"zero\":0,\"false\":false,\"null\":null,\"empty\":\"\",\"array\":[],\"object\":{},\"key.with.dots\":\"Привет 世界\",\"__proto__\":{\"safe\":true}}}],\"inline\":{\"status\":\"ok\",\"value\":{\"command\":\"applyPatch\"}}},\"history\":{\"enabled\":true,\"sinceUnixNano\":\"1789034400000000000\",\"evictedCount\":0,\"items\":[{\"id\":\"f1446aa5-9742-400e-b2d9-6a05f29a1886\",\"sequence\":1,\"timestampUnixNano\":\"1789034400000000000\",\"monotonicMs\":80,\"kind\":\"breadcrumb\",\"name\":\"command.started\",\"data\":{\"status\":\"ok\",\"value\":false}},{\"id\":\"4f2b2777-0581-449d-a1c5-d7efb8a1dd29\",\"sequence\":2,\"timestampUnixNano\":\"1789034400000000000\",\"monotonicMs\":90,\"kind\":\"state\",\"snapshot\":{\"name\":\"editor\",\"registrationId\":\"3c1e2150-d90c-4e81-bb25-ea1a00414b08\",\"capturedAtUnixNano\":\"1789034400000000000\",\"monotonicMs\":90,\"status\":\"ok\",\"value\":{\"revision\":1}}}]}}"
+              },
+              "attributes": [
+                {
+                  "key": "app.debug.schema.version",
+                  "value": {
+                    "intValue": "1"
+                  }
+                },
+                {
+                  "key": "app.debug.kind",
+                  "value": {
+                    "stringValue": "exception"
+                  }
+                },
+                {
+                  "key": "app.debug.event.id",
+                  "value": {
+                    "stringValue": "d45238c7-4ff0-4e5f-819b-f8d0f4c3c143"
+                  }
+                },
+                {
+                  "key": "app.debug.runtime.id",
+                  "value": {
+                    "stringValue": "b35e19ae-b217-4f30-ab89-0a9084b7f144"
+                  }
+                },
+                {
+                  "key": "app.debug.event.sequence",
+                  "value": {
+                    "intValue": "3"
+                  }
+                },
+                {
+                  "key": "app.debug.exception.mechanism",
+                  "value": {
+                    "stringValue": "manual"
+                  }
+                },
+                {
+                  "key": "app.debug.exception.handled",
+                  "value": {
+                    "boolValue": true
+                  }
+                },
+                {
+                  "key": "exception.type",
+                  "value": {
+                    "stringValue": "FixtureError"
+                  }
+                },
+                {
+                  "key": "exception.message",
+                  "value": {
+                    "stringValue": "Synthetic fixture exception"
+                  }
+                },
+                {
+                  "key": "exception.stacktrace",
+                  "value": {
+                    "stringValue": "FixtureError: Synthetic fixture exception\n    at fixture (synthetic.js:1:1)"
+                  }
+                }
+              ],
+              "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+              "spanId": "00f067aa0ba902b7",
+              "flags": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

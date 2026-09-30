@@ -165,6 +165,15 @@ export const platformEnglish = {
   auditField_outcome: 'Outcome', auditField_operation: 'Operation', auditField_severity: 'Severity', auditField_trace_id: 'Trace ID',
   auditOp_is: 'is', auditOp_is_not: 'is not', auditOp_contains: 'contains', auditOp_not_contains: 'does not contain', auditOp_prefix: 'starts with',
   auditOp_exists: 'exists', auditOp_not_exists: 'does not exist', auditOp_gt: '>', auditOp_gte: '≥', auditOp_lt: '<', auditOp_lte: '≤',
+  errorsTitle: 'Errors', errorsOverTime: 'Errors over time', invalidTimeRange: 'The time range does not parse or is empty.', occurrences: 'Occurrences', noErrors: 'No errors', errorsEmptyHelp: 'Errors captured by @gopherex/backplane-errors in frontends, by backplane.CaptureError and recovered panics in services, and any OpenTelemetry exception log appear here, for as long as the log store keeps logs.',
+  errorsUnavailable: 'The log store did not answer', errorsUnavailableHelp: 'Errors are read from the installation\'s log store; check that it is configured and reachable.',
+  errorGone: 'This error is no longer in the log store', errorGoneHelp: 'Errors are kept as long as the log store keeps logs.',
+  originSdk: 'Browser SDK', originOtel: 'OpenTelemetry log', rawStack: 'Raw stack', noState: 'No state', noStateHelp: 'The application registered no state sources when this error was captured.',
+  noHistory: 'No history', noHistoryHelp: 'No breadcrumbs or state snapshots were recorded before this error.', noRelatedLogs: 'No related logs',
+  relation_trace: 'Same trace', relation_span: 'Same span', relation_runtime: 'Same SDK runtime', relation_window: 'Its service, ±15 minutes',
+  errorTab_stack: 'Stack', errorTab_state: 'State', errorTab_history: 'History', errorTab_trace: 'Trace', errorTab_logs: 'Logs', errorTab_fields: 'Fields',
+  errorField_service: 'Service', errorField_environment: 'Environment', errorField_type: 'Type', errorField_message: 'Message', errorField_release: 'Release',
+  errorField_trace_id: 'Trace ID', errorField_runtime_id: 'Runtime', errorField_group_key: 'Group key', errorField_origin: 'Origin',
   itemType: 'Item type', makeForEach: 'Run for each item…', stopForEach: 'Run once', inLoop: 'in {{name}}', itemN: 'item {{item}}', items_one: '{{count}} item', items_other: '{{count}} items',
 } as const;
 type PlatformKey = keyof typeof platformEnglish extends infer K ? K extends `${infer B}_${'one' | 'other'}` ? B : K : never;

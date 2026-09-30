@@ -15,7 +15,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Services', exact: true })).toBeVisible();
   const sidebar = page.getByRole('complementary', { name: 'Main navigation' });
   await expect(sidebar.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
-  assert.deepEqual(await sidebar.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link').allTextContents(), ['Services', 'Wiring', 'Explore', 'Audit']);
+  assert.deepEqual(await sidebar.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link').allTextContents(), ['Services', 'Wiring', 'Explore', 'Errors', 'Audit']);
 
   // Services: cards, table and the system map show the same catalog.
   const view = page.getByRole('group', { name: 'View' });
@@ -83,7 +83,7 @@ try {
   await page.getByRole('navigation', { name: 'Manage hello' }).getByRole('link', { name: 'Configuration', exact: true }).click();
   await expect(page.getByRole('switch', { name: 'Override greeter.suffix', exact: true })).toBeVisible();
   const tabs = page.getByRole('navigation', { name: 'Manage hello' });
-  for (const tab of ['Automation', 'Operations', 'Events', 'Workflows', 'Telemetry', 'Audit']) {
+  for (const tab of ['Automation', 'Operations', 'Events', 'Workflows', 'Telemetry', 'Errors', 'Audit']) {
     await tabs.getByRole('link', { name: tab, exact: true }).click();
     await expect(page).toHaveURL(`${base}/services/hello/${tab.toLowerCase()}`);
   }

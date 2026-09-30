@@ -20,6 +20,7 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/internal/exception"
 	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
@@ -180,8 +181,8 @@ func (c *Client) handle(ctx context.Context, full string, h env.Handler, in []by
 		defer func() {
 			if r := recover(); r != nil {
 				metrics.Panic(ctx, "activity "+full)
-				c.log.Ctx().Error(ctx, "activity panicked", xlog.String("activity", full),
-					xlog.String("panic", fmt.Sprint(r)), xlog.String("stack", string(debug.Stack())))
+				c.log.Ctx().Error(ctx, "activity panicked",
+					append(exception.Panic(r, debug.Stack()), xlog.String("activity", full))...)
 
 				out, err = nil, fmt.Errorf("%s: %w: %v", full, errPanic, r)
 			}

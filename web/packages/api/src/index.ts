@@ -10,6 +10,8 @@ export * from './gen/backplanepb/console/v1/catalog_pb.js';
 export { CatalogServiceClient } from './gen/backplanepb/console/v1/catalog_ws_pb.js';
 export * from './gen/backplanepb/console/v1/config_pb.js';
 export { ConfigServiceClient } from './gen/backplanepb/console/v1/config_ws_pb.js';
+export * from './gen/backplanepb/console/v1/errors_pb.js';
+export { ErrorServiceClient } from './gen/backplanepb/console/v1/errors_ws_pb.js';
 export * from './gen/backplanepb/console/v1/events_pb.js';
 export { EventServiceClient } from './gen/backplanepb/console/v1/events_ws_pb.js';
 export * from './gen/backplanepb/console/v1/obs_pb.js';

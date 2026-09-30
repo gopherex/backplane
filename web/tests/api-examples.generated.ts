@@ -84,6 +84,21 @@ export function ConfigService_Rollback(client: API.ConfigServiceClient, request:
 export function ConfigService_WatchConfig(client: API.ConfigServiceClient, request: API.WatchConfigRequest, signal: AbortSignal) {
   return client.watchConfig(request, { signal });
 }
+export function ErrorService_SearchErrors(client: API.ErrorServiceClient, request: API.SearchErrorsRequest, signal: AbortSignal) {
+  return client.searchErrors(request, { signal });
+}
+export function ErrorService_ErrorHistogram(client: API.ErrorServiceClient, request: API.ErrorHistogramRequest, signal: AbortSignal) {
+  return client.errorHistogram(request, { signal });
+}
+export function ErrorService_ErrorFacets(client: API.ErrorServiceClient, request: API.ErrorFacetsRequest, signal: AbortSignal) {
+  return client.errorFacets(request, { signal });
+}
+export function ErrorService_GetError(client: API.ErrorServiceClient, request: API.GetErrorRequest, signal: AbortSignal) {
+  return client.getError(request, { signal });
+}
+export function ErrorService_RelatedLogs(client: API.ErrorServiceClient, request: API.RelatedLogsRequest, signal: AbortSignal) {
+  return client.relatedLogs(request, { signal });
+}
 export function EventService_ListEvents(client: API.EventServiceClient, request: API.ListEventsRequest, signal: AbortSignal) {
   return client.listEvents(request, { signal });
 }

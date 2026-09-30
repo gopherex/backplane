@@ -23,6 +23,7 @@ import '@fontsource/ibm-plex-mono/400.css';
 import { consoleEnglish } from './console/locales';
 import { Login } from './console/Login';
 import { loginEnglish } from './console/login-locales';
+import { consoleErrors } from './console/errors';
 
 const Console = lazy(() => import('./console/ConsoleRuntime'));
 
@@ -32,6 +33,8 @@ const live = document.querySelector('meta[name=backplane-fixture]')?.getAttribut
 // its global element styles; the live console must not inherit them.
 if (!live) await import('../../../templates/module/src/standalone.css');
 const consoleBase = import.meta.env.BASE_URL;
+// The live console reports its own errors through the installation's ingest.
+const errors = live ? consoleErrors(consoleBase) : undefined;
 const runtime = live ? new BackplaneClient({ baseURL: new URL(consoleBase, location.origin).href }) : fixtureClient;
 const i18n = i18next.createInstance();
 await i18n.use(initReactI18next).init({ lng: 'en', fallbackLng: 'en', supportedLngs: ['en'], interpolation: { escapeValue: false }, resources: { en: {
@@ -78,4 +81,4 @@ function Host() {
   </ThemeContext.Provider>;
 }
 if (runtime instanceof BackplaneClient) void runtime.start();
-createRoot(document.getElementById('root')!).render(<BackplaneProvider client={runtime}><I18nextProvider i18n={i18n}><BrowserRouter basename={consoleBase}><Host /></BrowserRouter></I18nextProvider></BackplaneProvider>);
+createRoot(document.getElementById('root')!, errors && { onCaughtError: errors.onReactError, onUncaughtError: errors.onReactError }).render(<BackplaneProvider client={runtime}><I18nextProvider i18n={i18n}><BrowserRouter basename={consoleBase}><Host /></BrowserRouter></I18nextProvider></BackplaneProvider>);

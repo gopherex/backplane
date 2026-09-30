@@ -1,7 +1,8 @@
 # OTLP proxy and independent telemetry stack
 
 Backplane has two integration boundaries: an OTLP/HTTP proxy like Komeet's
-gateway and an authenticated query API through storage drivers like ErrOtel.
+gateway and an authenticated query API through storage drivers (Explore,
+[Errors](errors.md)).
 The Collector and telemetry stores are independent deployment-owned services.
 They ingest, process and retain telemetry without Backplane; applications may
 send directly to the Collector. Backplane does not manage their lifecycle.

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-const stories = ['services-and-health', 'configuration', 'audit', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-loop', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
+const stories = ['services-and-health', 'configuration', 'audit', 'errors', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-loop', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
 for (const theme of ['dark', 'light']) for (const story of stories) {
   test(`${theme}: platform ${story}`, async ({ page }) => {
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
@@ -24,6 +24,21 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await page.getByRole('checkbox', { name: 'Simulate write failure' }).uncheck(); await page.getByRole('button', { name: 'Validate', exact: true }).click();
       await expect(page.getByText('Validation passed.')).toBeVisible(); await page.getByRole('button', { name: 'Save revision', exact: true }).click(); await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled();
       await expect(page.getByLabel('Write attempts')).toHaveText('2');
+    }
+    if (story === 'errors') {
+      const table = page.getByRole('table', { name: 'Errors', exact: true });
+      await expect(table.locator('tbody tr')).toHaveCount(2);
+      await page.getByRole('button', { name: /^billing/ }).first().click();
+      await expect(table.locator('tbody tr')).toHaveCount(1);
+      await page.getByRole('button', { name: 'Remove service', exact: true }).click();
+      await expect(table.locator('tbody tr')).toHaveCount(2);
+      await table.locator('tbody tr').first().focus(); await page.keyboard.press('Enter');
+      const drawer = page.getByRole('dialog');
+      await expect(drawer.getByText('total', { exact: true }).first()).toBeVisible();
+      await drawer.getByRole('tab', { name: 'History', exact: true }).click(); await expect(drawer.getByText('navigation /checkout', { exact: true })).toBeVisible();
+      await drawer.getByRole('tab', { name: 'State', exact: true }).click(); await expect(drawer.getByText('cart', { exact: true })).toBeVisible();
+      await drawer.getByRole('tab', { name: 'Logs', exact: true }).click(); await expect(drawer.getByText('rendering cart').first()).toBeVisible();
+      await page.keyboard.press('Escape');
     }
     if (story === 'audit') {
       const table = page.getByRole('table', { name: 'Audit', exact: true });

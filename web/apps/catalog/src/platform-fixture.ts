@@ -39,6 +39,26 @@ const auditRecords = () => [
   create(api.AuditRecordSchema, { id: 'platform-1', source: api.AuditSource.PLATFORM, time: appTime(0), receivedAt: appTime(0), service: 'hello', action: 'config.save', actor: 'console:1b7e2c9a-0000-4000-8000-000000000000',
     subject: 'hello', outcome: 'succeeded', operationId: 'op-1', sequence: 9007199254740993n, attributes: { revision: 3, keys: ['greeter.suffix'] } }),
 ];
+/** Errors as the log store holds them: a browser SDK capture and a Go service's exception. */
+const errorOccurrences = () => [
+  create(api.ErrorOccurrenceSchema, { ref: 'err-web', origin: api.ErrorOrigin.SDK, eventId: 'd45238c7-4ff0-4e5f-819b-f8d0f4c3c143', time: appTime(4), service: 'shop-web',
+    environment: 'production', release: '1.4.2', type: 'TypeError', message: "Cannot read properties of undefined (reading 'price')", severity: 17,
+    traceId: '0102030405060708090a0b0c0d0e0f10', spanId: '0102030405060708', runtimeId: 'b35e19ae-b217-4f30-ab89-0a9084b7f144', mechanism: 'window.error' }),
+  create(api.ErrorOccurrenceSchema, { ref: 'err-api', origin: api.ErrorOrigin.OTEL_LOG, time: appTime(3), service: 'billing', environment: 'production', release: '2.0.0',
+    type: '*billing.DeclinedError', message: 'charge: card declined', severity: 17 }),
+];
+const errorDetail = (ref: string) => {
+  const occurrence = errorOccurrences().find((entry) => entry.ref === ref)!;
+  const sdk = occurrence.origin === api.ErrorOrigin.SDK;
+  const stack = sdk ? "TypeError: Cannot read properties of undefined (reading 'price')\n    at total (https://shop.example/assets/cart.js:42:17)\n    at render (https://shop.example/assets/app.js:9:3)"
+    : 'goroutine 7 [running]:\nbilling.(*Charger).Charge(0xc000010)\n\t/src/billing/charge.go:88 +0x1d\nbilling.Handle()\n\t/src/billing/http.go:31 +0x10';
+  return create(api.GetErrorResponseSchema, { occurrence, stacktrace: stack, fields: { 'service.name': occurrence.service, 'exception.type': occurrence.type },
+    ...(sdk ? { envelopeStatus: 'available', exception: { type: occurrence.type, message: occurrence.message, stacktrace: stack },
+      envelope: { state: { sources: [{ name: 'cart', value: { items: 2, currency: 'EUR' } }] }, history: { items: [
+        { sequence: 1, kind: 'breadcrumb', name: 'fetch GET /api/cart', timestampUnixNano: '1790000000000000000', data: { status: 'ok', value: { status: 200 } } },
+        { sequence: 2, kind: 'breadcrumb', name: 'navigation /checkout', timestampUnixNano: '1790000001000000000' },
+      ] } } } : {}) });
+};
 /** The fixture's conditions: attribute or field equality, and text. */
 const matches = (record: api.AuditRecord, filter?: api.AuditFilter) => (filter?.conditions ?? []).every((condition) => {
   const values = condition.values.map((value) => value.kind.value);
@@ -102,6 +122,17 @@ export class PlatformFixture implements ClientRuntime {
       async validateOverride(request: api.ValidateOverrideRequest) { return create(api.ValidateOverrideResponseSchema, { violations: request.values['greeter.suffix'] === '"invalid"' ? [{ path: 'greeter.suffix', code: 'INVALID_VALUE', message: 'Invalid suffix' }] : [] }); },
       async saveRevision(request: api.SaveRevisionRequest) { beforeWrite(); fixture.revision = create(api.RevisionSchema, { service: request.service, revision: fixture.revision.revision + 1n, values: request.values, comment: request.comment }); return create(api.SaveRevisionResponseSchema, { revision: fixture.revision }); },
       async rollback() { beforeWrite(); return create(api.RollbackResponseSchema, { revision: fixture.revision }); },
+      async searchErrors(request: api.SearchErrorsRequest) {
+        const want = (request.filter?.conditions ?? []).filter((condition) => condition.field === api.ErrorField.SERVICE && condition.op === api.ErrorOperator.IS).flatMap((condition) => condition.values);
+        return create(api.SearchErrorsResponseSchema, { occurrences: errorOccurrences().filter((occurrence) => !want.length || want.includes(occurrence.service)) });
+      },
+      async errorHistogram() { return create(api.ErrorHistogramResponseSchema, { stepMillis: 60_000n, total: 2n, buckets: [0, 1, 2, 3, 4, 5].map((minute) => ({ start: appTime(minute), count: minute === 3 || minute === 4 ? 1n : 0n })) }); },
+      async errorFacets(request: api.ErrorFacetsRequest) {
+        return create(api.ErrorFacetsResponseSchema, { facets: request.fields.map((field) => ({ field, values: field === api.ErrorField.SERVICE
+          ? [{ value: 'shop-web', count: 1n, lastSeen: appTime(4) }, { value: 'billing', count: 1n, lastSeen: appTime(3) }] : [] })) });
+      },
+      async getError(request: api.GetErrorRequest) { return errorDetail(request.ref); },
+      async relatedLogs() { return create(api.RelatedLogsResponseSchema, { status: 'available', logs: [{ time: appTime(4), fields: { _msg: 'rendering cart', service: 'shop-web', severity: 'INFO' } }] }); },
       async searchAudit(request: api.SearchAuditRequest) { return create(api.SearchAuditResponseSchema, { records: auditRecords().filter((record) => matches(record, request.filter)) }); },
       async auditHistogram(request: api.AuditHistogramRequest) {
         const records = auditRecords().filter((record) => matches(record, request.filter));

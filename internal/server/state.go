@@ -128,6 +128,12 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	}
 
 	root.OnStop(func(context.Context) error { st.Obs.Close(); return nil })
+
+	errorReader, err := st.Obs.Errors()
+	if err != nil {
+		return nil, err //nolint:wrapcheck // names the envelope schema
+	}
+
 	st.Config = config.New(root, cfg.LiveConfig, client, st.Store, st.Registry, config.Author(sessionAuthor))
 	st.Bindings = bindings.New(root, st.Store, st.Registry, bindings.Author(sessionAuthor))
 	st.XDS = xds.New(root, xdsConfig(cfg, root.Identity().Advertise), st.Registry)
@@ -141,7 +147,7 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 		console.WithServices(st.Config.Register), console.WithServices(st.Audit.Commands(st.Ops.Register, sessionAuthor)),
 		console.WithServices(st.Audit.Commands(st.Executor.Register(st.Bindings.BindingAPI()), sessionAuthor)),
 		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Bindings.Register),
-		console.WithServices(st.Obs.Register),
+		console.WithServices(st.Obs.Register), console.WithServices(errorReader.Register),
 		console.WithServices(st.Audit.Register))
 	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store), st.Registry, consoleOptions...)
 
