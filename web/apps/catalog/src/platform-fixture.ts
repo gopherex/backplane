@@ -59,7 +59,7 @@ export class PlatformFixture implements ClientRuntime {
       async callHook(request: api.CallHookRequest) { beforeWrite(); fixture.lastInput = request.input; return create(api.CallHookResponseSchema, { result: { output: request.input, workflowId: 'hook/hello/Greet/fixture', runId: 'run-1' } }); },
       async runActivity(request: api.RunActivityRequest) { beforeWrite(); fixture.lastInput = request.input; return create(api.RunActivityResponseSchema, { result: { output: request.input } }); },
       async publishTestEvent(request: api.PublishTestEventRequest) { beforeWrite(); fixture.lastInput = request.payload; return create(api.PublishTestEventResponseSchema, { id: 'event-1', seq: 9007199254740993n }); },
-      async startWorkflow(request: api.StartWorkflowRequest) { beforeWrite(); fixture.lastInput = request.input; return create(api.StartWorkflowResponseSchema, { workflowId: 'workflow-1', runId: 'run-1' }); },
+      async startWorkflow(request: api.StartWorkflowRequest) { beforeWrite(); fixture.lastInput = request.input; if (request.workflowId === 'welcome-1') throw new WsStatusError(6, 'Already running'); return create(api.StartWorkflowResponseSchema, { workflowId: request.workflowId || 'workflow-1', runId: 'run-1' }); },
       async getBinding(request: api.GetBindingRequest) { return create(api.GetBindingResponseSchema, { version: { hook: request.hook, version: 1n, definition: { hook: request.hook, steps: [{ name: 'format', activity: 'formatter.Format' }] } } }); },
       async validateBinding(request: api.ValidateBindingRequest) { return create(api.ValidateBindingResponseSchema, { violations: request.definition?.steps.length ? [] : [{ path: 'steps', message: 'At least one step is required' }] }); },
       async saveBinding(request: api.SaveBindingRequest) { beforeWrite(); return create(api.SaveBindingResponseSchema, { version: { version: 2n, hook: request.definition?.hook, definition: request.definition } }); },
@@ -90,20 +90,40 @@ export class PlatformFixture implements ClientRuntime {
       async deleteRule() { beforeWrite(); return create(api.DeleteRuleResponseSchema); },
       async pauseRule() { beforeWrite(); return create(api.PauseRuleResponseSchema); },
       async resumeRule() { beforeWrite(); return create(api.ResumeRuleResponseSchema); },
-      async listWorkflows() { return create(api.ListWorkflowsResponseSchema, { workflows: [{ service: 'hello', name: 'Welcome', kind: api.WorkflowKind.WORKFLOW, description: 'Greets a new user', input: schema }] }); },
+      async listWorkflows() { return create(api.ListWorkflowsResponseSchema, { workflows: [{ service: 'hello', name: 'Welcome', kind: api.WorkflowKind.WORKFLOW, description: 'Greets a new user', input: schema, taskQueue: 'hello', pollers: 0 }] }); },
       async getObsSelectors() { return create(api.GetObsSelectorsResponseSchema, { sources: { selectors: [{ resource: { 'service.name': 'hello' } }] } }); },
       async listObsFieldValues() { return create(api.ListObsFieldValuesResponseSchema, { values: ['hello', 'kratos'] }); },
       async listSessions() { return create(api.ListSessionsResponseSchema, { sessions: [{ id: 'fixture', current: true, address: '127.0.0.1' }] }); },
       async validateRule() { return create(api.ValidateRuleResponseSchema); },
       async saveRule(request: api.SaveRuleRequest) { beforeWrite(); return create(api.SaveRuleResponseSchema, { version: { ruleId: request.id || 'rule-1', version: 2n, name: request.name, definition: request.definition } }); },
-      async listRuns() { return create(api.ListRunsResponseSchema, { runs: [{ workflowId: 'welcome-1', runId: 'run-1', status: api.RunStatus.FAILED, historyLength: 9007199254740993n }] }); },
-      async getRun() { return create(api.GetRunResponseSchema, { run: { workflowId: 'welcome-1', runId: 'run-1', status: api.RunStatus.RUNNING }, input: '{"sequence":18446744073709551615}', failure: 'Activity failed', failureType: 'DatabaseError', history: [{ id: 9007199254740993n, type: 'ActivityTaskFailed', failure: 'DatabaseError' }] }); },
+      async listRuns(request: api.ListRunsRequest) {
+        // Page one: the console run; page two: the schedule's run; hook calls apart.
+        if (request.hooks) return create(api.ListRunsResponseSchema, { runs: [{ workflowId: 'hook/hello/Greet/k1', runId: 'run-h', workflowType: 'backplane.CallHook.v1', taskQueue: 'hello.hooks', status: api.RunStatus.COMPLETED, historyLength: 11n }] });
+        const runs = [create(api.RunSchema, { workflowId: 'welcome-1', runId: 'run-1', workflowType: 'Welcome', status: api.RunStatus.FAILED, historyLength: 9007199254740993n }), create(api.RunSchema, { workflowId: 'hello/Welcome-2026-09-30T11:00:00Z', runId: 'run-9', workflowType: 'Welcome', status: api.RunStatus.COMPLETED, historyLength: 12n })];
+        if (request.workflowIdPrefix) return create(api.ListRunsResponseSchema, { runs: runs.filter((run) => run.workflowId.startsWith(request.workflowIdPrefix)) });
+        return request.pageToken.length ? create(api.ListRunsResponseSchema, { runs: runs.slice(1) }) : create(api.ListRunsResponseSchema, { runs: runs.slice(0, 1), nextPageToken: new Uint8Array([1]) });
+      },
+      async getRun(request: api.GetRunRequest) {
+        if (request.workflowId !== 'welcome-1') return create(api.GetRunResponseSchema, { run: { workflowId: request.workflowId, runId: request.runId || 'run-0', workflowType: 'Parent', status: api.RunStatus.CONTINUED_AS_NEW }, continuedRunId: 'run-0b', result: '"done"' });
+        return create(api.GetRunResponseSchema, { run: { workflowId: 'welcome-1', runId: 'run-1', workflowType: 'Welcome', taskQueue: 'hello', status: api.RunStatus.RUNNING, memo: { source: '"console:fixture"', 'backplane.service': '"hello"' }, parentWorkflowId: 'parent-1', parentRunId: 'run-0' },
+          input: '{"sequence":18446744073709551615}', failure: 'Activity failed', failureType: 'DatabaseError',
+          pendingActivities: [{ activityId: '5', activityType: 'Compose', state: 'SCHEDULED', attempt: 2, maximumAttempts: 3, lastFailure: 'DatabaseError', lastWorker: 'hello-1@fixture' }],
+          history: [{ id: 1n, type: 'WorkflowExecutionStarted', summary: 'Welcome on hello', payload: '{"sequence":18446744073709551615}' }, { id: 5n, type: 'StartChildWorkflowExecutionInitiated', summary: 'Flow child-1 on hello', workflowId: 'child-1' }, { id: 9007199254740993n, type: 'ActivityTaskFailed', failure: 'DatabaseError' }] });
+      },
       async cancelRun() { beforeWrite(); return create(api.CancelRunResponseSchema); },
       async terminateRun() { beforeWrite(); return create(api.TerminateRunResponseSchema); },
-      async signalRun() { beforeWrite(); return create(api.SignalRunResponseSchema); },
-      async listSchedules() { return create(api.ListSchedulesResponseSchema, { schedules: [{ service: 'hello', name: 'Welcome', id: 'hello/Welcome', state: { paused: true, actionCount: 9007199254740993n } }] }); },
-      async pauseSchedule() { beforeWrite(); return create(api.PauseScheduleResponseSchema); },
-      async unpauseSchedule() { beforeWrite(); return create(api.UnpauseScheduleResponseSchema); },
+      async signalRun(request: api.SignalRunRequest) { beforeWrite(); fixture.lastInput = `signal:${request.signal}:${request.input}`; return create(api.SignalRunResponseSchema); },
+      async listSchedules() {
+        const at = (seconds: bigint) => ({ seconds, nanos: 0 });
+        return create(api.ListSchedulesResponseSchema, { schedules: [
+          { service: 'hello', name: 'Nightly', id: 'hello/Nightly', declared: { name: 'Nightly', workflow: 'Welcome', spec: { case: 'cron', value: '0 3 * * *' } } },
+          { service: 'hello', name: 'Welcome', id: 'hello/Welcome', declared: { name: 'Welcome', workflow: 'Welcome', spec: { case: 'every', value: { seconds: 3600n } } },
+            state: { paused: true, note: 'maintenance (console:fixture)', actionCount: 9007199254740993n, missedCatchupWindow: 2n, overlapSkipped: 1n, workflowType: 'Welcome', owner: 'hello', created: at(1790679600n),
+              nextActions: [at(1790686800n), at(1790690400n)], recentActions: [{ workflowId: 'hello/Welcome-2026-09-30T11:00:00Z', runId: 'run-9', actualTime: at(1790679600n), scheduleTime: at(1790679600n) }] } },
+        ] });
+      },
+      async pauseSchedule(request: api.PauseScheduleRequest) { beforeWrite(); fixture.lastInput = request.note; return create(api.PauseScheduleResponseSchema); },
+      async unpauseSchedule(request: api.UnpauseScheduleRequest) { beforeWrite(); fixture.lastInput = request.note; return create(api.UnpauseScheduleResponseSchema); },
       async triggerSchedule() { beforeWrite(); return create(api.TriggerScheduleResponseSchema); },
       async listEvents() { return create(api.ListEventsResponseSchema, { events: [{ event: 'hello.Greeted', service: 'hello', name: 'Greeted', declared: true, messages: 9007199254740993n, lastSeq: 9007199254740993n, subscribers: [{ kind: api.SubscriberKind.REACTOR, service: 'hello', consumer: 'audit', durable: 'hello-audit', deadLetters: 1n, state: { numPending: 2n } }] }] }); },
       async peekMessages() { return create(api.PeekMessagesResponseSchema, { messages: [{ seq: 9007199254740993n, event: 'hello.Greeted', data: '{"name":"World"}' }] }); },

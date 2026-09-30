@@ -12,10 +12,12 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
+	"go.temporal.io/sdk/converter"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
@@ -309,7 +311,7 @@ func TestRunsQuery(t *testing.T) {
 
 	query, err := ops.RunsQuery(&consolev1.ListRunsRequest{
 		Service: "hello", Workflow: "Greet", Status: consolev1.RunStatus_RUN_STATUS_RUNNING, WorkflowIdPrefix: "hello/Nightly-",
-	})
+	}, "backplane")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,13 +321,24 @@ func TestRunsQuery(t *testing.T) {
 		t.Fatalf("query:\n%s\n%s", query, want)
 	}
 
+	// Hook calls: the service's hooks queue and the console's calls of its
+	// hooks on backplane's queue.
+	query, err = ops.RunsQuery(&consolev1.ListRunsRequest{Service: "hello", Hooks: true}, "backplane")
+	if want := "(TaskQueue = 'hello.hooks' OR (TaskQueue = 'backplane' AND WorkflowId STARTS_WITH 'hook/hello/'))"; err != nil || query != want {
+		t.Fatalf("hooks query:\n%s\n%s %v", query, want, err)
+	}
+
+	if query, err = ops.RunsQuery(&consolev1.ListRunsRequest{Service: "hello", Hooks: true}, ""); err != nil || query != "TaskQueue = 'hello.hooks'" {
+		t.Fatalf("hooks query without console queue: %s %v", query, err)
+	}
+
 	for _, bad := range []*consolev1.ListRunsRequest{
 		{},
 		{Service: "Hello"},
 		{Service: "hello", Workflow: "x' OR 1=1"},
 		{Service: "hello", WorkflowIdPrefix: `a\`},
 	} {
-		if _, err := ops.RunsQuery(bad); !errors.Is(err, ops.ErrInput) {
+		if _, err := ops.RunsQuery(bad, "backplane"); !errors.Is(err, ops.ErrInput) {
 			t.Errorf("%v: %v", bad, err)
 		}
 	}
@@ -343,6 +356,44 @@ func TestPayloadJSON(t *testing.T) {
 	} {
 		if got := ops.PayloadJSON(p); got != want {
 			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+}
+
+// TestPayloadJSONEnvelopes: backplane's envelopes show the JSON their
+// payload carries instead of its base64; other messages and payloads that
+// are not JSON stay as they are.
+func TestPayloadJSONEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	encode := func(msg proto.Message) *commonpb.Payload {
+		p, err := converter.GetDefaultDataConverter().ToPayload(msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return p
+	}
+
+	for want, p := range map[string]*commonpb.Payload{
+		`{"activity":"hello.Welcome","binding":"console","payload":{"name":"Ada"},"step":"console"}`: encode(&backplanev1.ActivityCall{
+			Activity: "hello.Welcome", Payload: []byte(`{"name":"Ada"}`), Binding: "console", Step: "console",
+		}),
+		`{"payload":{"text":"Welcome, Ada!"}}`:   encode(&backplanev1.ActivityResult{Payload: []byte(`{"text":"Welcome, Ada!"}`)}),
+		`{"hook":"hello.Greet","payload":[1,2]}`: encode(&backplanev1.HookCall{Hook: "hello.Greet", Payload: []byte(`[1,2]`)}),
+		`{"payload":"text"}`:                     encode(&backplanev1.HookResult{Payload: []byte(`"text"`)}),
+	} {
+		if got := ops.PayloadJSON(p); got != want {
+			t.Errorf("got %s, want %s", got, want)
+		}
+	}
+
+	// protojson's spacing varies by build: compare with the data itself.
+	for _, other := range []*commonpb.Payload{
+		encode(&backplanev1.Manifest{Service: "hello", Version: "1.0.0"}), encode(&backplanev1.HookResult{Payload: []byte{0, 1}}),
+	} {
+		if got := ops.PayloadJSON(other); got != string(other.GetData()) {
+			t.Errorf("left as is: %s", got)
 		}
 	}
 }
@@ -378,6 +429,43 @@ func TestHistoryPB(t *testing.T) {
 	})
 	if failed.GetFailure() != "hello.Echo: boom" {
 		t.Fatalf("failed: %v", failed)
+	}
+
+	child := ops.HistoryPB(&historypb.HistoryEvent{
+		EventId: 7, EventType: enumspb.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED,
+		Attributes: &historypb.HistoryEvent_ChildWorkflowExecutionStartedEventAttributes{
+			ChildWorkflowExecutionStartedEventAttributes: &historypb.ChildWorkflowExecutionStartedEventAttributes{
+				WorkflowType:      &commonpb.WorkflowType{Name: "Flow"},
+				WorkflowExecution: &commonpb.WorkflowExecution{WorkflowId: "child-1", RunId: "run-c"},
+			},
+		},
+	})
+	if child.GetSummary() != "Flow child-1" || child.GetWorkflowId() != "child-1" || child.GetRunId() != "run-c" {
+		t.Fatalf("child: %v", child)
+	}
+
+	terminated := ops.HistoryPB(&historypb.HistoryEvent{
+		EventId: 8, EventType: enumspb.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED,
+		Attributes: &historypb.HistoryEvent_ChildWorkflowExecutionTerminatedEventAttributes{
+			ChildWorkflowExecutionTerminatedEventAttributes: &historypb.ChildWorkflowExecutionTerminatedEventAttributes{
+				WorkflowExecution: &commonpb.WorkflowExecution{WorkflowId: "child-1", RunId: "run-c"},
+			},
+		},
+	})
+	if terminated.GetSummary() != "child-1" || terminated.GetRunId() != "run-c" {
+		t.Fatalf("terminated child: %v", terminated)
+	}
+
+	continued := ops.HistoryPB(&historypb.HistoryEvent{
+		EventId: 9, EventType: enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW,
+		Attributes: &historypb.HistoryEvent_WorkflowExecutionContinuedAsNewEventAttributes{
+			WorkflowExecutionContinuedAsNewEventAttributes: &historypb.WorkflowExecutionContinuedAsNewEventAttributes{
+				NewExecutionRunId: "run-2", Input: jsonIn,
+			},
+		},
+	})
+	if continued.GetRunId() != "run-2" || continued.GetSummary() != "continued as run run-2" || continued.GetPayload() != `"x"` {
+		t.Fatalf("continued: %v", continued)
 	}
 }
 

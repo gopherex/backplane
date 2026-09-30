@@ -6,9 +6,10 @@ import { AuditServiceClient, AuditFilterSchema, AuditEntrySchema, CatalogService
 import { useBackplane, useClient, useConnection } from '@gopherex/backplane-react';
 import { watchWithRetry, WsStatusError } from '@gopherex/backplane-client';
 import { Button, Count, DetailDrawer, EmptyState, FilterCombo, KeyValueList, Panel, Skeleton, StatusBadge, StatusDot, Timestamp, type StatusTone } from '@gopherex/backplane-ui';
-import { ClipboardList, Filter, RefreshCw, TriangleAlert, X } from 'lucide-react';
+import { ClipboardList, Filter, RefreshCw, TriangleAlert, Workflow, X } from 'lucide-react';
 import { JSONViewer } from '@gopherex/backplane-editors';
 import { usePlatformText } from './locales.js';
+import { RunDrawer, type RunRef } from './runs.js';
 
 export function useAuditFeed(filter: AuditFilter, maxEntries = 1000) {
   const owner = useBackplane(), client = useClient(AuditServiceClient), connection = useConnection(), session = connection.session?.id ?? null;
@@ -72,7 +73,7 @@ type Filters = Partial<Record<FilterKey, string>>;
 /** Durable audit trail with filters, live tail and an entry drawer. */
 export function AuditFeed({ initialFilter, service, mode }: { initialFilter?: Partial<Omit<AuditFilter, '$typeName' | '$unknown'>>; service?: string; mode: 'dark' | 'light' }) {
   const text = usePlatformText();
-  const [draft, setDraft] = useState<Filters>(initialFilter ?? {}), [filters, setFilters] = useState<Filters>(initialFilter ?? {}), [selected, setSelected] = useState<string>();
+  const [draft, setDraft] = useState<Filters>(initialFilter ?? {}), [filters, setFilters] = useState<Filters>(initialFilter ?? {}), [selected, setSelected] = useState<string>(), [run, setRun] = useState<RunRef>();
   // Typing narrows after a pause; every applied filter starts a new snapshot and watch.
   useEffect(() => { const timer = setTimeout(() => setFilters(draft), 400); return () => clearTimeout(timer); }, [draft]);
   const filter = useMemo(() => create(AuditFilterSchema, { ...filters, service: service ?? filters.service ?? '' }), [filters, service]), state = useAuditFeed(filter);
@@ -119,7 +120,8 @@ export function AuditFeed({ initialFilter, service, mode }: { initialFilter?: Pa
         </table>}
     </Panel>
     <DetailDrawer open={!!entry} onOpenChange={(open) => { if (!open) setSelected(undefined); }} size="lg" title={entry && <span className="font-mono">{entry.action}</span>} description={entry && <span className="font-mono">#{entry.sequence.toString()} · {entry.subject}</span>}
-      actions={entry && <Button size="xs" variant="outline" onClick={() => { apply({ operationId: entry.operationId }); setSelected(undefined); }}><Filter />{text('filterOperation')}</Button>}>
+      actions={entry && <><Button size="xs" variant="outline" onClick={() => { apply({ operationId: entry.operationId }); setSelected(undefined); }}><Filter />{text('filterOperation')}</Button>
+        {entry.detail?.workflowId && <Button size="xs" variant="outline" onClick={() => { setRun({ workflowId: entry.detail!.workflowId, runId: entry.detail!.runId }); setSelected(undefined); }}><Workflow />{text('openRun')}</Button>}</>}>
       {entry && <div className="grid gap-4">
         <KeyValueList items={[
           { label: text('outcome'), value: <StatusBadge tone={outcomeTone(entry.outcome)}>{entry.outcome || 'unknown'}</StatusBadge> },
@@ -132,5 +134,6 @@ export function AuditFeed({ initialFilter, service, mode }: { initialFilter?: Pa
           <JSONViewer label={text('detail')} value={toJsonString(AuditEntrySchema, entry, { prettySpaces: 2 })} mode={mode} height={360} /></div>
       </div>}
     </DetailDrawer>
+    <RunDrawer run={run} onClose={() => setRun(undefined)} mode={mode} />
   </section>;
 }

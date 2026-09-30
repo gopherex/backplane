@@ -15,13 +15,23 @@ option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consol
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
 // the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
+//
+// GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
+// backplane's namespace, not only runs on a service's queue: binding and
+// rule runs live on backplane's own queue, and the console session is an
+// installation operator.
 service WorkflowService {
   // Workflows the latest manifests declare: workflows[] and activities
-  // of kind WORKFLOW.
+  // of kind WORKFLOW, with the workers polling their task queue.
   rpc ListWorkflows(ListWorkflowsRequest) returns (ListWorkflowsResponse);
-  // Starts a declared workflow on the service's task queue.
+  // Starts a declared workflow on the service's task queue. A workflow_id
+  // that has a running run is ALREADY_EXISTS; a closed one starts a new run.
   rpc StartWorkflow(StartWorkflowRequest) returns (StartWorkflowResponse);
-  // Runs on a service's task queue, newest first (Temporal visibility).
+  // Runs on a service's task queue (or its hook calls), newest start first
+  // where the visibility store sorts (Elasticsearch). SQL visibility (the
+  // dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is
+  // Temporal's own: running runs first, then by close time, newest first.
+  // ListRunsResponse.query shows which query ran.
   rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
   // One run: status, input, result or failure, pending activities and
   // its history as a timeline.
@@ -30,7 +40,7 @@ service WorkflowService {
   rpc CancelRun(CancelRunRequest) returns (CancelRunResponse);
   // Ends the run at once, without the workflow's code.
   rpc TerminateRun(TerminateRunRequest) returns (TerminateRunResponse);
-  // Sends a signal with a JSON argument.
+  // Sends a signal with a JSON argument, or none.
   rpc SignalRun(SignalRunRequest) returns (SignalRunResponse);
 }
 
@@ -44,7 +54,9 @@ service ScheduleService {
   rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
   rpc PauseSchedule(PauseScheduleRequest) returns (PauseScheduleResponse);
   rpc UnpauseSchedule(UnpauseScheduleRequest) returns (UnpauseScheduleResponse);
-  // Starts the schedule's action now.
+  // Starts the schedule's action now, whatever its overlap policy. The run
+  // carries the schedule's action (memo included): Temporal takes no memo
+  // on a trigger, so who triggered it is in the audit, not on the run.
   rpc TriggerSchedule(TriggerScheduleRequest) returns (TriggerScheduleResponse);
 }
 
@@ -68,6 +80,10 @@ message WorkflowDef {
   schemapb.Schema output = 6;
   // Task queue it runs on: the service's.
   string task_queue = 7;
+  // Workers that polled task_queue for workflow tasks recently (Temporal's
+  // DescribeTaskQueue); 0: a start waits until a worker comes. Unset when
+  // Temporal could not be asked.
+  optional int32 pollers = 8;
 }
 
 message ListWorkflowsRequest {
@@ -86,7 +102,8 @@ message StartWorkflowRequest {
   string workflow = 2;
   // Input: JSON text; empty is no argument.
   string input = 3;
-  // Workflow id; empty: console/<service>/<workflow>/<uuid>.
+  // Workflow id; empty: console/<service>/<workflow>/<uuid>. One with a
+  // running run is refused (ALREADY_EXISTS).
   string workflow_id = 4;
   // Execution timeout; zero: none.
   google.protobuf.Duration timeout = 5;
@@ -123,6 +140,7 @@ message Run {
   map<string, string> memo = 9;
   // Parent run, when a child workflow.
   string parent_workflow_id = 10;
+  string parent_run_id = 11;
 }
 
 message ListRunsRequest {
@@ -138,6 +156,11 @@ message ListRunsRequest {
   uint32 page_size = 5;
   // From the previous response; empty: the first page.
   bytes page_token = 6;
+  // Hook calls of the service instead of its workflows: the
+  // backplane.CallHook.v1 runs on <service>.hooks (hooks its code raised)
+  // and the console's calls of its hooks (hook/<service>/ on backplane's
+  // queue).
+  bool hooks = 7;
 }
 
 message ListRunsResponse {
@@ -182,6 +205,10 @@ message HistoryEvent {
   string payload = 5;
   // Failure message, for failed or timed out events.
   string failure = 6;
+  // The run the event is about, when another one: the child workflow it
+  // starts or ends, the run this one continued as.
+  string workflow_id = 7;
+  string run_id = 8;
 }
 
 message GetRunResponse {
@@ -197,6 +224,9 @@ message GetRunResponse {
   // The history, oldest first; at most 1000 events (truncated says more).
   repeated HistoryEvent history = 7;
   bool truncated = 8;
+  // The run this one continued as (status CONTINUED_AS_NEW), same
+  // workflow id.
+  string continued_run_id = 9;
 }
 
 message CancelRunRequest {
@@ -218,7 +248,7 @@ message SignalRunRequest {
   string workflow_id = 1;
   string run_id = 2;
   string signal = 3;
-  // Argument: JSON text; empty is none.
+  // Argument: JSON text; empty sends no argument (not null).
   string input = 4;
 }
 
@@ -246,6 +276,7 @@ message ScheduleState {
   int64 action_count = 6;
   int64 missed_catchup_window = 7;
   int64 overlap_skipped = 8;
+  // Unset when Temporal does not say (updated: never updated).
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   // Workflow type of its action.

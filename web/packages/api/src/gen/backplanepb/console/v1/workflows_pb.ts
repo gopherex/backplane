@@ -18,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/console/v1/workflows.proto.
  */
 export const file_backplanepb_console_v1_workflows: GenFile = /*@__PURE__*/
-  fileDesc("CiZiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3dvcmtmbG93cy5wcm90bxIUYmFja3BsYW5lLmNvbnNvbGUudjEiygEKC1dvcmtmbG93RGVmEg8KB3NlcnZpY2UYASABKAkSDAoEbmFtZRgCIAEoCRIwCgRraW5kGAMgASgOMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuV29ya2Zsb3dLaW5kEhMKC2Rlc2NyaXB0aW9uGAQgASgJEh8KBWlucHV0GAUgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgGIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRISCgp0YXNrX3F1ZXVlGAcgASgJIicKFExpc3RXb3JrZmxvd3NSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkiTQoVTGlzdFdvcmtmbG93c1Jlc3BvbnNlEjQKCXdvcmtmbG93cxgBIAMoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLldvcmtmbG93RGVmIokBChRTdGFydFdvcmtmbG93UmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEhAKCHdvcmtmbG93GAIgASgJEg0KBWlucHV0GAMgASgJEhMKC3dvcmtmbG93X2lkGAQgASgJEioKB3RpbWVvdXQYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iPAoVU3RhcnRXb3JrZmxvd1Jlc3BvbnNlEhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSL6AgoDUnVuEhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIVCg13b3JrZmxvd190eXBlGAMgASgJEi8KBnN0YXR1cxgEIAEoDjIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1blN0YXR1cxISCgp0YXNrX3F1ZXVlGAUgASgJEi4KCnN0YXJ0X3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNsb3NlX3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmhpc3RvcnlfbGVuZ3RoGAggASgDEjEKBG1lbW8YCSADKAsyIy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4uTWVtb0VudHJ5EhoKEnBhcmVudF93b3JrZmxvd19pZBgKIAEoCRorCglNZW1vRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASKoAQoPTGlzdFJ1bnNSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkSEAoId29ya2Zsb3cYAiABKAkSLwoGc3RhdHVzGAMgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEhoKEndvcmtmbG93X2lkX3ByZWZpeBgEIAEoCRIRCglwYWdlX3NpemUYBSABKA0SEgoKcGFnZV90b2tlbhgGIAEoDCJjChBMaXN0UnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIjQKDUdldFJ1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIskCCg9QZW5kaW5nQWN0aXZpdHkSEwoLYWN0aXZpdHlfaWQYASABKAkSFQoNYWN0aXZpdHlfdHlwZRgCIAEoCRINCgVzdGF0ZRgDIAEoCRIPCgdhdHRlbXB0GAQgASgFEhgKEG1heGltdW1fYXR0ZW1wdHMYBSABKAUSNQoRbGFzdF9zdGFydGVkX3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKE2xhc3RfaGVhcnRiZWF0X3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKEW5leHRfYXR0ZW1wdF90aW1lGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxsYXN0X2ZhaWx1cmUYCSABKAkSEwoLbGFzdF93b3JrZXIYCiABKAkihQEKDEhpc3RvcnlFdmVudBIKCgJpZBgBIAEoAxIoCgR0aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgR0eXBlGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSDwoHcGF5bG9hZBgFIAEoCRIPCgdmYWlsdXJlGAYgASgJIokCCg5HZXRSdW5SZXNwb25zZRImCgNydW4YASABKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SDQoFaW5wdXQYAiABKAkSDgoGcmVzdWx0GAMgASgJEg8KB2ZhaWx1cmUYBCABKAkSFAoMZmFpbHVyZV90eXBlGAUgASgJEkEKEnBlbmRpbmdfYWN0aXZpdGllcxgGIAMoCzIlLmJhY2twbGFuZS5jb25zb2xlLnYxLlBlbmRpbmdBY3Rpdml0eRIzCgdoaXN0b3J5GAcgAygLMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuSGlzdG9yeUV2ZW50EhEKCXRydW5jYXRlZBgIIAEoCCI3ChBDYW5jZWxSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSITChFDYW5jZWxSdW5SZXNwb25zZSJKChNUZXJtaW5hdGVSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIOCgZyZWFzb24YAyABKAkiFgoUVGVybWluYXRlUnVuUmVzcG9uc2UiVgoQU2lnbmFsUnVuUmVxdWVzdBITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSDgoGc2lnbmFsGAMgASgJEg0KBWlucHV0GAQgASgJIhMKEVNpZ25hbFJ1blJlc3BvbnNlIpkBCg5TY2hlZHVsZUFjdGlvbhIxCg1zY2hlZHVsZV90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY3R1YWxfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLd29ya2Zsb3dfaWQYAyABKAkSDgoGcnVuX2lkGAQgASgJIokDCg1TY2hlZHVsZVN0YXRlEg4KBnBhdXNlZBgBIAEoCBIMCgRub3RlGAIgASgJEjAKDG5leHRfYWN0aW9ucxgDIAMoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPAoOcmVjZW50X2FjdGlvbnMYBCADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUFjdGlvbhIcChRydW5uaW5nX3dvcmtmbG93X2lkcxgFIAMoCRIUCgxhY3Rpb25fY291bnQYBiABKAMSHQoVbWlzc2VkX2NhdGNodXBfd2luZG93GAcgASgDEhcKD292ZXJsYXBfc2tpcHBlZBgIIAEoAxIrCgdjcmVhdGVkGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgd1cGRhdGVkGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg13b3JrZmxvd190eXBlGAsgASgJEg0KBW93bmVyGAwgASgJIpcBCgxTY2hlZHVsZUluZm8SDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgoKAmlkGAMgASgJEigKCGRlY2xhcmVkGAQgASgLMhYuYmFja3BsYW5lLnYxLlNjaGVkdWxlEjIKBXN0YXRlGAUgASgLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuU2NoZWR1bGVTdGF0ZSInChRMaXN0U2NoZWR1bGVzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk4KFUxpc3RTY2hlZHVsZXNSZXNwb25zZRI1CglzY2hlZHVsZXMYASADKAsyIi5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUluZm8iQwoUUGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiFwoVUGF1c2VTY2hlZHVsZVJlc3BvbnNlIkUKFlVucGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiGQoXVW5wYXVzZVNjaGVkdWxlUmVzcG9uc2UiNwoWVHJpZ2dlclNjaGVkdWxlUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEgwKBG5hbWUYAiABKAkiGQoXVHJpZ2dlclNjaGVkdWxlUmVzcG9uc2UqZQoMV29ya2Zsb3dLaW5kEh0KGVdPUktGTE9XX0tJTkRfVU5TUEVDSUZJRUQQABIaChZXT1JLRkxPV19LSU5EX1dPUktGTE9XEAESGgoWV09SS0ZMT1dfS0lORF9BQ1RJVklUWRACKt8BCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElJVTl9TVEFUVVNfUlVOTklORxABEhgKFFJVTl9TVEFUVVNfQ09NUExFVEVEEAISFQoRUlVOX1NUQVRVU19GQUlMRUQQAxIXChNSVU5fU1RBVFVTX0NBTkNFTEVEEAQSGQoVUlVOX1NUQVRVU19URVJNSU5BVEVEEAUSHwobUlVOX1NUQVRVU19DT05USU5VRURfQVNfTkVXEAYSGAoUUlVOX1NUQVRVU19USU1FRF9PVVQQBzK4BQoPV29ya2Zsb3dTZXJ2aWNlEmgKDUxpc3RXb3JrZmxvd3MSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0V29ya2Zsb3dzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RXb3JrZmxvd3NSZXNwb25zZRJoCg1TdGFydFdvcmtmbG93EiouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RhcnRXb3JrZmxvd1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5TdGFydFdvcmtmbG93UmVzcG9uc2USWQoITGlzdFJ1bnMSJS5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1JlcXVlc3QaJi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1Jlc3BvbnNlElMKBkdldFJ1bhIjLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1blJlcXVlc3QaJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdW5SZXNwb25zZRJcCglDYW5jZWxSdW4SJi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxSdW5SZXF1ZXN0GicuYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVuUmVzcG9uc2USZQoMVGVybWluYXRlUnVuEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVGVybWluYXRlUnVuUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlcm1pbmF0ZVJ1blJlc3BvbnNlElwKCVNpZ25hbFJ1bhImLmJhY2twbGFuZS5jb25zb2xlLnYxLlNpZ25hbFJ1blJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5TaWduYWxSdW5SZXNwb25zZTLFAwoPU2NoZWR1bGVTZXJ2aWNlEmgKDUxpc3RTY2hlZHVsZXMSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0U2NoZWR1bGVzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RTY2hlZHVsZXNSZXNwb25zZRJoCg1QYXVzZVNjaGVkdWxlEiouYmFja3BsYW5lLmNvbnNvbGUudjEuUGF1c2VTY2hlZHVsZVJlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5QYXVzZVNjaGVkdWxlUmVzcG9uc2USbgoPVW5wYXVzZVNjaGVkdWxlEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuVW5wYXVzZVNjaGVkdWxlUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLlVucGF1c2VTY2hlZHVsZVJlc3BvbnNlEm4KD1RyaWdnZXJTY2hlZHVsZRIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlRyaWdnZXJTY2hlZHVsZVJlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5UcmlnZ2VyU2NoZWR1bGVSZXNwb25zZUJAWj5naXRodWIuY29tL2dvcGhlcmV4L2JhY2twbGFuZS9iYWNrcGxhbmVwYi9jb25zb2xlL3YxO2NvbnNvbGV2MWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_schemapb_schema, file_backplanepb_v1_manifest]);
+  fileDesc("CiZiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3dvcmtmbG93cy5wcm90bxIUYmFja3BsYW5lLmNvbnNvbGUudjEi7AEKC1dvcmtmbG93RGVmEg8KB3NlcnZpY2UYASABKAkSDAoEbmFtZRgCIAEoCRIwCgRraW5kGAMgASgOMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuV29ya2Zsb3dLaW5kEhMKC2Rlc2NyaXB0aW9uGAQgASgJEh8KBWlucHV0GAUgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgGIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRISCgp0YXNrX3F1ZXVlGAcgASgJEhQKB3BvbGxlcnMYCCABKAVIAIgBAUIKCghfcG9sbGVycyInChRMaXN0V29ya2Zsb3dzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk0KFUxpc3RXb3JrZmxvd3NSZXNwb25zZRI0Cgl3b3JrZmxvd3MYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5Xb3JrZmxvd0RlZiKJAQoUU3RhcnRXb3JrZmxvd1JlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIQCgh3b3JrZmxvdxgCIAEoCRINCgVpbnB1dBgDIAEoCRITCgt3b3JrZmxvd19pZBgEIAEoCRIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIjwKFVN0YXJ0V29ya2Zsb3dSZXNwb25zZRITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkikQMKA1J1bhITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSFQoNd29ya2Zsb3dfdHlwZRgDIAEoCRIvCgZzdGF0dXMYBCABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW5TdGF0dXMSEgoKdGFza19xdWV1ZRgFIAEoCRIuCgpzdGFydF90aW1lGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjbG9zZV90aW1lGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5oaXN0b3J5X2xlbmd0aBgIIAEoAxIxCgRtZW1vGAkgAygLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuLk1lbW9FbnRyeRIaChJwYXJlbnRfd29ya2Zsb3dfaWQYCiABKAkSFQoNcGFyZW50X3J1bl9pZBgLIAEoCRorCglNZW1vRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASK3AQoPTGlzdFJ1bnNSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkSEAoId29ya2Zsb3cYAiABKAkSLwoGc3RhdHVzGAMgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEhoKEndvcmtmbG93X2lkX3ByZWZpeBgEIAEoCRIRCglwYWdlX3NpemUYBSABKA0SEgoKcGFnZV90b2tlbhgGIAEoDBINCgVob29rcxgHIAEoCCJjChBMaXN0UnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIjQKDUdldFJ1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIskCCg9QZW5kaW5nQWN0aXZpdHkSEwoLYWN0aXZpdHlfaWQYASABKAkSFQoNYWN0aXZpdHlfdHlwZRgCIAEoCRINCgVzdGF0ZRgDIAEoCRIPCgdhdHRlbXB0GAQgASgFEhgKEG1heGltdW1fYXR0ZW1wdHMYBSABKAUSNQoRbGFzdF9zdGFydGVkX3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKE2xhc3RfaGVhcnRiZWF0X3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKEW5leHRfYXR0ZW1wdF90aW1lGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxsYXN0X2ZhaWx1cmUYCSABKAkSEwoLbGFzdF93b3JrZXIYCiABKAkiqgEKDEhpc3RvcnlFdmVudBIKCgJpZBgBIAEoAxIoCgR0aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgR0eXBlGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSDwoHcGF5bG9hZBgFIAEoCRIPCgdmYWlsdXJlGAYgASgJEhMKC3dvcmtmbG93X2lkGAcgASgJEg4KBnJ1bl9pZBgIIAEoCSKjAgoOR2V0UnVuUmVzcG9uc2USJgoDcnVuGAEgASgLMhkuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuEg0KBWlucHV0GAIgASgJEg4KBnJlc3VsdBgDIAEoCRIPCgdmYWlsdXJlGAQgASgJEhQKDGZhaWx1cmVfdHlwZRgFIAEoCRJBChJwZW5kaW5nX2FjdGl2aXRpZXMYBiADKAsyJS5iYWNrcGxhbmUuY29uc29sZS52MS5QZW5kaW5nQWN0aXZpdHkSMwoHaGlzdG9yeRgHIAMoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkhpc3RvcnlFdmVudBIRCgl0cnVuY2F0ZWQYCCABKAgSGAoQY29udGludWVkX3J1bl9pZBgJIAEoCSI3ChBDYW5jZWxSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSITChFDYW5jZWxSdW5SZXNwb25zZSJKChNUZXJtaW5hdGVSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIOCgZyZWFzb24YAyABKAkiFgoUVGVybWluYXRlUnVuUmVzcG9uc2UiVgoQU2lnbmFsUnVuUmVxdWVzdBITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSDgoGc2lnbmFsGAMgASgJEg0KBWlucHV0GAQgASgJIhMKEVNpZ25hbFJ1blJlc3BvbnNlIpkBCg5TY2hlZHVsZUFjdGlvbhIxCg1zY2hlZHVsZV90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY3R1YWxfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLd29ya2Zsb3dfaWQYAyABKAkSDgoGcnVuX2lkGAQgASgJIokDCg1TY2hlZHVsZVN0YXRlEg4KBnBhdXNlZBgBIAEoCBIMCgRub3RlGAIgASgJEjAKDG5leHRfYWN0aW9ucxgDIAMoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPAoOcmVjZW50X2FjdGlvbnMYBCADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUFjdGlvbhIcChRydW5uaW5nX3dvcmtmbG93X2lkcxgFIAMoCRIUCgxhY3Rpb25fY291bnQYBiABKAMSHQoVbWlzc2VkX2NhdGNodXBfd2luZG93GAcgASgDEhcKD292ZXJsYXBfc2tpcHBlZBgIIAEoAxIrCgdjcmVhdGVkGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgd1cGRhdGVkGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg13b3JrZmxvd190eXBlGAsgASgJEg0KBW93bmVyGAwgASgJIpcBCgxTY2hlZHVsZUluZm8SDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgoKAmlkGAMgASgJEigKCGRlY2xhcmVkGAQgASgLMhYuYmFja3BsYW5lLnYxLlNjaGVkdWxlEjIKBXN0YXRlGAUgASgLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuU2NoZWR1bGVTdGF0ZSInChRMaXN0U2NoZWR1bGVzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk4KFUxpc3RTY2hlZHVsZXNSZXNwb25zZRI1CglzY2hlZHVsZXMYASADKAsyIi5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUluZm8iQwoUUGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiFwoVUGF1c2VTY2hlZHVsZVJlc3BvbnNlIkUKFlVucGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiGQoXVW5wYXVzZVNjaGVkdWxlUmVzcG9uc2UiNwoWVHJpZ2dlclNjaGVkdWxlUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEgwKBG5hbWUYAiABKAkiGQoXVHJpZ2dlclNjaGVkdWxlUmVzcG9uc2UqZQoMV29ya2Zsb3dLaW5kEh0KGVdPUktGTE9XX0tJTkRfVU5TUEVDSUZJRUQQABIaChZXT1JLRkxPV19LSU5EX1dPUktGTE9XEAESGgoWV09SS0ZMT1dfS0lORF9BQ1RJVklUWRACKt8BCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElJVTl9TVEFUVVNfUlVOTklORxABEhgKFFJVTl9TVEFUVVNfQ09NUExFVEVEEAISFQoRUlVOX1NUQVRVU19GQUlMRUQQAxIXChNSVU5fU1RBVFVTX0NBTkNFTEVEEAQSGQoVUlVOX1NUQVRVU19URVJNSU5BVEVEEAUSHwobUlVOX1NUQVRVU19DT05USU5VRURfQVNfTkVXEAYSGAoUUlVOX1NUQVRVU19USU1FRF9PVVQQBzK4BQoPV29ya2Zsb3dTZXJ2aWNlEmgKDUxpc3RXb3JrZmxvd3MSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0V29ya2Zsb3dzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RXb3JrZmxvd3NSZXNwb25zZRJoCg1TdGFydFdvcmtmbG93EiouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RhcnRXb3JrZmxvd1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5TdGFydFdvcmtmbG93UmVzcG9uc2USWQoITGlzdFJ1bnMSJS5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1JlcXVlc3QaJi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1Jlc3BvbnNlElMKBkdldFJ1bhIjLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1blJlcXVlc3QaJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdW5SZXNwb25zZRJcCglDYW5jZWxSdW4SJi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxSdW5SZXF1ZXN0GicuYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVuUmVzcG9uc2USZQoMVGVybWluYXRlUnVuEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVGVybWluYXRlUnVuUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlcm1pbmF0ZVJ1blJlc3BvbnNlElwKCVNpZ25hbFJ1bhImLmJhY2twbGFuZS5jb25zb2xlLnYxLlNpZ25hbFJ1blJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5TaWduYWxSdW5SZXNwb25zZTLFAwoPU2NoZWR1bGVTZXJ2aWNlEmgKDUxpc3RTY2hlZHVsZXMSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0U2NoZWR1bGVzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RTY2hlZHVsZXNSZXNwb25zZRJoCg1QYXVzZVNjaGVkdWxlEiouYmFja3BsYW5lLmNvbnNvbGUudjEuUGF1c2VTY2hlZHVsZVJlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5QYXVzZVNjaGVkdWxlUmVzcG9uc2USbgoPVW5wYXVzZVNjaGVkdWxlEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuVW5wYXVzZVNjaGVkdWxlUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLlVucGF1c2VTY2hlZHVsZVJlc3BvbnNlEm4KD1RyaWdnZXJTY2hlZHVsZRIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlRyaWdnZXJTY2hlZHVsZVJlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5UcmlnZ2VyU2NoZWR1bGVSZXNwb25zZUJAWj5naXRodWIuY29tL2dvcGhlcmV4L2JhY2twbGFuZS9iYWNrcGxhbmVwYi9jb25zb2xlL3YxO2NvbnNvbGV2MWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_schemapb_schema, file_backplanepb_v1_manifest]);
 
 /**
  * @generated from message backplane.console.v1.WorkflowDef
@@ -62,6 +62,15 @@ export type WorkflowDef = Message<"backplane.console.v1.WorkflowDef"> & {
    * @generated from field: string task_queue = 7;
    */
   taskQueue: string;
+
+  /**
+   * Workers that polled task_queue for workflow tasks recently (Temporal's
+   * DescribeTaskQueue); 0: a start waits until a worker comes. Unset when
+   * Temporal could not be asked.
+   *
+   * @generated from field: optional int32 pollers = 8;
+   */
+  pollers?: number | undefined;
 };
 
 /**
@@ -133,7 +142,8 @@ export type StartWorkflowRequest = Message<"backplane.console.v1.StartWorkflowRe
   input: string;
 
   /**
-   * Workflow id; empty: console/<service>/<workflow>/<uuid>.
+   * Workflow id; empty: console/<service>/<workflow>/<uuid>. One with a
+   * running run is refused (ALREADY_EXISTS).
    *
    * @generated from field: string workflow_id = 4;
    */
@@ -235,6 +245,11 @@ export type Run = Message<"backplane.console.v1.Run"> & {
    * @generated from field: string parent_workflow_id = 10;
    */
   parentWorkflowId: string;
+
+  /**
+   * @generated from field: string parent_run_id = 11;
+   */
+  parentRunId: string;
 };
 
 /**
@@ -288,6 +303,16 @@ export type ListRunsRequest = Message<"backplane.console.v1.ListRunsRequest"> & 
    * @generated from field: bytes page_token = 6;
    */
   pageToken: Uint8Array;
+
+  /**
+   * Hook calls of the service instead of its workflows: the
+   * backplane.CallHook.v1 runs on <service>.hooks (hooks its code raised)
+   * and the console's calls of its hooks (hook/<service>/ on backplane's
+   * queue).
+   *
+   * @generated from field: bool hooks = 7;
+   */
+  hooks: boolean;
 };
 
 /**
@@ -461,6 +486,19 @@ export type HistoryEvent = Message<"backplane.console.v1.HistoryEvent"> & {
    * @generated from field: string failure = 6;
    */
   failure: string;
+
+  /**
+   * The run the event is about, when another one: the child workflow it
+   * starts or ends, the run this one continued as.
+   *
+   * @generated from field: string workflow_id = 7;
+   */
+  workflowId: string;
+
+  /**
+   * @generated from field: string run_id = 8;
+   */
+  runId: string;
 };
 
 /**
@@ -521,6 +559,14 @@ export type GetRunResponse = Message<"backplane.console.v1.GetRunResponse"> & {
    * @generated from field: bool truncated = 8;
    */
   truncated: boolean;
+
+  /**
+   * The run this one continued as (status CONTINUED_AS_NEW), same
+   * workflow id.
+   *
+   * @generated from field: string continued_run_id = 9;
+   */
+  continuedRunId: string;
 };
 
 /**
@@ -625,7 +671,7 @@ export type SignalRunRequest = Message<"backplane.console.v1.SignalRunRequest"> 
   signal: string;
 
   /**
-   * Argument: JSON text; empty is none.
+   * Argument: JSON text; empty sends no argument (not null).
    *
    * @generated from field: string input = 4;
    */
@@ -741,6 +787,8 @@ export type ScheduleState = Message<"backplane.console.v1.ScheduleState"> & {
   overlapSkipped: bigint;
 
   /**
+   * Unset when Temporal does not say (updated: never updated).
+   *
    * @generated from field: google.protobuf.Timestamp created = 9;
    */
   created?: Timestamp | undefined;
@@ -1061,12 +1109,17 @@ export const RunStatusSchema: GenEnum<RunStatus> = /*@__PURE__*/
  * the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
  * carry memo source = console:<session> (§14).
  *
+ * GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
+ * backplane's namespace, not only runs on a service's queue: binding and
+ * rule runs live on backplane's own queue, and the console session is an
+ * installation operator.
+ *
  * @generated from service backplane.console.v1.WorkflowService
  */
 export const WorkflowService: GenService<{
   /**
    * Workflows the latest manifests declare: workflows[] and activities
-   * of kind WORKFLOW.
+   * of kind WORKFLOW, with the workers polling their task queue.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.ListWorkflows
    */
@@ -1076,7 +1129,8 @@ export const WorkflowService: GenService<{
     output: typeof ListWorkflowsResponseSchema;
   },
   /**
-   * Starts a declared workflow on the service's task queue.
+   * Starts a declared workflow on the service's task queue. A workflow_id
+   * that has a running run is ALREADY_EXISTS; a closed one starts a new run.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.StartWorkflow
    */
@@ -1086,7 +1140,11 @@ export const WorkflowService: GenService<{
     output: typeof StartWorkflowResponseSchema;
   },
   /**
-   * Runs on a service's task queue, newest first (Temporal visibility).
+   * Runs on a service's task queue (or its hook calls), newest start first
+   * where the visibility store sorts (Elasticsearch). SQL visibility (the
+   * dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is
+   * Temporal's own: running runs first, then by close time, newest first.
+   * ListRunsResponse.query shows which query ran.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.ListRuns
    */
@@ -1127,7 +1185,7 @@ export const WorkflowService: GenService<{
     output: typeof TerminateRunResponseSchema;
   },
   /**
-   * Sends a signal with a JSON argument.
+   * Sends a signal with a JSON argument, or none.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.SignalRun
    */
@@ -1176,7 +1234,9 @@ export const ScheduleService: GenService<{
     output: typeof UnpauseScheduleResponseSchema;
   },
   /**
-   * Starts the schedule's action now.
+   * Starts the schedule's action now, whatever its overlap policy. The run
+   * carries the schedule's action (memo included): Temporal takes no memo
+   * on a trigger, so who triggered it is in the audit, not on the run.
    *
    * @generated from rpc backplane.console.v1.ScheduleService.TriggerSchedule
    */

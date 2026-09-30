@@ -20,7 +20,7 @@ The result has the same `operation_id` and one of these outcomes:
 | Outcome | Meaning |
 | --- | --- |
 | `succeeded` | The API confirmed completion or acceptance of the requested command. Starting a workflow does not mean the workflow completed. |
-| `rejected` | Invalid input, failed precondition, missing subject, permission refusal or structured validation violations. |
+| `rejected` | Invalid input, failed precondition, missing subject, an existing subject (a workflow id that is already running), permission refusal or structured validation violations. |
 | `failed` | A returned call result contains a failure, rule evaluation failed, or every attempted batch item failed. |
 | `partial` | A dead-letter batch contains both completed and failed items. |
 | `unknown` | Dispatch returned an ambiguous transport/backend failure, cancellation or deadline. |
@@ -33,9 +33,14 @@ the operation audit and the external run/event state.
 
 Metadata is allowlisted: actor/session UUID, operation/entry UUID, action,
 subject identifiers, revision/rollback reference, changed configuration key
-names, pause flag, fixed diagnostic code, workflow/run IDs and affected session
-count. Request/output payloads, config values, comments, credentials, tokens and
-arbitrary error messages/types are excluded. In particular, `TestRule.event` is
+names, pause flag, fixed diagnostic code, workflow/run IDs (the started run, or
+the run a cancel/terminate/signal addresses) and affected session count. The
+operator's words on run and schedule commands are kept, cut to 256 characters:
+the signal name of `workflow.signal` (never its argument), the reason of
+`workflow.terminate` and the note of `schedule.pause`/`schedule.resume`, in
+both the intent and the result. Request/output payloads, config values,
+revision comments, credentials, tokens and arbitrary error messages/types are
+excluded. In particular, `TestRule.event` is
 payload and is never copied to the subject. Identifiers are caller-visible
 metadata; authors should not put secrets into names or run IDs.
 
@@ -59,8 +64,14 @@ Every entry names the service it is about in `service`: the service whose
 configuration was saved, the owner of a bound hook (`hello` for `hello.Greet`),
 the owner of the event a rule reacts to, or the service a command addresses
 (its `service`/`subscriber` field, the owner of its hook, activity or event, the
-hook of a `binding/<hook>/…` or `test/<hook>/…` run, or the event owner of a
-rule id). Installation-wide entries such as sessions leave it empty. The field
+event owner of a rule id, or the service of the run it acts on). A run's service
+comes from backplane's workflow ids — `console/<service>/…`,
+`console/activity/<service>/…`, `hook/<service>/…`, `binding/<hook>/…`,
+`test/<hook>/…`, and `rule/<id>/…`/`test/rule/<id>/…` (the rule's event owner).
+Any other id is asked of Temporal once (DescribeWorkflowExecution, bounded to
+2 s): the run's task queue `<service>` or `<service>.hooks` names the service;
+when Temporal cannot answer, a schedule run id `<service>/<Name>-<time>` still
+does. Installation-wide entries such as sessions leave it empty. The field
 is computed when the entry is written and stored in its own indexed column;
 entries written before the column existed were attributed by the same rules in
 the migration. Filtering by `service` therefore covers entries whose subject

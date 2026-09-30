@@ -41,7 +41,9 @@ message AuditEntry {
 }
 
 // Safe control metadata only. No request payload, arbitrary error text,
-// configuration values, comments, credentials or session tokens.
+// configuration values, revision comments, credentials or session tokens.
+// The operator's words on a run or schedule command are kept, bounded to
+// 256 characters: signal names, termination reasons, pause/resume notes.
 message AuditDetail {
   uint64 revision = 1;
   uint64 rollback_of = 2;
@@ -51,6 +53,12 @@ message AuditDetail {
   string workflow_id = 6;
   string run_id = 7;
   uint64 affected = 8;
+  // SignalRun: the signal's name (never its argument).
+  string signal = 9;
+  // TerminateRun: the reason the operator typed.
+  string reason = 10;
+  // PauseSchedule, UnpauseSchedule: the note the operator typed.
+  string note = 11;
 }
 
 message AuditFilter {

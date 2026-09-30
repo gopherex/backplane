@@ -4,11 +4,11 @@ import * as api from '@gopherex/backplane-api';
 import { useClient, useSnapshotWatch } from '@gopherex/backplane-react';
 import { Badge, Button, ConfirmAction, Count, DetailDrawer, EmptyState, Input, KeyValueList, Panel, StatusBadge, StatusDot, Switch, TabBar, Timestamp, type StatusTone } from '@gopherex/backplane-ui';
 import { CodeEditor, DiffViewer, JSONViewer } from '@gopherex/backplane-editors';
-import { ArrowDown, Cable, CircleCheck, CircleX, FlaskConical, GitBranch, History, Pause, Pencil, Play, Plus, RotateCcw, Trash2, Undo2, Zap } from 'lucide-react';
+import { ArrowDown, Cable, CircleCheck, CircleX, FlaskConical, GitBranch, History, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Trash2, Undo2, Zap } from 'lucide-react';
 import { usePlatformAction, usePlatformQuery } from './runtime.js';
 import { usePlatformText } from './locales.js';
 import { date, durationText, enumLabel } from './format.js';
-import { RunDrawer, RunStatusFilter, RunTable } from './runs.js';
+import { RunDrawer, RunPager, RunStatusFilter, RunTable, useRunPages, type RunRef } from './runs.js';
 
 type Mode = 'dark' | 'light';
 type Violation = { path: string; message: string };
@@ -247,13 +247,14 @@ function DefinitionDiff({ kind, before, after, mode }: { kind: 'binding' | 'rule
 }
 
 function CallOutcome({ result, mode }: { result: api.CallResult; mode: Mode }) {
-  const text = usePlatformText();
+  const text = usePlatformText(), [opened, setOpened] = useState<RunRef>();
   return <div className="grid gap-2">
     <div className="flex flex-wrap items-center gap-2 text-sm">{result.error ? <StatusBadge tone="danger">{text('failed')}</StatusBadge> : <StatusBadge tone="success">{text('succeeded')}</StatusBadge>}
       {result.took && <span className="text-xs text-muted-foreground">{durationText(result.took)}</span>}
-      {result.workflowId && <span className="font-mono text-2xs text-muted-foreground">{result.workflowId}</span>}</div>
+      {result.workflowId && <button type="button" className="min-w-0 truncate font-mono text-2xs text-link hover:underline" title={text('openRun')} onClick={() => setOpened({ workflowId: result.workflowId, runId: result.runId })}>{result.workflowId}</button>}</div>
     {result.error ? <pre className="m-0 rounded-md border border-destructive/30 bg-destructive/10 p-2 font-mono text-xs whitespace-pre-wrap text-destructive">{result.errorType && `${result.errorType}: `}{result.error}</pre>
       : <JSONViewer label={text('output')} value={result.output || 'null'} mode={mode} />}
+    <RunDrawer run={opened} onClose={() => setOpened(undefined)} mode={mode} />
   </div>;
 }
 
@@ -273,16 +274,24 @@ function BindingTest({ hook, mode }: { hook: string; mode: Mode }) {
 
 function BindingRuns({ hook, mode }: { hook: string; mode: Mode }) {
   const client = useClient(api.BindingServiceClient), text = usePlatformText();
-  const [status, setStatus] = useState(api.RunStatus.UNSPECIFIED), [tests, setTests] = useState(false), [selected, setSelected] = useState<api.Run>();
-  const state = usePlatformQuery(`binding-runs:${hook}:${status}:${tests}`, (signal) => client.listBindingRuns(create(api.ListBindingRunsRequestSchema, { hook, status, tests, pageSize: 50 }), { signal }));
-  return <Panel title={text('runs')} count={state.value?.runs.length} flush actions={<label className="flex items-center gap-2 text-xs text-muted-foreground"><Switch size="sm" checked={tests} onCheckedChange={setTests} />{text('testRuns')}</label>}>
-    <div className="border-b border-border px-3 py-2"><RunStatusFilter value={status} onChange={setStatus} /></div>
+  const [status, setStatus] = useState(api.RunStatus.UNSPECIFIED), [tests, setTests] = useState(false), [selected, setSelected] = useState<api.Run>(), pages = useRunPages();
+  const state = usePlatformQuery(`binding-runs:${hook}:${status}:${tests}:${Array.from(pages.page)}`, (signal) => client.listBindingRuns(create(api.ListBindingRunsRequestSchema, { hook, status, tests, pageSize: 50, pageToken: pages.page }), { signal }));
+  return <Panel title={text('runs')} count={state.value?.runs.length} flush actions={<RunListActions tests={tests} onTests={(value) => { setTests(value); pages.first(); }} loading={state.loading} onRefresh={state.refresh} />}
+    footer={<RunPager pages={pages} next={state.value?.nextPageToken} loading={state.loading} />}>
+    <div className="border-b border-border px-3 py-2"><RunStatusFilter value={status} onChange={(value) => { setStatus(value); pages.first(); }} /></div>
     <RunTable runs={state.value?.runs ?? []} loading={state.loading} onOpen={setSelected} />
     <RunDrawer run={selected} onClose={() => setSelected(undefined)} mode={mode} source={{
       load: async (run, signal) => (await client.getBindingRun(create(api.GetBindingRunRequestSchema, run), { signal })).run ?? create(api.GetRunResponseSchema),
       cancel: (run, signal) => client.cancelBindingRun(create(api.CancelBindingRunRequestSchema, run), { signal }),
     }}>{selected && <BindingSteps workflowId={selected.workflowId} runId={selected.runId} />}</RunDrawer>
   </Panel>;
+}
+
+/** Test-run switch and refresh of a binding or rule run list. */
+function RunListActions({ tests, onTests, loading, onRefresh }: { tests: boolean; onTests: (tests: boolean) => void; loading: boolean; onRefresh: () => void }) {
+  const text = usePlatformText();
+  return <><label className="flex items-center gap-2 text-xs text-muted-foreground"><Switch size="sm" checked={tests} onCheckedChange={onTests} />{text('testRuns')}</label>
+    <Button size="icon-sm" variant="ghost" aria-label={text('refresh')} title={text('refresh')} onClick={onRefresh} disabled={loading}><RefreshCw className={loading ? 'animate-spin' : ''} /></Button></>;
 }
 
 /** Step-by-step timeline of a binding run. */
@@ -386,10 +395,11 @@ function RuleTest({ id, mode }: { id: string; mode: Mode }) {
 
 function RuleRuns({ id, mode }: { id: string; mode: Mode }) {
   const client = useClient(api.RuleServiceClient), text = usePlatformText();
-  const [status, setStatus] = useState(api.RunStatus.UNSPECIFIED), [tests, setTests] = useState(false), [selected, setSelected] = useState<api.Run>();
-  const state = usePlatformQuery(`rule-runs:${id}:${status}:${tests}`, (signal) => client.listRuleRuns(create(api.ListRuleRunsRequestSchema, { id, status, tests, pageSize: 50 }), { signal }));
-  return <Panel title={text('runs')} count={state.value?.runs.length} flush actions={<label className="flex items-center gap-2 text-xs text-muted-foreground"><Switch size="sm" checked={tests} onCheckedChange={setTests} />{text('testRuns')}</label>}>
-    <div className="border-b border-border px-3 py-2"><RunStatusFilter value={status} onChange={setStatus} /></div>
+  const [status, setStatus] = useState(api.RunStatus.UNSPECIFIED), [tests, setTests] = useState(false), [selected, setSelected] = useState<api.Run>(), pages = useRunPages();
+  const state = usePlatformQuery(`rule-runs:${id}:${status}:${tests}:${Array.from(pages.page)}`, (signal) => client.listRuleRuns(create(api.ListRuleRunsRequestSchema, { id, status, tests, pageSize: 50, pageToken: pages.page }), { signal }));
+  return <Panel title={text('runs')} count={state.value?.runs.length} flush actions={<RunListActions tests={tests} onTests={(value) => { setTests(value); pages.first(); }} loading={state.loading} onRefresh={state.refresh} />}
+    footer={<RunPager pages={pages} next={state.value?.nextPageToken} loading={state.loading} />}>
+    <div className="border-b border-border px-3 py-2"><RunStatusFilter value={status} onChange={(value) => { setStatus(value); pages.first(); }} /></div>
     <RunTable runs={state.value?.runs ?? []} loading={state.loading} onOpen={setSelected} />
     <RunDrawer run={selected} onClose={() => setSelected(undefined)} mode={mode} source={{
       load: async (run, signal) => (await client.getRuleRun(create(api.GetRuleRunRequestSchema, { id, ...run }), { signal })).run ?? create(api.GetRunResponseSchema),

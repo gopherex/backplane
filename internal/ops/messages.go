@@ -258,8 +258,10 @@ func tail(
 	}
 }
 
+// stamp is t as a timestamp; unset for the zero time and for the Unix
+// epoch, which Temporal's SDK reports for a time the server left out.
 func stamp(t time.Time) *timestamppb.Timestamp {
-	if t.IsZero() {
+	if t.IsZero() || t.Equal(time.Unix(0, 0)) {
 		return nil
 	}
 

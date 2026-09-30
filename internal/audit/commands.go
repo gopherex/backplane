@@ -2,8 +2,10 @@ package audit
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
@@ -14,12 +16,17 @@ import (
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	"github.com/gopherex/backplane/internal/store"
+	"github.com/gopherex/backplane/internal/wire"
 )
 
 const (
 	resultDeadline   = 5 * time.Second
 	outcomeSucceeded = "succeeded"
 	outcomeFailed    = "failed"
+	// lookupDeadline bounds asking Temporal for a run's task queue.
+	lookupDeadline = 2 * time.Second
+	// maxWords bounds the operator's words kept in a detail (runes).
+	maxWords = 256
 )
 
 // Commands wraps only the enumerated external-control RPCs. Database mutations
@@ -97,6 +104,7 @@ func (s *Service) command(ctx context.Context, actor, action string, req any, ne
 		Subject:     commandSubject(req),
 		Outcome:     "intent",
 		OperationID: uuid.New(),
+		Detail:      commandDetail(req),
 		Service:     s.commandService(ctx, req),
 	}
 	if _, err := s.store.Get().AppendAudit(ctx, draft); err != nil {
@@ -104,7 +112,7 @@ func (s *Service) command(ctx context.Context, actor, action string, req any, ne
 	}
 
 	response, callErr := next(ctx, req)
-	draft.Outcome, draft.Detail = commandResult(response, callErr)
+	draft.Outcome, draft.Detail = commandResult(draft.Detail, response, callErr)
 
 	resultCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resultDeadline)
 	defer cancel()
@@ -153,9 +161,45 @@ func commandSubject(value any) string {
 	return strings.Join(parts, ";")
 }
 
+// commandDetail is what a command's request adds to its entries: the run it
+// addresses and the operator's words — a signal's name (never its argument),
+// a termination reason, a pause or resume note — bounded.
+func commandDetail(value any) store.AuditDetail {
+	var detail store.AuditDetail
+
+	switch req := value.(type) {
+	case *consolev1.CancelRunRequest:
+		detail.WorkflowID, detail.RunID = req.GetWorkflowId(), req.GetRunId()
+	case *consolev1.TerminateRunRequest:
+		detail.WorkflowID, detail.RunID, detail.Reason = req.GetWorkflowId(), req.GetRunId(), bounded(req.GetReason())
+	case *consolev1.SignalRunRequest:
+		detail.WorkflowID, detail.RunID, detail.Signal = req.GetWorkflowId(), req.GetRunId(), bounded(req.GetSignal())
+	case *consolev1.CancelBindingRunRequest:
+		detail.WorkflowID, detail.RunID = req.GetWorkflowId(), req.GetRunId()
+	case *consolev1.CancelRuleRunRequest:
+		detail.WorkflowID, detail.RunID = req.GetWorkflowId(), req.GetRunId()
+	case *consolev1.PauseScheduleRequest:
+		detail.Note = bounded(req.GetNote())
+	case *consolev1.UnpauseScheduleRequest:
+		detail.Note = bounded(req.GetNote())
+	}
+
+	return detail
+}
+
+// bounded is s cut to maxWords runes.
+func bounded(s string) string {
+	if utf8.RuneCountInString(s) <= maxWords {
+		return s
+	}
+
+	return string([]rune(s)[:maxWords]) + "…"
+}
+
 // commandService is the service a command is addressed to: its service or
-// subscriber, the owner of its hook/activity/event, the hook of a binding run,
-// or the event owner of a rule. Empty when the request names none of these.
+// subscriber, the owner of its hook/activity/event, the event owner of a
+// rule, or the service of the run it acts on. Empty when none of these is
+// known.
 func (s *Service) commandService(ctx context.Context, value any) string {
 	message, isMessage := value.(proto.Message)
 	if !isMessage {
@@ -166,17 +210,128 @@ func (s *Service) commandService(ctx context.Context, value any) string {
 		return service
 	}
 
-	if service := bindingRunService(stringField(message, "workflow_id")); service != "" {
+	if service := s.ruleService(ctx, stringField(message, "id")); service != "" {
 		return service
 	}
 
-	if id, err := uuid.Parse(stringField(message, "id")); err == nil {
-		if event, eventErr := s.store.Get().Q.GetRuleEvent(ctx, id); eventErr == nil {
-			return store.ServiceOf(event.Event)
-		}
+	if workflowID := stringField(message, "workflow_id"); workflowID != "" {
+		return s.runService(ctx, workflowID, stringField(message, "run_id"))
 	}
 
 	return ""
+}
+
+// ruleService is the owner of the event of rule id; empty when id is not a
+// rule's.
+func (s *Service) ruleService(ctx context.Context, id string) string {
+	rule, err := uuid.Parse(id)
+	if err != nil {
+		return ""
+	}
+
+	event, err := s.store.Get().Q.GetRuleEvent(ctx, rule)
+	if err != nil {
+		return ""
+	}
+
+	return store.ServiceOf(event.Event)
+}
+
+// runService is the service a run belongs to. Backplane's ids say it:
+// console/<service>/..., console/activity/<service>/..., hook/<service>/...,
+// binding/<hook>/..., test/<hook>/..., rule/<id>/... and test/rule/<id>/...
+// (the owner of the rule's event). Any other id is the service of the run's
+// task queue (<service> or <service>.hooks) when Temporal is asked, else a
+// schedule's run <service>/<Name>-<time>.
+func (s *Service) runService(ctx context.Context, workflowID, runID string) string {
+	switch kind, key := runOwner(workflowID); kind {
+	case ownerService:
+		return key
+	case ownerRule:
+		// A draft's test run (test/rule/draft/...) names no saved rule.
+		if service := s.ruleService(ctx, key); service != "" {
+			return service
+		}
+	case ownerNone:
+	}
+
+	if s.runQueue != nil {
+		lookup, cancel := context.WithTimeout(ctx, lookupDeadline)
+		defer cancel()
+
+		if queue, err := s.runQueue(lookup, workflowID, runID); err == nil {
+			return queueService(queue)
+		}
+	}
+
+	if match := scheduleRun.FindStringSubmatch(workflowID); match != nil {
+		return match[1]
+	}
+
+	return ""
+}
+
+// consoleActivityParts: console/activity/<service>/<Name>/<uuid>, where
+// a console start is console/<service>/<Workflow>/<uuid>.
+const consoleActivityParts = 5
+
+// What a run id names.
+type owner int
+
+const (
+	ownerNone owner = iota
+	ownerService
+	ownerRule
+)
+
+var (
+	serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	// scheduleRun is the id of a schedule's run: <service>/<Name>-<time>.
+	scheduleRun = regexp.MustCompile(`^([a-z][a-z0-9-]*)/[A-Za-z][A-Za-z0-9_]*-`)
+)
+
+// runOwner reads the owner of a run from Backplane's workflow ids: a
+// service, or a rule (by id) whose event owner owns it.
+func runOwner(workflowID string) (owner, string) {
+	if hook, _, ok := wire.BindingRunHook(workflowID); ok {
+		return ownerService, store.ServiceOf(hook)
+	}
+
+	parts := strings.Split(workflowID, "/")
+	// service is the first of rest, when more follows it.
+	service := func(rest []string) (owner, string) {
+		if len(rest) > 1 && serviceName.MatchString(rest[0]) {
+			return ownerService, rest[0]
+		}
+
+		return ownerNone, ""
+	}
+
+	switch {
+	case len(parts) > 3 && parts[0] == "test" && parts[1] == "rule":
+		return ownerRule, parts[2]
+	case len(parts) > 2 && parts[0] == "rule":
+		return ownerRule, parts[1]
+	case parts[0] == "hook":
+		return service(parts[1:])
+	case len(parts) == consoleActivityParts && parts[0] == "console" && parts[1] == "activity":
+		return service(parts[2:])
+	case parts[0] == "console":
+		return service(parts[1:])
+	}
+
+	return ownerNone, ""
+}
+
+// queueService is the service of a task queue: <service> or
+// <service>.hooks.
+func queueService(queue string) string {
+	service := strings.TrimSuffix(queue, wire.HooksQueue(""))
+	if !serviceName.MatchString(service) {
+		return ""
+	}
+
+	return service
 }
 
 // declaredService reads the service a request names directly or through a
@@ -206,19 +361,6 @@ func declaredService(message proto.Message, value any) string {
 	return ""
 }
 
-// bindingRunService is the hook owner of a binding run: binding/<hook>/...
-// or test/<hook>/...
-func bindingRunService(workflowID string) string {
-	const segments = 3 // kind / hook / request
-
-	parts := strings.SplitN(workflowID, "/", segments)
-	if len(parts) == segments && (parts[0] == "binding" || parts[0] == "test") {
-		return store.ServiceOf(parts[1])
-	}
-
-	return ""
-}
-
 func stringField(message proto.Message, name protoreflect.Name) string {
 	field := message.ProtoReflect().Descriptor().Fields().ByName(name)
 	if field == nil || field.Kind() != protoreflect.StringKind || field.IsList() {
@@ -228,11 +370,14 @@ func stringField(message proto.Message, name protoreflect.Name) string {
 	return message.ProtoReflect().Get(field).String()
 }
 
-func commandResult(response any, err error) (string, store.AuditDetail) {
-	detail := store.AuditDetail{Code: status.Code(err).String()}
+// commandResult is the outcome of a command and its detail: detail (what
+// the request said) with what the response adds.
+func commandResult(detail store.AuditDetail, response any, err error) (string, store.AuditDetail) {
+	detail.Code = status.Code(err).String()
 	if err != nil {
 		switch status.Code(err) {
-		case codes.InvalidArgument, codes.NotFound, codes.FailedPrecondition, codes.PermissionDenied:
+		case codes.InvalidArgument, codes.NotFound, codes.FailedPrecondition, codes.PermissionDenied,
+			codes.AlreadyExists:
 			return "rejected", detail
 		default:
 			return "unknown", detail
@@ -270,13 +415,7 @@ func responseResult(response any, detail store.AuditDetail) (string, store.Audit
 		return outcomeFailed, detail
 	}
 
-	if result, ok := response.(interface{ GetWorkflowId() string }); ok {
-		detail.WorkflowID = result.GetWorkflowId()
-	}
-
-	if result, ok := response.(interface{ GetRunId() string }); ok {
-		detail.RunID = result.GetRunId()
-	}
+	detail = startedRun(response, detail)
 
 	switch result := response.(type) {
 	case *consolev1.RedriveDeadLettersResponse:
@@ -286,6 +425,19 @@ func responseResult(response any, detail store.AuditDetail) (string, store.Audit
 	default:
 		return outcomeSucceeded, detail
 	}
+}
+
+// startedRun is detail with the run a response names (StartWorkflow's).
+func startedRun(response any, detail store.AuditDetail) store.AuditDetail {
+	if result, ok := response.(interface{ GetWorkflowId() string }); ok && result.GetWorkflowId() != "" {
+		detail.WorkflowID = result.GetWorkflowId()
+	}
+
+	if result, ok := response.(interface{ GetRunId() string }); ok && result.GetRunId() != "" {
+		detail.RunID = result.GetRunId()
+	}
+
+	return detail
 }
 
 func batchOutcome(completed uint64, failed int, detail store.AuditDetail) (string, store.AuditDetail) {

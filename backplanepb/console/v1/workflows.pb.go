@@ -153,7 +153,11 @@ type WorkflowDef struct {
 	Input       *schemapb.Schema `protobuf:"bytes,5,opt,name=input,proto3" json:"input,omitempty"`
 	Output      *schemapb.Schema `protobuf:"bytes,6,opt,name=output,proto3" json:"output,omitempty"`
 	// Task queue it runs on: the service's.
-	TaskQueue     string `protobuf:"bytes,7,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
+	TaskQueue string `protobuf:"bytes,7,opt,name=task_queue,json=taskQueue,proto3" json:"task_queue,omitempty"`
+	// Workers that polled task_queue for workflow tasks recently (Temporal's
+	// DescribeTaskQueue); 0: a start waits until a worker comes. Unset when
+	// Temporal could not be asked.
+	Pollers       *int32 `protobuf:"varint,8,opt,name=pollers,proto3,oneof" json:"pollers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -235,6 +239,13 @@ func (x *WorkflowDef) GetTaskQueue() string {
 		return x.TaskQueue
 	}
 	return ""
+}
+
+func (x *WorkflowDef) GetPollers() int32 {
+	if x != nil && x.Pollers != nil {
+		return *x.Pollers
+	}
+	return 0
 }
 
 type ListWorkflowsRequest struct {
@@ -334,7 +345,8 @@ type StartWorkflowRequest struct {
 	Workflow string `protobuf:"bytes,2,opt,name=workflow,proto3" json:"workflow,omitempty"`
 	// Input: JSON text; empty is no argument.
 	Input string `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
-	// Workflow id; empty: console/<service>/<workflow>/<uuid>.
+	// Workflow id; empty: console/<service>/<workflow>/<uuid>. One with a
+	// running run is refused (ALREADY_EXISTS).
 	WorkflowId string `protobuf:"bytes,4,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
 	// Execution timeout; zero: none.
 	Timeout       *durationpb.Duration `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
@@ -474,6 +486,7 @@ type Run struct {
 	Memo map[string]string `protobuf:"bytes,9,rep,name=memo,proto3" json:"memo,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Parent run, when a child workflow.
 	ParentWorkflowId string `protobuf:"bytes,10,opt,name=parent_workflow_id,json=parentWorkflowId,proto3" json:"parent_workflow_id,omitempty"`
+	ParentRunId      string `protobuf:"bytes,11,opt,name=parent_run_id,json=parentRunId,proto3" json:"parent_run_id,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -578,6 +591,13 @@ func (x *Run) GetParentWorkflowId() string {
 	return ""
 }
 
+func (x *Run) GetParentRunId() string {
+	if x != nil {
+		return x.ParentRunId
+	}
+	return ""
+}
+
 type ListRunsRequest struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Service string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
@@ -591,7 +611,12 @@ type ListRunsRequest struct {
 	// At most this many (default 50, at most 500).
 	PageSize uint32 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// From the previous response; empty: the first page.
-	PageToken     []byte `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	PageToken []byte `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Hook calls of the service instead of its workflows: the
+	// backplane.CallHook.v1 runs on <service>.hooks (hooks its code raised)
+	// and the console's calls of its hooks (hook/<service>/ on backplane's
+	// queue).
+	Hooks         bool `protobuf:"varint,7,opt,name=hooks,proto3" json:"hooks,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -666,6 +691,13 @@ func (x *ListRunsRequest) GetPageToken() []byte {
 		return x.PageToken
 	}
 	return nil
+}
+
+func (x *ListRunsRequest) GetHooks() bool {
+	if x != nil {
+		return x.Hooks
+	}
+	return false
 }
 
 type ListRunsResponse struct {
@@ -914,7 +946,11 @@ type HistoryEvent struct {
 	// signal argument).
 	Payload string `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
 	// Failure message, for failed or timed out events.
-	Failure       string `protobuf:"bytes,6,opt,name=failure,proto3" json:"failure,omitempty"`
+	Failure string `protobuf:"bytes,6,opt,name=failure,proto3" json:"failure,omitempty"`
+	// The run the event is about, when another one: the child workflow it
+	// starts or ends, the run this one continued as.
+	WorkflowId    string `protobuf:"bytes,7,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
+	RunId         string `protobuf:"bytes,8,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -991,6 +1027,20 @@ func (x *HistoryEvent) GetFailure() string {
 	return ""
 }
 
+func (x *HistoryEvent) GetWorkflowId() string {
+	if x != nil {
+		return x.WorkflowId
+	}
+	return ""
+}
+
+func (x *HistoryEvent) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
 type GetRunResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Run   *Run                   `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
@@ -1003,10 +1053,13 @@ type GetRunResponse struct {
 	FailureType       string             `protobuf:"bytes,5,opt,name=failure_type,json=failureType,proto3" json:"failure_type,omitempty"`
 	PendingActivities []*PendingActivity `protobuf:"bytes,6,rep,name=pending_activities,json=pendingActivities,proto3" json:"pending_activities,omitempty"`
 	// The history, oldest first; at most 1000 events (truncated says more).
-	History       []*HistoryEvent `protobuf:"bytes,7,rep,name=history,proto3" json:"history,omitempty"`
-	Truncated     bool            `protobuf:"varint,8,opt,name=truncated,proto3" json:"truncated,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	History   []*HistoryEvent `protobuf:"bytes,7,rep,name=history,proto3" json:"history,omitempty"`
+	Truncated bool            `protobuf:"varint,8,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// The run this one continued as (status CONTINUED_AS_NEW), same
+	// workflow id.
+	ContinuedRunId string `protobuf:"bytes,9,opt,name=continued_run_id,json=continuedRunId,proto3" json:"continued_run_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *GetRunResponse) Reset() {
@@ -1093,6 +1146,13 @@ func (x *GetRunResponse) GetTruncated() bool {
 		return x.Truncated
 	}
 	return false
+}
+
+func (x *GetRunResponse) GetContinuedRunId() string {
+	if x != nil {
+		return x.ContinuedRunId
+	}
+	return ""
 }
 
 type CancelRunRequest struct {
@@ -1284,7 +1344,7 @@ type SignalRunRequest struct {
 	WorkflowId string                 `protobuf:"bytes,1,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
 	RunId      string                 `protobuf:"bytes,2,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	Signal     string                 `protobuf:"bytes,3,opt,name=signal,proto3" json:"signal,omitempty"`
-	// Argument: JSON text; empty is none.
+	// Argument: JSON text; empty sends no argument (not null).
 	Input         string `protobuf:"bytes,4,opt,name=input,proto3" json:"input,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1464,12 +1524,13 @@ type ScheduleState struct {
 	// The latest starts, newest last.
 	RecentActions []*ScheduleAction `protobuf:"bytes,4,rep,name=recent_actions,json=recentActions,proto3" json:"recent_actions,omitempty"`
 	// Runs of it still going.
-	RunningWorkflowIds  []string               `protobuf:"bytes,5,rep,name=running_workflow_ids,json=runningWorkflowIds,proto3" json:"running_workflow_ids,omitempty"`
-	ActionCount         int64                  `protobuf:"varint,6,opt,name=action_count,json=actionCount,proto3" json:"action_count,omitempty"`
-	MissedCatchupWindow int64                  `protobuf:"varint,7,opt,name=missed_catchup_window,json=missedCatchupWindow,proto3" json:"missed_catchup_window,omitempty"`
-	OverlapSkipped      int64                  `protobuf:"varint,8,opt,name=overlap_skipped,json=overlapSkipped,proto3" json:"overlap_skipped,omitempty"`
-	Created             *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created,proto3" json:"created,omitempty"`
-	Updated             *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated,proto3" json:"updated,omitempty"`
+	RunningWorkflowIds  []string `protobuf:"bytes,5,rep,name=running_workflow_ids,json=runningWorkflowIds,proto3" json:"running_workflow_ids,omitempty"`
+	ActionCount         int64    `protobuf:"varint,6,opt,name=action_count,json=actionCount,proto3" json:"action_count,omitempty"`
+	MissedCatchupWindow int64    `protobuf:"varint,7,opt,name=missed_catchup_window,json=missedCatchupWindow,proto3" json:"missed_catchup_window,omitempty"`
+	OverlapSkipped      int64    `protobuf:"varint,8,opt,name=overlap_skipped,json=overlapSkipped,proto3" json:"overlap_skipped,omitempty"`
+	// Unset when Temporal does not say (updated: never updated).
+	Created *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created,proto3" json:"created,omitempty"`
+	Updated *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated,proto3" json:"updated,omitempty"`
 	// Workflow type of its action.
 	WorkflowType string `protobuf:"bytes,11,opt,name=workflow_type,json=workflowType,proto3" json:"workflow_type,omitempty"`
 	// Memo backplane.service: the owning service; empty for a schedule
@@ -2045,7 +2106,7 @@ var File_backplanepb_console_v1_workflows_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\n" +
-	"&backplanepb/console/v1/workflows.proto\x12\x14backplane.console.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15schemapb/schema.proto\x1a\x1dbackplanepb/v1/manifest.proto\"\x86\x02\n" +
+	"&backplanepb/console/v1/workflows.proto\x12\x14backplane.console.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x15schemapb/schema.proto\x1a\x1dbackplanepb/v1/manifest.proto\"\xb1\x02\n" +
 	"\vWorkflowDef\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x126\n" +
@@ -2054,7 +2115,10 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x05input\x18\x05 \x01(\v2\x10.schemapb.SchemaR\x05input\x12(\n" +
 	"\x06output\x18\x06 \x01(\v2\x10.schemapb.SchemaR\x06output\x12\x1d\n" +
 	"\n" +
-	"task_queue\x18\a \x01(\tR\ttaskQueue\"0\n" +
+	"task_queue\x18\a \x01(\tR\ttaskQueue\x12\x1d\n" +
+	"\apollers\x18\b \x01(\x05H\x00R\apollers\x88\x01\x01B\n" +
+	"\n" +
+	"\b_pollers\"0\n" +
 	"\x14ListWorkflowsRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\"X\n" +
 	"\x15ListWorkflowsResponse\x12?\n" +
@@ -2069,7 +2133,7 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x15StartWorkflowResponse\x12\x1f\n" +
 	"\vworkflow_id\x18\x01 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
-	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\xf7\x03\n" +
+	"\x06run_id\x18\x02 \x01(\tR\x05runId\"\x9b\x04\n" +
 	"\x03Run\x12\x1f\n" +
 	"\vworkflow_id\x18\x01 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
@@ -2085,10 +2149,11 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x0ehistory_length\x18\b \x01(\x03R\rhistoryLength\x127\n" +
 	"\x04memo\x18\t \x03(\v2#.backplane.console.v1.Run.MemoEntryR\x04memo\x12,\n" +
 	"\x12parent_workflow_id\x18\n" +
-	" \x01(\tR\x10parentWorkflowId\x1a7\n" +
+	" \x01(\tR\x10parentWorkflowId\x12\"\n" +
+	"\rparent_run_id\x18\v \x01(\tR\vparentRunId\x1a7\n" +
 	"\tMemoEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xea\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x80\x02\n" +
 	"\x0fListRunsRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1a\n" +
 	"\bworkflow\x18\x02 \x01(\tR\bworkflow\x127\n" +
@@ -2096,7 +2161,8 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x12workflow_id_prefix\x18\x04 \x01(\tR\x10workflowIdPrefix\x12\x1b\n" +
 	"\tpage_size\x18\x05 \x01(\rR\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x06 \x01(\fR\tpageToken\"\x7f\n" +
+	"page_token\x18\x06 \x01(\fR\tpageToken\x12\x14\n" +
+	"\x05hooks\x18\a \x01(\bR\x05hooks\"\x7f\n" +
 	"\x10ListRunsResponse\x12-\n" +
 	"\x04runs\x18\x01 \x03(\v2\x19.backplane.console.v1.RunR\x04runs\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\fR\rnextPageToken\x12\x14\n" +
@@ -2118,14 +2184,17 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\flast_failure\x18\t \x01(\tR\vlastFailure\x12\x1f\n" +
 	"\vlast_worker\x18\n" +
 	" \x01(\tR\n" +
-	"lastWorker\"\xb0\x01\n" +
+	"lastWorker\"\xe8\x01\n" +
 	"\fHistoryEvent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12.\n" +
 	"\x04time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x18\n" +
 	"\asummary\x18\x04 \x01(\tR\asummary\x12\x18\n" +
 	"\apayload\x18\x05 \x01(\tR\apayload\x12\x18\n" +
-	"\afailure\x18\x06 \x01(\tR\afailure\"\xda\x02\n" +
+	"\afailure\x18\x06 \x01(\tR\afailure\x12\x1f\n" +
+	"\vworkflow_id\x18\a \x01(\tR\n" +
+	"workflowId\x12\x15\n" +
+	"\x06run_id\x18\b \x01(\tR\x05runId\"\x84\x03\n" +
 	"\x0eGetRunResponse\x12+\n" +
 	"\x03run\x18\x01 \x01(\v2\x19.backplane.console.v1.RunR\x03run\x12\x14\n" +
 	"\x05input\x18\x02 \x01(\tR\x05input\x12\x16\n" +
@@ -2134,7 +2203,8 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\ffailure_type\x18\x05 \x01(\tR\vfailureType\x12T\n" +
 	"\x12pending_activities\x18\x06 \x03(\v2%.backplane.console.v1.PendingActivityR\x11pendingActivities\x12<\n" +
 	"\ahistory\x18\a \x03(\v2\".backplane.console.v1.HistoryEventR\ahistory\x12\x1c\n" +
-	"\ttruncated\x18\b \x01(\bR\ttruncated\"J\n" +
+	"\ttruncated\x18\b \x01(\bR\ttruncated\x12(\n" +
+	"\x10continued_run_id\x18\t \x01(\tR\x0econtinuedRunId\"J\n" +
 	"\x10CancelRunRequest\x12\x1f\n" +
 	"\vworkflow_id\x18\x01 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
@@ -2339,6 +2409,7 @@ func file_backplanepb_console_v1_workflows_proto_init() {
 	if File_backplanepb_console_v1_workflows_proto != nil {
 		return
 	}
+	file_backplanepb_console_v1_workflows_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

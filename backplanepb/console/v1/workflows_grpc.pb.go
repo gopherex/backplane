@@ -38,13 +38,23 @@ const (
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
 // the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
+//
+// GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
+// backplane's namespace, not only runs on a service's queue: binding and
+// rule runs live on backplane's own queue, and the console session is an
+// installation operator.
 type WorkflowServiceClient interface {
 	// Workflows the latest manifests declare: workflows[] and activities
-	// of kind WORKFLOW.
+	// of kind WORKFLOW, with the workers polling their task queue.
 	ListWorkflows(ctx context.Context, in *ListWorkflowsRequest, opts ...grpc.CallOption) (*ListWorkflowsResponse, error)
-	// Starts a declared workflow on the service's task queue.
+	// Starts a declared workflow on the service's task queue. A workflow_id
+	// that has a running run is ALREADY_EXISTS; a closed one starts a new run.
 	StartWorkflow(ctx context.Context, in *StartWorkflowRequest, opts ...grpc.CallOption) (*StartWorkflowResponse, error)
-	// Runs on a service's task queue, newest first (Temporal visibility).
+	// Runs on a service's task queue (or its hook calls), newest start first
+	// where the visibility store sorts (Elasticsearch). SQL visibility (the
+	// dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is
+	// Temporal's own: running runs first, then by close time, newest first.
+	// ListRunsResponse.query shows which query ran.
 	ListRuns(ctx context.Context, in *ListRunsRequest, opts ...grpc.CallOption) (*ListRunsResponse, error)
 	// One run: status, input, result or failure, pending activities and
 	// its history as a timeline.
@@ -53,7 +63,7 @@ type WorkflowServiceClient interface {
 	CancelRun(ctx context.Context, in *CancelRunRequest, opts ...grpc.CallOption) (*CancelRunResponse, error)
 	// Ends the run at once, without the workflow's code.
 	TerminateRun(ctx context.Context, in *TerminateRunRequest, opts ...grpc.CallOption) (*TerminateRunResponse, error)
-	// Sends a signal with a JSON argument.
+	// Sends a signal with a JSON argument, or none.
 	SignalRun(ctx context.Context, in *SignalRunRequest, opts ...grpc.CallOption) (*SignalRunResponse, error)
 }
 
@@ -145,13 +155,23 @@ func (c *workflowServiceClient) SignalRun(ctx context.Context, in *SignalRunRequ
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
 // the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
+//
+// GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
+// backplane's namespace, not only runs on a service's queue: binding and
+// rule runs live on backplane's own queue, and the console session is an
+// installation operator.
 type WorkflowServiceServer interface {
 	// Workflows the latest manifests declare: workflows[] and activities
-	// of kind WORKFLOW.
+	// of kind WORKFLOW, with the workers polling their task queue.
 	ListWorkflows(context.Context, *ListWorkflowsRequest) (*ListWorkflowsResponse, error)
-	// Starts a declared workflow on the service's task queue.
+	// Starts a declared workflow on the service's task queue. A workflow_id
+	// that has a running run is ALREADY_EXISTS; a closed one starts a new run.
 	StartWorkflow(context.Context, *StartWorkflowRequest) (*StartWorkflowResponse, error)
-	// Runs on a service's task queue, newest first (Temporal visibility).
+	// Runs on a service's task queue (or its hook calls), newest start first
+	// where the visibility store sorts (Elasticsearch). SQL visibility (the
+	// dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is
+	// Temporal's own: running runs first, then by close time, newest first.
+	// ListRunsResponse.query shows which query ran.
 	ListRuns(context.Context, *ListRunsRequest) (*ListRunsResponse, error)
 	// One run: status, input, result or failure, pending activities and
 	// its history as a timeline.
@@ -160,7 +180,7 @@ type WorkflowServiceServer interface {
 	CancelRun(context.Context, *CancelRunRequest) (*CancelRunResponse, error)
 	// Ends the run at once, without the workflow's code.
 	TerminateRun(context.Context, *TerminateRunRequest) (*TerminateRunResponse, error)
-	// Sends a signal with a JSON argument.
+	// Sends a signal with a JSON argument, or none.
 	SignalRun(context.Context, *SignalRunRequest) (*SignalRunResponse, error)
 	mustEmbedUnimplementedWorkflowServiceServer()
 }
@@ -401,7 +421,9 @@ type ScheduleServiceClient interface {
 	ListSchedules(ctx context.Context, in *ListSchedulesRequest, opts ...grpc.CallOption) (*ListSchedulesResponse, error)
 	PauseSchedule(ctx context.Context, in *PauseScheduleRequest, opts ...grpc.CallOption) (*PauseScheduleResponse, error)
 	UnpauseSchedule(ctx context.Context, in *UnpauseScheduleRequest, opts ...grpc.CallOption) (*UnpauseScheduleResponse, error)
-	// Starts the schedule's action now.
+	// Starts the schedule's action now, whatever its overlap policy. The run
+	// carries the schedule's action (memo included): Temporal takes no memo
+	// on a trigger, so who triggered it is in the audit, not on the run.
 	TriggerSchedule(ctx context.Context, in *TriggerScheduleRequest, opts ...grpc.CallOption) (*TriggerScheduleResponse, error)
 }
 
@@ -467,7 +489,9 @@ type ScheduleServiceServer interface {
 	ListSchedules(context.Context, *ListSchedulesRequest) (*ListSchedulesResponse, error)
 	PauseSchedule(context.Context, *PauseScheduleRequest) (*PauseScheduleResponse, error)
 	UnpauseSchedule(context.Context, *UnpauseScheduleRequest) (*UnpauseScheduleResponse, error)
-	// Starts the schedule's action now.
+	// Starts the schedule's action now, whatever its overlap policy. The run
+	// carries the schedule's action (memo included): Temporal takes no memo
+	// on a trigger, so who triggered it is in the audit, not on the run.
 	TriggerSchedule(context.Context, *TriggerScheduleRequest) (*TriggerScheduleResponse, error)
 	mustEmbedUnimplementedScheduleServiceServer()
 }

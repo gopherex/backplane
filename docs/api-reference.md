@@ -913,7 +913,7 @@ const response = await client.revokeOtherSessions(request, { signal });
 
 ### ListWorkflows
 
-Workflows the latest manifests declare: workflows[] and activities of kind WORKFLOW.
+Workflows the latest manifests declare: workflows[] and activities of kind WORKFLOW, with the workers polling their task queue.
 
 - Path: `/backplane.console.v1.WorkflowService/ListWorkflows`.
 - Input: `ListWorkflowsRequest`; output: `ListWorkflowsResponse`; mode: unary.
@@ -927,7 +927,7 @@ const response = await client.listWorkflows(request, { signal });
 
 ### StartWorkflow
 
-Starts a declared workflow on the service's task queue.
+Starts a declared workflow on the service's task queue. A workflow_id that has a running run is ALREADY_EXISTS; a closed one starts a new run.
 
 - Path: `/backplane.console.v1.WorkflowService/StartWorkflow`.
 - Input: `StartWorkflowRequest`; output: `StartWorkflowResponse`; mode: unary.
@@ -941,7 +941,7 @@ const response = await client.startWorkflow(request, { signal });
 
 ### ListRuns
 
-Runs on a service's task queue, newest first (Temporal visibility).
+Runs on a service's task queue (or its hook calls), newest start first where the visibility store sorts (Elasticsearch). SQL visibility (the dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is Temporal's own: running runs first, then by close time, newest first. ListRunsResponse.query shows which query ran.
 
 - Path: `/backplane.console.v1.WorkflowService/ListRuns`.
 - Input: `ListRunsRequest`; output: `ListRunsResponse`; mode: unary.
@@ -997,7 +997,7 @@ const response = await client.terminateRun(request, { signal });
 
 ### SignalRun
 
-Sends a signal with a JSON argument.
+Sends a signal with a JSON argument, or none.
 
 - Path: `/backplane.console.v1.WorkflowService/SignalRun`.
 - Input: `SignalRunRequest`; output: `SignalRunResponse`; mode: unary.
@@ -1057,7 +1057,7 @@ const response = await client.unpauseSchedule(request, { signal });
 
 ### TriggerSchedule
 
-Starts the schedule's action now.
+Starts the schedule's action now, whatever its overlap policy. The run carries the schedule's action (memo included): Temporal takes no memo on a trigger, so who triggered it is in the audit, not on the run.
 
 - Path: `/backplane.console.v1.ScheduleService/TriggerSchedule`.
 - Input: `TriggerScheduleRequest`; output: `TriggerScheduleResponse`; mode: unary.

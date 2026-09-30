@@ -12,7 +12,10 @@ import (
 )
 
 // AuditDetail permits control metadata, never arbitrary request bodies, secrets,
-// configuration values, workflow arguments, comments or backend error messages.
+// configuration values, workflow arguments, revision comments or backend error
+// messages. Signal, Reason and Note are the operator's words on a run or
+// schedule command (a signal's name, never its argument), bounded by the
+// caller.
 type AuditDetail struct {
 	Revision   int64    `json:"revision,omitempty"`
 	RollbackOf int64    `json:"rollback_of,omitempty"`
@@ -22,6 +25,9 @@ type AuditDetail struct {
 	WorkflowID string   `json:"workflow_id,omitempty"`
 	RunID      string   `json:"run_id,omitempty"`
 	Affected   int64    `json:"affected,omitempty"`
+	Signal     string   `json:"signal,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
+	Note       string   `json:"note,omitempty"`
 }
 
 // AuditDraft is one semantic action or one phase of an external command. Actor

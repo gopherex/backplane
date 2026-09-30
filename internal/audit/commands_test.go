@@ -1,7 +1,9 @@
 package audit //nolint:testpackage // verifies the audit metadata allowlist without external dispatch
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
+	"github.com/gopherex/backplane/internal/store"
 )
 
 func TestCommandResultsAndRedaction(t *testing.T) {
@@ -33,13 +36,14 @@ func TestCommandResultsAndRedaction(t *testing.T) {
 		{"failed purge", &consolev1.PurgeDeadLettersResponse{Failed: []*consolev1.SeqError{{Error: "secret"}}}, nil, "failed"},
 		{"timeout uncertain", nil, status.Error(codes.DeadlineExceeded, "secret"), "unknown"},
 		{"invalid input", nil, status.Error(codes.InvalidArgument, "secret"), "rejected"},
+		{"already running", nil, status.Error(codes.AlreadyExists, "secret"), "rejected"},
 		{"successful output", &consolev1.CallHookResponse{Result: &consolev1.CallResult{Output: "secret"}}, nil, "succeeded"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			outcome, detail := commandResult(tc.response, tc.err)
+			outcome, detail := commandResult(store.AuditDetail{}, tc.response, tc.err)
 			if outcome != tc.outcome {
 				t.Fatalf("got %s, want %s", outcome, tc.outcome)
 			}
@@ -74,6 +78,43 @@ func TestCommandSubjectExcludesPayload(t *testing.T) {
 	}
 }
 
+// TestCommandDetail: run and schedule commands keep the run they address
+// and the operator's words — signal name, reason, note, bounded — never a
+// signal's argument; the response's run survives the result.
+func TestCommandDetail(t *testing.T) {
+	t.Parallel()
+
+	signal := commandDetail(&consolev1.SignalRunRequest{WorkflowId: "w", RunId: "r", Signal: "go", Input: `{"secret":1}`})
+
+	encoded, err := json.Marshal(signal)
+	if err != nil || strings.Contains(string(encoded), "secret") || signal.Signal != "go" || signal.WorkflowID != "w" || signal.RunID != "r" {
+		t.Fatalf("signal: %s %v", encoded, err)
+	}
+
+	if d := commandDetail(&consolev1.TerminateRunRequest{WorkflowId: "w", Reason: "stuck"}); d.Reason != "stuck" || d.WorkflowID != "w" {
+		t.Fatalf("terminate: %+v", d)
+	}
+
+	for _, req := range []any{
+		&consolev1.PauseScheduleRequest{Service: "hello", Name: "Nightly", Note: "maintenance"},
+		&consolev1.UnpauseScheduleRequest{Service: "hello", Name: "Nightly", Note: "maintenance"},
+	} {
+		if d := commandDetail(req); d.Note != "maintenance" {
+			t.Fatalf("%T: %+v", req, d)
+		}
+	}
+
+	if d := commandDetail(&consolev1.TerminateRunRequest{Reason: strings.Repeat("я", 300)}); len([]rune(d.Reason)) != maxWords+1 {
+		t.Fatalf("unbounded reason: %d", len([]rune(d.Reason)))
+	}
+
+	outcome, d := commandResult(commandDetail(&consolev1.SignalRunRequest{WorkflowId: "w", RunId: "r", Signal: "go"}),
+		&consolev1.SignalRunResponse{}, nil)
+	if outcome != "succeeded" || d.Signal != "go" || d.WorkflowID != "w" || d.RunID != "r" {
+		t.Fatalf("result: %s %+v", outcome, d)
+	}
+}
+
 func TestCommandService(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +133,12 @@ func TestCommandService(t *testing.T) {
 		{"unsaved rule test", &consolev1.TestRuleRequest{Definition: &consolev1.RuleDefinition{Event: "hello.Greeted"}}, "hello"},
 		{"binding run", &consolev1.CancelBindingRunRequest{WorkflowId: "binding/hello.Greet/request"}, "hello"},
 		{"binding test run", &consolev1.CancelBindingRunRequest{WorkflowId: "test/hello.Greet/request"}, "hello"},
+		{"console start", &consolev1.CancelRunRequest{WorkflowId: "console/hello/GreetMany/0b5e"}, "hello"},
+		{"console activity", &consolev1.TerminateRunRequest{WorkflowId: "console/activity/formatter/Format/0b5e"}, "formatter"},
+		{"hook call", &consolev1.SignalRunRequest{WorkflowId: "hook/hello/Greet/key", Signal: "go"}, "hello"},
+		{"schedule run", &consolev1.CancelRunRequest{WorkflowId: "hello/HourlyReport-2026-09-30T12:00:00Z"}, "hello"},
 		{"plain run", &consolev1.CancelRunRequest{WorkflowId: "orders-42", RunId: "run"}, ""},
+		{"draft rule test", &consolev1.CancelRunRequest{WorkflowId: "test/rule/draft/0b5e"}, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,5 +148,30 @@ func TestCommandService(t *testing.T) {
 				t.Fatalf("got %q, want %q", got, tc.service)
 			}
 		})
+	}
+}
+
+// TestCommandServiceByQueue: a run whose id says nothing is the service of
+// its task queue — a hook call's <service>.hooks too — when Temporal
+// answers; a schedule's run id is the fallback when it does not.
+func TestCommandServiceByQueue(t *testing.T) {
+	t.Parallel()
+
+	queues := map[string]string{"orders-42": "orders", "call-7": "hello.hooks", "odd": "Not A Queue", "hello/Nightly-1": "billing"}
+	svc := &Service{runQueue: func(_ context.Context, workflowID, _ string) (string, error) {
+		if queue, ok := queues[workflowID]; ok {
+			return queue, nil
+		}
+
+		return "", errors.New("not found")
+	}}
+
+	for id, want := range map[string]string{
+		"orders-42": "orders", "call-7": "hello", "odd": "", "hello/Nightly-1": "billing",
+		"hello/Report-2026": "hello", "gone": "", "console/hello/GreetMany/x": "hello",
+	} {
+		if got := svc.commandService(t.Context(), &consolev1.CancelRunRequest{WorkflowId: id}); got != want {
+			t.Errorf("%s: got %q, want %q", id, got, want)
+		}
 	}
 }

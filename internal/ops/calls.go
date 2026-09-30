@@ -227,8 +227,12 @@ func HookWorkflowID(service, name, key string) string {
 		key = "console-" + uuid.NewString()
 	}
 
-	return "hook/" + service + "/" + name + "/" + key
+	return hookRunPrefix(service) + name + "/" + key
 }
+
+// hookRunPrefix starts the ids of the hook calls of service's hooks:
+// hook/<service>/<Name>/<key> (the SDK's and the console's alike).
+func hookRunPrefix(service string) string { return "hook/" + service + "/" }
 
 // CallHook implements CallService.
 func (a CallAPI) CallHook(ctx context.Context, req *consolev1.CallHookRequest) (*consolev1.CallHookResponse, error) {

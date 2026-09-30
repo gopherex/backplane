@@ -83,6 +83,11 @@ const WorkflowService_SignalRun: MethodInfo<SignalRunRequest, SignalRunResponse>
  * the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
  * carry memo source = console:<session> (§14).
  *
+ * GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
+ * backplane's namespace, not only runs on a service's queue: binding and
+ * rule runs live on backplane's own queue, and the console session is an
+ * installation operator.
+ *
  * @generated from service backplane.console.v1.WorkflowService
  */
 export class WorkflowServiceClient {
@@ -90,7 +95,7 @@ export class WorkflowServiceClient {
 
   /**
    * Workflows the latest manifests declare: workflows[] and activities
-   * of kind WORKFLOW.
+   * of kind WORKFLOW, with the workers polling their task queue.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.ListWorkflows
    */
@@ -100,7 +105,8 @@ export class WorkflowServiceClient {
   }
 
   /**
-   * Starts a declared workflow on the service's task queue.
+   * Starts a declared workflow on the service's task queue. A workflow_id
+   * that has a running run is ALREADY_EXISTS; a closed one starts a new run.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.StartWorkflow
    */
@@ -110,7 +116,11 @@ export class WorkflowServiceClient {
   }
 
   /**
-   * Runs on a service's task queue, newest first (Temporal visibility).
+   * Runs on a service's task queue (or its hook calls), newest start first
+   * where the visibility store sorts (Elasticsearch). SQL visibility (the
+   * dev server, PostgreSQL, MySQL) refuses ORDER BY; there the order is
+   * Temporal's own: running runs first, then by close time, newest first.
+   * ListRunsResponse.query shows which query ran.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.ListRuns
    */
@@ -151,7 +161,7 @@ export class WorkflowServiceClient {
   }
 
   /**
-   * Sends a signal with a JSON argument.
+   * Sends a signal with a JSON argument, or none.
    *
    * @generated from rpc backplane.console.v1.WorkflowService.SignalRun
    */
@@ -233,7 +243,9 @@ export class ScheduleServiceClient {
   }
 
   /**
-   * Starts the schedule's action now.
+   * Starts the schedule's action now, whatever its overlap policy. The run
+   * carries the schedule's action (memo included): Temporal takes no memo
+   * on a trigger, so who triggered it is in the audit, not on the run.
    *
    * @generated from rpc backplane.console.v1.ScheduleService.TriggerSchedule
    */

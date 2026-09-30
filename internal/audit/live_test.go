@@ -72,11 +72,13 @@ func isolatedDatabase(t *testing.T) string {
 	return dsn + " dbname=" + name
 }
 
-func replica(t *testing.T, dsn string, publish func(context.Context, audit.Entry) error) (*audit.Service, *store.Store) {
+func replica(
+	t *testing.T, dsn string, publish func(context.Context, audit.Entry) error, options ...audit.Option,
+) (*audit.Service, *store.Store) {
 	t.Helper()
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
 	st := deps.NewDependency(h.Root(), store.New(config.Secret(dsn)))
-	svc := audit.New(h.Root(), st, audit.WithPublisher(publish))
+	svc := audit.New(h.Root(), st, append([]audit.Option{audit.WithPublisher(publish)}, options...)...)
 	h.Start()
 
 	if err := backplanetest.Ready(h); err != nil {
@@ -336,6 +338,121 @@ func TestCommandIntentBeforeDispatch(t *testing.T) {
 	_, err = api.StartWorkflow(t.Context(), &consolev1.StartWorkflowRequest{Service: "hello", Workflow: "flow"})
 	if status.Code(err) != codes.Unavailable || handler.calls.Load() != 1 {
 		t.Fatal("dispatched without audit database", handler.calls.Load(), err)
+	}
+}
+
+type runServer struct {
+	consolev1.UnimplementedWorkflowServiceServer
+	consolev1.UnimplementedRuleServiceServer
+}
+
+func (runServer) CancelRun(context.Context, *consolev1.CancelRunRequest) (*consolev1.CancelRunResponse, error) {
+	return &consolev1.CancelRunResponse{}, nil
+}
+
+func (runServer) TerminateRun(context.Context, *consolev1.TerminateRunRequest) (*consolev1.TerminateRunResponse, error) {
+	return &consolev1.TerminateRunResponse{}, nil
+}
+
+func (runServer) SignalRun(context.Context, *consolev1.SignalRunRequest) (*consolev1.SignalRunResponse, error) {
+	return &consolev1.SignalRunResponse{}, nil
+}
+
+func (runServer) CancelRuleRun(context.Context, *consolev1.CancelRuleRunRequest) (*consolev1.CancelRuleRunResponse, error) {
+	return &consolev1.CancelRuleRunResponse{}, nil
+}
+
+// TestRunCommandAttribution: run commands are entries of the service the
+// run belongs to — by id convention, the rule's event owner, or the task
+// queue Temporal names — with the signal name and reason, never the
+// signal's argument.
+func TestRunCommandAttribution(t *testing.T) {
+	t.Parallel()
+
+	queues := map[string]string{"orders-42": "billing", "call-7": "hello.hooks"}
+	svc, st := replica(t, isolatedDatabase(t), func(context.Context, audit.Entry) error { return nil },
+		audit.WithRunQueue(func(_ context.Context, workflowID, _ string) (string, error) {
+			if queue, ok := queues[workflowID]; ok {
+				return queue, nil
+			}
+
+			return "", errors.New("no such run")
+		}))
+
+	rule := uuid.New()
+	for _, statement := range []string{
+		`INSERT INTO backplane.rule (id) VALUES ($1)`,
+		`INSERT INTO backplane.rule_version (rule_id, version, name, definition, author)
+		VALUES ($1, 1, 'r', '{"event":"formatter.Formatted"}', 'test')`,
+	} {
+		if _, err := st.Pool.Exec(t.Context(), statement, rule); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	register := svc.Commands(func(registrar grpc.ServiceRegistrar) {
+		consolev1.RegisterWorkflowServiceServer(registrar, runServer{})
+		consolev1.RegisterRuleServiceServer(registrar, runServer{})
+	}, func(context.Context) string { return "operator" })
+	conn := client(t, register)
+	workflows, rules := consolev1.NewWorkflowServiceClient(conn), consolev1.NewRuleServiceClient(conn)
+	ctx := t.Context()
+
+	calls := []func() error{
+		func() error {
+			_, err := workflows.CancelRun(ctx, &consolev1.CancelRunRequest{WorkflowId: "console/hello/GreetMany/1"})
+			return err
+		},
+		func() error {
+			_, err := workflows.SignalRun(ctx, &consolev1.SignalRunRequest{WorkflowId: "call-7", Signal: "go", Input: `"secret"`})
+			return err
+		},
+		func() error {
+			_, err := workflows.TerminateRun(ctx, &consolev1.TerminateRunRequest{WorkflowId: "orders-42", RunId: "r", Reason: "stuck"})
+			return err
+		},
+		func() error {
+			_, err := rules.CancelRuleRun(ctx, &consolev1.CancelRuleRunRequest{Id: rule.String(), WorkflowId: "rule/" + rule.String() + "/e"})
+			return err
+		},
+	}
+	for _, call := range calls {
+		if err := call(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	history, err := svc.ListAudit(ctx, &consolev1.ListAuditRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results := map[string]*consolev1.AuditEntry{}
+
+	for _, e := range history.GetEntries() {
+		if strings.Contains(e.String(), "secret") {
+			t.Fatalf("payload in audit: %v", e)
+		}
+
+		if e.GetOutcome() == "succeeded" {
+			results[e.GetAction()] = e
+		}
+	}
+
+	for action, want := range map[string]string{
+		"workflow.cancel": "hello", "workflow.signal": "hello", "workflow.terminate": "billing", "rule.cancel": "formatter",
+	} {
+		if results[action].GetService() != want {
+			t.Errorf("%s: service %q, want %q", action, results[action].GetService(), want)
+		}
+	}
+
+	if d := results["workflow.signal"].GetDetail(); d.GetSignal() != "go" || d.GetWorkflowId() != "call-7" {
+		t.Errorf("signal detail: %v", d)
+	}
+
+	if d := results["workflow.terminate"].GetDetail(); d.GetReason() != "stuck" || d.GetRunId() != "r" {
+		t.Errorf("terminate detail: %v", d)
 	}
 }
 

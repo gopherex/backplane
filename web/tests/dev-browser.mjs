@@ -65,12 +65,53 @@ try {
   await page.getByRole('button', { name: 'Run query', exact: true }).click();
   await expect(page.locator('canvas').first()).toBeVisible({ timeout: 20000 });
   assert.equal(await page.evaluate(() => window.__backplaneWorkflowDocument), 'same-document', 'Lazy editors/charts must not reload the page');
+  // Workflows: start GreetMany and read its result; trigger the paused HourlyReport and see its run; it stays paused.
+  await page.goto(`${base}/services/hello/workflows`);
+  const runRows = page.getByRole('table', { name: 'Runs', exact: true }).locator('tbody tr');
+  const runsRefresh = page.locator('section').filter({ has: page.getByRole('group', { name: 'Run kind', exact: true }) }).getByRole('button', { name: 'Refresh', exact: true });
+  await page.getByRole('button', { name: 'Start GreetMany', exact: true }).click();
+  const start = page.getByRole('dialog');
+  await start.getByRole('button', { name: 'Set value', exact: true }).click();
+  await start.getByRole('button', { name: 'Add item', exact: true }).click();
+  await start.getByRole('textbox').last().fill('BrowserWorkflow');
+  await start.getByRole('button', { name: 'Start', exact: true }).click();
+  const started = start.getByRole('status').filter({ hasText: 'console/hello/GreetMany/' });
+  await expect(started).toBeVisible({ timeout: 20000 });
+  const workflowId = (await started.locator('.font-mono').innerText()).trim();
+  await started.getByRole('button', { name: 'Open run', exact: true }).click();
+  await expect(page.getByRole('dialog').last().getByRole('textbox', { name: 'Output', exact: true })).toContainText('BrowserWorkflow', { timeout: 30000 });
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(async () => {
+    await runsRefresh.click();
+    await expect(runRows.filter({ hasText: workflowId })).toHaveCount(1, { timeout: 2000 });
+  }).toPass({ timeout: 30000 });
+  const report = page.getByRole('group', { name: 'HourlyReport', exact: true });
+  await expect(report.getByText('Paused', { exact: true })).toBeVisible();
+  await report.getByRole('button', { name: 'Runs of this schedule', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'ID prefix', exact: true })).toContainText('hello/HourlyReport-');
+  await expect(page.getByRole('table', { name: 'Runs', exact: true }).or(page.getByText('No runs match.', { exact: true }))).toBeVisible();
+  const previousRuns = new Set(await runRows.locator('td:nth-child(2) > div:first-child').allInnerTexts());
+  await report.getByRole('button', { name: 'Trigger', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  let triggered;
+  await expect(async () => {
+    await runsRefresh.click();
+    await expect(page.getByRole('table', { name: 'Runs', exact: true })).toBeVisible({ timeout: 2000 });
+    triggered = (await runRows.locator('td:nth-child(2) > div:first-child').allInnerTexts()).find((id) => !previousRuns.has(id));
+    assert.ok(triggered?.startsWith('hello/HourlyReport-'), 'triggered run listed');
+  }).toPass({ timeout: 30000 });
+  await runRows.filter({ hasText: triggered }).click();
+  await expect(page.getByRole('dialog').getByText('Report', { exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(report.getByText('Paused', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Light theme', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByRole('button', { name: 'Session', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.getByLabel('Operator token')).toBeVisible();
   assert.deepEqual(failures, []);
-  console.log('Live dev acceptance passed: service relay, config, binding, hook, audit, stored logs/metrics, both themes and logout');
+  console.log('Live dev acceptance passed: service relay, config, binding, hook, audit, stored logs/metrics, workflow start and schedule trigger, both themes and logout');
 } catch (error) { console.error(error); process.exitCode = 1; }
 finally { await browser.close(); }

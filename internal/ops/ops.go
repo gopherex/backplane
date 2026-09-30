@@ -26,6 +26,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"go.temporal.io/api/serviceerror"
@@ -58,6 +59,8 @@ var (
 	ErrInput = errors.New("ops: invalid request")
 	// ErrPrecondition: the stack is not in a state the call needs.
 	ErrPrecondition = errors.New("ops: failed precondition")
+	// ErrExists: what the call would create exists (a running workflow id).
+	ErrExists = errors.New("ops: already exists")
 	// ErrUnavailable: NATS or Temporal is not configured or connected.
 	ErrUnavailable = errors.New("ops: unavailable")
 )
@@ -94,21 +97,33 @@ func WithTemporal(fn TemporalFunc, queue string) Option {
 	return func(o *Ops) { o.temporal, o.queue = fn, queue }
 }
 
-// Ops is the component. It keeps no state of its own: every call reads
-// the registry snapshot and asks NATS or Temporal.
+// Namespace is the Temporal namespace of the client (default "default"):
+// the calls that go to Temporal's API directly name it.
+func Namespace(ns string) Option { return func(o *Ops) { o.namespace = ns } }
+
+// defaultNamespace of Temporal.
+const defaultNamespace = "default"
+
+// Ops is the component. Every call reads the registry snapshot and asks
+// NATS or Temporal; the one thing it remembers is whether Temporal's
+// visibility refused ORDER BY.
 type Ops struct {
 	deps.Component
 
-	src      registry.Source
-	jet      JetStreamFunc
-	temporal TemporalFunc
-	queue    string
-	author   func(ctx context.Context) string
+	src       registry.Source
+	jet       JetStreamFunc
+	temporal  TemporalFunc
+	queue     string
+	namespace string
+	author    func(ctx context.Context) string
+	// unordered: visibility refused ORDER BY once (SQL visibility); runs
+	// are listed in its own order from then on.
+	unordered atomic.Bool
 }
 
 // New creates the component under parent, reading declarations from src.
 func New(parent deps.Scope, src registry.Source, opts ...Option) *Ops {
-	o := &Ops{Component: deps.NewComponent(parent, "ops"), src: src, author: sessionAuthor}
+	o := &Ops{Component: deps.NewComponent(parent, "ops"), src: src, author: sessionAuthor, namespace: defaultNamespace}
 	o.jet = func() (jetstream.JetStream, error) { return event.JetStream(o) }
 	o.temporal = func() (client.Client, error) { return workflows.Client(o) }
 	o.queue = workflows.Queue(parent)
@@ -124,7 +139,7 @@ func New(parent deps.Scope, src registry.Source, opts ...Option) *Ops {
 // tests and tools: give it WithJetStream and WithTemporal, else the calls
 // they back fail with UNAVAILABLE.
 func Detached(src registry.Source, opts ...Option) *Ops {
-	o := &Ops{src: src, author: sessionAuthor}
+	o := &Ops{src: src, author: sessionAuthor, namespace: defaultNamespace}
 	o.jet = func() (jetstream.JetStream, error) { return nil, errDetached }
 	o.temporal = func() (client.Client, error) { return nil, errDetached }
 
@@ -307,6 +322,8 @@ func (o *Ops) status(ctx context.Context, err error) error {
 		code = codes.NotFound
 	case errors.Is(err, ErrPrecondition):
 		code = codes.FailedPrecondition
+	case errors.Is(err, ErrExists):
+		code = codes.AlreadyExists
 	case errors.Is(err, context.Canceled):
 		code = codes.Canceled
 	case errors.Is(err, context.DeadlineExceeded):

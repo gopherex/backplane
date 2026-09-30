@@ -145,17 +145,25 @@ func (x *AuditEntry) GetService() string {
 }
 
 // Safe control metadata only. No request payload, arbitrary error text,
-// configuration values, comments, credentials or session tokens.
+// configuration values, revision comments, credentials or session tokens.
+// The operator's words on a run or schedule command are kept, bounded to
+// 256 characters: signal names, termination reasons, pause/resume notes.
 type AuditDetail struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Revision      uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
-	RollbackOf    uint64                 `protobuf:"varint,2,opt,name=rollback_of,json=rollbackOf,proto3" json:"rollback_of,omitempty"`
-	Keys          []string               `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
-	Paused        *bool                  `protobuf:"varint,4,opt,name=paused,proto3,oneof" json:"paused,omitempty"`
-	Code          string                 `protobuf:"bytes,5,opt,name=code,proto3" json:"code,omitempty"`
-	WorkflowId    string                 `protobuf:"bytes,6,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
-	RunId         string                 `protobuf:"bytes,7,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
-	Affected      uint64                 `protobuf:"varint,8,opt,name=affected,proto3" json:"affected,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Revision   uint64                 `protobuf:"varint,1,opt,name=revision,proto3" json:"revision,omitempty"`
+	RollbackOf uint64                 `protobuf:"varint,2,opt,name=rollback_of,json=rollbackOf,proto3" json:"rollback_of,omitempty"`
+	Keys       []string               `protobuf:"bytes,3,rep,name=keys,proto3" json:"keys,omitempty"`
+	Paused     *bool                  `protobuf:"varint,4,opt,name=paused,proto3,oneof" json:"paused,omitempty"`
+	Code       string                 `protobuf:"bytes,5,opt,name=code,proto3" json:"code,omitempty"`
+	WorkflowId string                 `protobuf:"bytes,6,opt,name=workflow_id,json=workflowId,proto3" json:"workflow_id,omitempty"`
+	RunId      string                 `protobuf:"bytes,7,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	Affected   uint64                 `protobuf:"varint,8,opt,name=affected,proto3" json:"affected,omitempty"`
+	// SignalRun: the signal's name (never its argument).
+	Signal string `protobuf:"bytes,9,opt,name=signal,proto3" json:"signal,omitempty"`
+	// TerminateRun: the reason the operator typed.
+	Reason string `protobuf:"bytes,10,opt,name=reason,proto3" json:"reason,omitempty"`
+	// PauseSchedule, UnpauseSchedule: the note the operator typed.
+	Note          string `protobuf:"bytes,11,opt,name=note,proto3" json:"note,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -244,6 +252,27 @@ func (x *AuditDetail) GetAffected() uint64 {
 		return x.Affected
 	}
 	return 0
+}
+
+func (x *AuditDetail) GetSignal() string {
+	if x != nil {
+		return x.Signal
+	}
+	return ""
+}
+
+func (x *AuditDetail) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+func (x *AuditDetail) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
 }
 
 type AuditFilter struct {
@@ -594,7 +623,7 @@ const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\foperation_id\x18\b \x01(\tR\voperationId\x129\n" +
 	"\x06detail\x18\t \x01(\v2!.backplane.console.v1.AuditDetailR\x06detail\x12\x18\n" +
 	"\aservice\x18\n" +
-	" \x01(\tR\aservice\"\xee\x01\n" +
+	" \x01(\tR\aservice\"\xb2\x02\n" +
 	"\vAuditDetail\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1f\n" +
 	"\vrollback_of\x18\x02 \x01(\x04R\n" +
@@ -605,7 +634,11 @@ const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\vworkflow_id\x18\x06 \x01(\tR\n" +
 	"workflowId\x12\x15\n" +
 	"\x06run_id\x18\a \x01(\tR\x05runId\x12\x1a\n" +
-	"\baffected\x18\b \x01(\x04R\baffectedB\t\n" +
+	"\baffected\x18\b \x01(\x04R\baffected\x12\x16\n" +
+	"\x06signal\x18\t \x01(\tR\x06signal\x12\x16\n" +
+	"\x06reason\x18\n" +
+	" \x01(\tR\x06reason\x12\x12\n" +
+	"\x04note\x18\v \x01(\tR\x04noteB\t\n" +
 	"\a_paused\"\x8c\x02\n" +
 	"\vAuditFilter\x12\x14\n" +
 	"\x05actor\x18\x01 \x01(\tR\x05actor\x12\x16\n" +

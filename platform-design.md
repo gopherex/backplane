@@ -2010,27 +2010,42 @@ id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
   без него — `UNAVAILABLE`); всё, что консоль запускает, несёт memo
   `source` = `console:<session>` (§14):
   - `WorkflowService`: `ListWorkflows` — `workflows[]` последних
-    манифестов и активити вида `WORKFLOW` со схемами и очередью;
+    манифестов и активити вида `WORKFLOW` со схемами, очередью и числом
+    worker'ов, недавно опрашивавших её (`DescribeTaskQueue`; не ответил
+    Temporal — не задано);
     `StartWorkflow(service, workflow, input, workflow_id?, timeout?)` —
     только объявленный, на очереди сервиса, вход — JSON как есть (активити
     на workflow — завёрнутым в `ActivityCall`), id по умолчанию
-    `console/<service>/<workflow>/<uuid>`; `ListRuns(service, workflow?,
-    status?, workflow_id_prefix?, page)` — visibility-запрос
+    `console/<service>/<workflow>/<uuid>`; id, у которого есть идущий
+    запуск, — `ALREADY_EXISTS` (закрытый — новый запуск); `ListRuns(service,
+    workflow?, status?, workflow_id_prefix?, hooks?, page)` — visibility-запрос
     `TaskQueue = '<service>' [AND WorkflowType …] [AND ExecutionStatus …]
     [AND WorkflowId STARTS_WITH …] ORDER BY StartTime DESC` (кавычки в
     значениях отвергаются; запуски расписания — префикс
-    `<service>/<Name>-`); `GetRun(workflow_id, run_id?)` — статус, memo,
-    вход, результат или ошибка с типом, pending activities, история
-    таймлайном (тип события, одна строка сводки, payload JSON-текстом,
-    ошибка; до 1000 событий, закрывающее — всегда); `CancelRun`,
-    `TerminateRun(reason)` (к причине дописывается автор), `SignalRun(signal,
-    input)`;
+    `<service>/<Name>-`; с `hooks` вместо очереди сервиса — его вызовы хуков:
+    очередь `<service>.hooks` и консольные `hook/<service>/…` на очереди
+    backplane); SQL visibility (dev-сервер, PostgreSQL, MySQL) отвергает
+    `ORDER BY` — тогда запрос без него, порядок Temporal (идущие, затем по
+    времени закрытия), ответ несёт выполненный запрос; `GetRun(workflow_id,
+    run_id?)` — статус, memo, родитель (workflow id и run id), вход, результат
+    или ошибка с типом, run id продолжения (continue-as-new), pending
+    activities, история таймлайном (тип события, одна строка сводки, payload
+    JSON-текстом — у конвертов `ActivityCall`/`ActivityResult`/`HookCall`/
+    `HookResult` байты `payload` показаны JSON, который они несут; ошибка;
+    связанный запуск — дочерний или продолжение; до 1000 событий,
+    закрывающее — всегда); `CancelRun`, `TerminateRun(reason)` (к причине
+    дописывается автор), `SignalRun(signal, input)` (пустой вход — сигнал без
+    аргумента). Действия над запуском принимают любой workflow id
+    namespace'а: запуски биндингов и правил живут на очереди backplane, а
+    сессия консоли — оператор установки;
   - `ScheduleService`: `ListSchedules` — объявленные расписания и
     расписания Temporal с префиксом `<service>/`, которых нет в манифесте;
     живое состояние — пауза и note, ближайшие запуски (до 5), недавние
     (время, workflow id, run id), идущие, счётчики, владелец из memo
     `backplane.service`, тип workflow; `PauseSchedule`/`UnpauseSchedule`
-    (note + автор) и `TriggerSchedule`. Ручная пауза живёт до изменения
+    (note + автор) и `TriggerSchedule` (Temporal не принимает memo на
+    trigger: запуск несёт memo действия расписания, кто нажал — в аудите).
+    Ручная пауза живёт до изменения
     объявления (сверка SDK не трогает совпадающее расписание);
   - `CallService`: вызовы идут коротким workflow на **очереди backplane**
     `backplane` (зарегистрирован через `workflows.Register` сервиса
@@ -2509,7 +2524,10 @@ Watch не аудируются. Лог доступа к непрозрачно
 неизвестным. Outbox доставляет `backplane.AuditEntry` как обычное событие
 с устойчивым ID, как минимум один раз. В записи допускаются только
 идентификаторы и перечисленные в контракте метаданные; payload, значения
-конфига, комментарии и произвольные тексты ошибок не копируются.
+конфига, комментарии ревизий и произвольные тексты ошибок не копируются.
+Слова оператора у команд запусков и расписаний сохраняются, обрезанными до
+256 символов: имя сигнала (не аргумент), причина terminate, note паузы и
+возобновления.
 
 `AuditService`: список, фильтры и возобновляемый стрим с корректным
 порядком коммитов и явным истечением курсора. Планируемая консоль показывает аудит

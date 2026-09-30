@@ -201,6 +201,7 @@ func entriesPB(rows []db.ListAuditEntriesRow) ([]*consolev1.AuditEntry, error) {
 				Revision: positive(detail.Revision), RollbackOf: positive(detail.RollbackOf),
 				Keys: detail.Keys, Paused: detail.Paused,
 				Code: detail.Code, WorkflowId: detail.WorkflowID, RunId: detail.RunID, Affected: positive(detail.Affected),
+				Signal: detail.Signal, Reason: detail.Reason, Note: detail.Note,
 			},
 		})
 	}

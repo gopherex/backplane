@@ -35,8 +35,10 @@ export function ClipboardButton({ value, label, disabled }: { value: string; lab
 export interface ConfirmActionProps {
   trigger: ReactNode; title: string; description: string; confirmLabel?: string;
   onConfirm: (signal: AbortSignal) => void | Promise<void>; disabled?: boolean;
+  /** Fields the confirmation asks for (a note, a reason), between the description and the buttons. */
+  children?: ReactNode;
 }
-export function ConfirmAction({ trigger, title, description, confirmLabel, onConfirm, disabled }: ConfirmActionProps) {
+export function ConfirmAction({ trigger, title, description, confirmLabel, onConfirm, disabled, children }: ConfirmActionProps) {
   const { t } = useTranslation('backplane.ui');
   const [open, setOpen] = useState(false), [pending, setPending] = useState(false), [error, setError] = useState(false);
   const active = useRef<AbortController | null>(null);
@@ -44,6 +46,7 @@ export function ConfirmAction({ trigger, title, description, confirmLabel, onCon
   return <Dialog open={open} onOpenChange={(value) => { if (!pending) { setOpen(value); setError(false); } }}>
     <DialogTrigger asChild><Button type="button" variant="outline" disabled={disabled}>{trigger}</Button></DialogTrigger>
     <DialogContent><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
+      {children}
       {error && <FieldError>{t('actionFailed')}</FieldError>}
       <DialogFooter><Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>{t('cancel')}</Button>
         <Button type="button" disabled={pending} onClick={async () => {

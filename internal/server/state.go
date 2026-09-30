@@ -115,7 +115,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 
 	st.Store = deps.NewDependency(root, store.New(cfg.PG.DSN))
 	st.Registry = registry.New(root, client)
-	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention))
+	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor), ops.Namespace(cfg.Temporal.Namespace))
+	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention), audit.WithRunQueue(st.Ops.RunQueue))
 
 	st.Obs, err = obs.New(cfg.Obs, obs.WithRegistry(st.Registry))
 	if err != nil {
@@ -126,7 +127,6 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	st.Config = config.New(root, cfg.LiveConfig, client, st.Store, st.Registry, config.Author(sessionAuthor))
 	st.Bindings = bindings.New(root, st.Store, st.Registry, bindings.Author(sessionAuthor))
 	st.XDS = xds.New(root, xdsConfig(cfg, root.Identity().Advertise), st.Registry)
-	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor))
 	workflows.Register(root, ops.RegisterWorkflows)
 	st.Executor = executor.New(root, st.Bindings, st.Registry, executor.Author(sessionAuthor),
 		executor.Namespace(cfg.Temporal.Namespace), executor.Runs(st.Ops.Workflows()),

@@ -69,15 +69,31 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
     }
     if (story === 'workflows') {
       const table = page.getByRole('table', { name: 'Runs', exact: true }); await expect(table.getByRole('cell', { name: '9007199254740993', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Older', exact: true }).click(); await expect(table.getByText('hello/Welcome-2026-09-30T11:00:00Z', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Newer', exact: true }).click(); await expect(table.getByText('welcome-1', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Hook calls', exact: true }).click(); await expect(table.getByText('hook/hello/Greet/k1', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Workflows', exact: true }).click(); await expect(table.getByText('welcome-1', { exact: true })).toBeVisible();
       await table.locator('tbody tr').first().focus(); await page.keyboard.press('Enter');
       const drawer = page.getByRole('dialog'); await expect(drawer.getByText('Activity failed', { exact: true })).toBeVisible();
+      await expect(drawer.getByText('console:fixture', { exact: true })).toBeVisible(); await expect(drawer.getByText('hello-1@fixture', { exact: true })).toBeVisible();
+      await drawer.getByRole('button', { name: 'Show payload of event 1', exact: true }).click();
+      await expect(drawer.getByRole('textbox', { name: 'Payload of event 1', exact: true })).toContainText('18446744073709551615');
+      await drawer.getByRole('textbox', { name: 'Signal name', exact: true }).fill('go'); await drawer.getByRole('button', { name: 'Send signal', exact: true }).click();
+      await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(page.getByLabel('Sent input')).toHaveText('signal:go:');
       await drawer.getByRole('button', { name: 'Cancel run', exact: true }).click(); await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-      await expect(page.getByLabel('Write attempts')).toHaveText('1');
+      await expect(page.getByLabel('Write attempts')).toHaveText('2');
+      await drawer.getByRole('button', { name: 'parent-1', exact: true }).click(); await expect(drawer.getByText('Continued as', { exact: true })).toBeVisible();
+      await drawer.getByRole('button', { name: 'welcome-1', exact: true }).click(); await expect(drawer.getByText('Activity failed', { exact: true })).toBeVisible();
       await page.keyboard.press('Escape');
     }
     if (story === 'schedules') {
-      await expect(page.getByText('Welcome', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Trigger', exact: true }).click(); await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(page.getByLabel('Write attempts')).toHaveText('1');
+      await expect(page.getByText('Not in Temporal', { exact: true })).toBeVisible(); await expect(page.getByText('Differs from declaration', { exact: true })).toBeVisible();
+      const triggers = page.getByRole('button', { name: 'Trigger', exact: true }); await expect(triggers.first()).toBeDisabled();
+      await page.getByRole('button', { name: 'Details of Welcome', exact: true }).click(); await page.getByTitle('hello/Welcome-2026-09-30T11:00:00Z', { exact: true }).last().click();
+      await expect(page.getByRole('dialog').getByText('Continued as', { exact: true })).toBeVisible(); await page.keyboard.press('Escape');
+      await page.getByRole('button', { name: 'Resume', exact: true }).click(); await page.getByRole('textbox', { name: 'Note', exact: true }).fill('maintenance done');
+      await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(page.getByLabel('Sent input')).toHaveText('maintenance done');
+      await triggers.last().click(); await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(page.getByLabel('Write attempts')).toHaveText('2');
     }
     if (story === 'events-and-dead-letters') {
       await expect(page.getByText('hello.Greeted').first()).toBeVisible();
@@ -92,7 +108,18 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
     }
     if (story === 'workflows-workspace') {
       await expect(page.getByText('Greets a new user')).toBeVisible();
-      await expect(page.getByRole('table', { name: 'Runs', exact: true })).toBeVisible();
+      const table = page.getByRole('table', { name: 'Runs', exact: true }); await expect(table).toBeVisible();
+      await expect(page.getByText('No worker is polling task queue hello. Started runs wait until one does.', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Runs of this schedule', exact: true }).last().click();
+      await expect(page.getByRole('combobox', { name: 'ID prefix', exact: true })).toContainText('hello/Welcome-');
+      await expect(table.locator('tbody tr')).toHaveCount(1); await expect(table.getByText('hello/Welcome-2026-09-30T11:00:00Z', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Clear ID prefix', exact: true }).click(); await expect(table.getByText('welcome-1', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Start Welcome', exact: true }).click();
+      const drawer = page.getByRole('dialog'); await drawer.getByRole('textbox', { name: 'Workflow ID (optional)', exact: true }).fill('welcome-1');
+      const timeout = drawer.getByRole('textbox', { name: /^Execution timeout/ }); await timeout.fill('5x'); await expect(drawer.getByText('Use a number followed by s, m or h.', { exact: true })).toBeVisible();
+      await timeout.fill('5m'); await drawer.getByRole('button', { name: 'Start', exact: true }).click();
+      await expect(drawer.getByText('A run with this workflow ID is already running. Open it, or choose another ID.', { exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
     }
     if (story === 'system-map-view') {
       await expect(page.locator('.react-flow__node').filter({ hasText: 'formatter' })).toBeVisible();

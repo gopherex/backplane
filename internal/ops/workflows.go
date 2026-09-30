@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,9 +13,12 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
+	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/gopherex/xlog"
 
@@ -65,7 +69,8 @@ func workflowDefs(ms []*backplanev1.Manifest) []*consolev1.WorkflowDef {
 	return out
 }
 
-// ListWorkflows implements WorkflowService.
+// ListWorkflows implements WorkflowService. Declarations come from the
+// manifests; the pollers of each task queue from Temporal when it answers.
 func (a WorkflowAPI) ListWorkflows(
 	ctx context.Context, req *consolev1.ListWorkflowsRequest,
 ) (*consolev1.ListWorkflowsResponse, error) {
@@ -74,7 +79,36 @@ func (a WorkflowAPI) ListWorkflows(
 		return nil, a.o.status(ctx, err)
 	}
 
-	return &consolev1.ListWorkflowsResponse{Workflows: workflowDefs(ms)}, nil
+	defs := workflowDefs(ms)
+
+	if c, err := a.o.client(); err == nil {
+		pollers := map[string]*int32{}
+
+		for _, d := range defs {
+			n, seen := pollers[d.GetTaskQueue()]
+			if !seen {
+				n = queuePollers(ctx, c, d.GetTaskQueue())
+				pollers[d.GetTaskQueue()] = n
+			}
+
+			d.Pollers = n
+		}
+	}
+
+	return &consolev1.ListWorkflowsResponse{Workflows: defs}, nil
+}
+
+// queuePollers is how many workers polled queue for workflow tasks
+// recently; nil when Temporal does not answer.
+func queuePollers(ctx context.Context, c client.Client, queue string) *int32 {
+	res, err := c.DescribeTaskQueue(ctx, queue, enumspb.TASK_QUEUE_TYPE_WORKFLOW)
+	if err != nil {
+		return nil
+	}
+
+	n := int32(len(res.GetPollers())) //nolint:gosec // a handful of workers
+
+	return &n
 }
 
 // StartWorkflow implements WorkflowService.
@@ -92,6 +126,12 @@ func (a WorkflowAPI) StartWorkflow(
 	}
 
 	run, err := c.ExecuteWorkflow(ctx, opts, req.GetWorkflow(), args...)
+
+	var started *serviceerror.WorkflowExecutionAlreadyStarted
+	if errors.As(err, &started) {
+		err = fmt.Errorf("%w: workflow id %q is already running (run %s)", ErrExists, opts.ID, started.RunId)
+	}
+
 	if err != nil {
 		return nil, a.o.status(ctx, err)
 	}
@@ -155,9 +195,15 @@ func (a WorkflowAPI) start(
 		id = "console/" + req.GetService() + "/" + req.GetWorkflow() + "/" + uuid.NewString()
 	}
 
+	if req.GetTimeout().AsDuration() < 0 {
+		return opts, nil, fmt.Errorf("%w: timeout must not be negative", ErrInput)
+	}
+
+	// A running id is an error, not that run returned as if started.
 	return client.StartWorkflowOptions{
 		ID: id, TaskQueue: def.GetTaskQueue(), WorkflowExecutionTimeout: req.GetTimeout().AsDuration(),
-		Memo: map[string]any{wire.MemoSource: a.o.author(ctx)},
+		WorkflowExecutionErrorWhenAlreadyStarted: true,
+		Memo:                                     map[string]any{wire.MemoSource: a.o.author(ctx)},
 	}, args, nil
 }
 
@@ -184,26 +230,45 @@ func quote(what, s string) (string, error) {
 	return "'" + s + "'", nil
 }
 
-// RunsQuery is the visibility query of ListRuns.
-func RunsQuery(req *consolev1.ListRunsRequest) (string, error) {
+// RunsQuery is the visibility query of ListRuns, without ordering;
+// console is backplane's queue, where the console's hook calls run.
+func RunsQuery(req *consolev1.ListRunsRequest, console string) (string, error) {
 	if !serviceName.MatchString(req.GetService()) {
 		return "", fmt.Errorf("%w: service is required", ErrInput)
 	}
 
 	var parts []string
 
-	add := func(format, what, v string) error {
-		q, err := quote(what, v)
-		if err != nil {
-			return err
+	add := func(format, what string, values ...string) error {
+		quoted := make([]any, 0, len(values))
+
+		for _, v := range values {
+			q, err := quote(what, v)
+			if err != nil {
+				return err
+			}
+
+			quoted = append(quoted, q)
 		}
 
-		parts = append(parts, fmt.Sprintf(format, q))
+		parts = append(parts, fmt.Sprintf(format, quoted...))
 
 		return nil
 	}
 
-	if err := add("TaskQueue = %s", "service", wire.Queue(req.GetService())); err != nil {
+	var err error
+
+	switch {
+	case !req.GetHooks():
+		err = add("TaskQueue = %s", "service", wire.Queue(req.GetService()))
+	case console == "":
+		err = add("TaskQueue = %s", "service", wire.HooksQueue(req.GetService()))
+	default:
+		err = add("(TaskQueue = %s OR (TaskQueue = %s AND WorkflowId STARTS_WITH %s))", "service",
+			wire.HooksQueue(req.GetService()), console, hookRunPrefix(req.GetService()))
+	}
+
+	if err != nil {
 		return "", err
 	}
 
@@ -228,16 +293,17 @@ func RunsQuery(req *consolev1.ListRunsRequest) (string, error) {
 		}
 	}
 
-	// No ORDER BY: SQL visibility (the dev server, PostgreSQL, MySQL)
-	// rejects it, and lists newest first anyway.
 	return strings.Join(parts, " AND "), nil
 }
+
+// newestFirst orders runs by start, newest first, where visibility sorts.
+const newestFirst = " ORDER BY StartTime DESC"
 
 // ListRuns implements WorkflowService.
 func (a WorkflowAPI) ListRuns(
 	ctx context.Context, req *consolev1.ListRunsRequest,
 ) (*consolev1.ListRunsResponse, error) {
-	query, err := RunsQuery(req)
+	query, err := RunsQuery(req, a.o.queue)
 	if err != nil {
 		return nil, a.o.status(ctx, err)
 	}
@@ -247,10 +313,7 @@ func (a WorkflowAPI) ListRuns(
 		return nil, a.o.status(ctx, err)
 	}
 
-	res, err := c.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-		PageSize:      int32(pageSize(req.GetPageSize())), //nolint:gosec // bounded
-		NextPageToken: req.GetPageToken(), Query: query,
-	})
+	res, query, err := a.list(ctx, c, req, query)
 	if err != nil {
 		return nil, a.o.status(ctx, err)
 	}
@@ -263,12 +326,46 @@ func (a WorkflowAPI) ListRuns(
 	return out, nil
 }
 
+// list runs query newest first; SQL visibility refuses ORDER BY, and once
+// it has, runs are listed in its own order. It returns the query it ran.
+func (a WorkflowAPI) list(
+	ctx context.Context, c client.Client, req *consolev1.ListRunsRequest, query string,
+) (*workflowservice.ListWorkflowExecutionsResponse, string, error) {
+	page := func(q string) (*workflowservice.ListWorkflowExecutionsResponse, error) {
+		res, err := c.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+			PageSize:      int32(pageSize(req.GetPageSize())), //nolint:gosec // bounded
+			NextPageToken: req.GetPageToken(), Query: q,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list runs: %w", err)
+		}
+
+		return res, nil
+	}
+
+	if !a.o.unordered.Load() {
+		res, err := page(query + newestFirst)
+
+		var invalid *serviceerror.InvalidArgument
+		if !errors.As(err, &invalid) || !strings.Contains(strings.ToLower(invalid.Error()), "order by") {
+			return res, query + newestFirst, err
+		}
+
+		a.o.unordered.Store(true)
+	}
+
+	res, err := page(query)
+
+	return res, query, err
+}
+
 func runPB(e *workflowpb.WorkflowExecutionInfo) *consolev1.Run {
 	out := &consolev1.Run{
 		WorkflowId: e.GetExecution().GetWorkflowId(), RunId: e.GetExecution().GetRunId(),
 		WorkflowType: e.GetType().GetName(), Status: consolev1.RunStatus(e.GetStatus()),
 		TaskQueue: e.GetTaskQueue(), StartTime: e.GetStartTime(), CloseTime: e.GetCloseTime(),
 		HistoryLength: e.GetHistoryLength(), ParentWorkflowId: e.GetParentExecution().GetWorkflowId(),
+		ParentRunId: e.GetParentExecution().GetRunId(),
 	}
 
 	if fields := e.GetMemo().GetFields(); len(fields) > 0 {
@@ -281,15 +378,64 @@ func runPB(e *workflowpb.WorkflowExecutionInfo) *consolev1.Run {
 	return out
 }
 
+// envelopes are backplane's envelopes whose bytes field payload carries
+// the author's JSON: ActivityCall/ActivityResult of an activity,
+// HookCall/HookResult of a hook call.
+//
+//nolint:gochecknoglobals // constant table
+var envelopes = func() map[string]bool {
+	out := map[string]bool{}
+	for _, m := range []proto.Message{
+		&backplanev1.ActivityCall{}, &backplanev1.ActivityResult{}, &backplanev1.HookCall{}, &backplanev1.HookResult{},
+	} {
+		out[string(m.ProtoReflect().Descriptor().FullName())] = true
+	}
+
+	return out
+}()
+
+// unwrap is the JSON of an envelope with its payload as the JSON it
+// carries instead of base64; data as is when there is nothing to unwrap.
+func unwrap(data []byte) []byte {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return data
+	}
+
+	var encoded string
+	if err := json.Unmarshal(fields["payload"], &encoded); err != nil {
+		return data
+	}
+
+	inner, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || !json.Valid(inner) {
+		return data
+	}
+
+	fields["payload"] = inner
+
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return data
+	}
+
+	return out
+}
+
 // payloadJSON is a Temporal payload as JSON text: JSON encodings as they
-// are, binary/null as null, anything else as a base64 string.
+// are (backplane's envelopes with their payload unwrapped), binary/null as
+// null, anything else as a base64 string.
 func payloadJSON(p *commonpb.Payload) string {
 	data := p.GetData()
 
-	switch enc := string(p.GetMetadata()["encoding"]); {
-	case enc == "binary/null":
+	switch enc := string(p.GetMetadata()[converter.MetadataEncoding]); {
+	case enc == converter.MetadataEncodingNil:
 		return "null"
 	case strings.HasPrefix(enc, "json/") && json.Valid(data):
+		if envelopes[string(p.GetMetadata()[converter.MetadataMessageType])] {
+			return string(unwrap(data))
+		}
+
 		return string(data)
 	default:
 		// base64 needs no escaping: quoted, it is its JSON string.
@@ -340,28 +486,15 @@ func (a WorkflowAPI) GetRun(ctx context.Context, req *consolev1.GetRunRequest) (
 		out.PendingActivities = append(out.PendingActivities, pendingPB(p))
 	}
 
-	iter := c.GetWorkflowHistory(ctx, req.GetWorkflowId(), runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
-
-	var closed bool
-
-	for iter.HasNext() {
-		e, err := iter.Next()
-		if err != nil {
-			return nil, a.o.status(ctx, err)
-		}
-
-		if len(out.GetHistory()) >= maxHistory {
-			out.Truncated = true
-
-			break
-		}
-
-		out.History = append(out.History, historyPB(e))
-		closed = closed || outcome(out, e)
+	closed, err := history(ctx, c, out, runID)
+	if err != nil {
+		return nil, a.o.status(ctx, err)
 	}
 
 	if out.GetTruncated() && out.GetRun().GetStatus() != consolev1.RunStatus_RUN_STATUS_RUNNING && !closed {
-		last := c.GetWorkflowHistory(ctx, req.GetWorkflowId(), runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT)
+		closing := enumspb.HISTORY_EVENT_FILTER_TYPE_CLOSE_EVENT
+		last := c.GetWorkflowHistory(ctx, out.GetRun().GetWorkflowId(), runID, false, closing)
+
 		for last.HasNext() {
 			e, err := last.Next()
 			if err != nil {
@@ -373,6 +506,38 @@ func (a WorkflowAPI) GetRun(ctx context.Context, req *consolev1.GetRunRequest) (
 	}
 
 	return out, nil
+}
+
+// history adds the first maxHistory events of run runID to out, with the
+// outcomes they carry; true when the closing event was among them.
+func history(ctx context.Context, c client.Client, out *consolev1.GetRunResponse, runID string) (bool, error) {
+	workflowID := out.GetRun().GetWorkflowId()
+	iter := c.GetWorkflowHistory(ctx, workflowID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+
+	var closed bool
+
+	for iter.HasNext() {
+		e, err := iter.Next()
+		if err != nil {
+			return false, fmt.Errorf("history of %s: %w", workflowID, err)
+		}
+
+		if len(out.GetHistory()) >= maxHistory {
+			out.Truncated = true
+
+			break
+		}
+
+		ev := historyPB(e)
+		if ev.GetRunId() != "" && ev.GetWorkflowId() == "" {
+			ev.WorkflowId = workflowID
+		}
+
+		out.History = append(out.History, ev)
+		closed = closed || outcome(out, e)
+	}
+
+	return closed, nil
 }
 
 // outcome records the run's input or end from e; true for an end.
@@ -392,6 +557,7 @@ func outcome(out *consolev1.GetRunResponse, e *historypb.HistoryEvent) bool {
 	case enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
 		out.Failure, out.FailureType = "canceled", "Canceled"
 	case enumspb.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW:
+		out.ContinuedRunId = e.GetWorkflowExecutionContinuedAsNewEventAttributes().GetNewExecutionRunId()
 	default:
 		return false
 	}
@@ -439,6 +605,10 @@ func historyPB(e *historypb.HistoryEvent) *consolev1.HistoryEvent {
 		Id: e.GetEventId(), Time: e.GetEventTime(), Type: strings.TrimPrefix(e.GetEventType().String(), "EVENT_TYPE_"),
 	}
 
+	if childEvent(out, e) {
+		return out
+	}
+
 	switch {
 	case e.GetWorkflowExecutionStartedEventAttributes() != nil:
 		at := e.GetWorkflowExecutionStartedEventAttributes()
@@ -469,17 +639,10 @@ func historyPB(e *historypb.HistoryEvent) *consolev1.HistoryEvent {
 	case e.GetTimerStartedEventAttributes() != nil:
 		at := e.GetTimerStartedEventAttributes()
 		out.Summary = "timer " + at.GetTimerId() + " " + at.GetStartToFireTimeout().AsDuration().String()
-	case e.GetStartChildWorkflowExecutionInitiatedEventAttributes() != nil:
-		at := e.GetStartChildWorkflowExecutionInitiatedEventAttributes()
-		out.Summary = at.GetWorkflowType().GetName() + " " + at.GetWorkflowId() + " on " + at.GetTaskQueue().GetName()
-		out.Payload = payloadsJSON(at.GetInput())
-	case e.GetChildWorkflowExecutionCompletedEventAttributes() != nil:
-		at := e.GetChildWorkflowExecutionCompletedEventAttributes()
-		out.Summary, out.Payload = at.GetWorkflowExecution().GetWorkflowId(), payloadsJSON(at.GetResult())
-	case e.GetChildWorkflowExecutionFailedEventAttributes() != nil:
-		at := e.GetChildWorkflowExecutionFailedEventAttributes()
-		out.Summary = at.GetWorkflowExecution().GetWorkflowId()
-		out.Failure, _ = failureOf(at.GetFailure())
+	case e.GetWorkflowExecutionContinuedAsNewEventAttributes() != nil:
+		at := e.GetWorkflowExecutionContinuedAsNewEventAttributes()
+		out.Summary = "continued as run " + at.GetNewExecutionRunId()
+		out.RunId, out.Payload = at.GetNewExecutionRunId(), payloadsJSON(at.GetInput())
 	case e.GetNexusOperationScheduledEventAttributes() != nil:
 		at := e.GetNexusOperationScheduledEventAttributes()
 		out.Summary = at.GetEndpoint() + " " + at.GetService() + "/" + at.GetOperation()
@@ -499,6 +662,68 @@ func historyPB(e *historypb.HistoryEvent) *consolev1.HistoryEvent {
 	}
 
 	return out
+}
+
+// childEvent summarizes an event about a child workflow, with the child
+// as the event's run; false for any other event.
+func childEvent(out *consolev1.HistoryEvent, e *historypb.HistoryEvent) bool {
+	var child *commonpb.WorkflowExecution
+
+	switch {
+	case e.GetStartChildWorkflowExecutionInitiatedEventAttributes() != nil:
+		at := e.GetStartChildWorkflowExecutionInitiatedEventAttributes()
+		out.Summary = at.GetWorkflowType().GetName() + " " + at.GetWorkflowId() + " on " + at.GetTaskQueue().GetName()
+		out.WorkflowId, out.Payload = at.GetWorkflowId(), payloadsJSON(at.GetInput())
+	case e.GetStartChildWorkflowExecutionFailedEventAttributes() != nil:
+		at := e.GetStartChildWorkflowExecutionFailedEventAttributes()
+		out.Summary, out.WorkflowId = at.GetWorkflowType().GetName()+" "+at.GetWorkflowId(), at.GetWorkflowId()
+		cause := strings.TrimPrefix(at.GetCause().String(), "START_CHILD_WORKFLOW_EXECUTION_FAILED_CAUSE_")
+		out.Failure = strings.ToLower(cause)
+	case e.GetChildWorkflowExecutionStartedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionStartedEventAttributes()
+		child = at.GetWorkflowExecution()
+		out.Summary = at.GetWorkflowType().GetName() + " " + child.GetWorkflowId()
+	case e.GetChildWorkflowExecutionCompletedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionCompletedEventAttributes()
+		child, out.Payload = at.GetWorkflowExecution(), payloadsJSON(at.GetResult())
+	case e.GetChildWorkflowExecutionFailedEventAttributes() != nil:
+		at := e.GetChildWorkflowExecutionFailedEventAttributes()
+		child = at.GetWorkflowExecution()
+		out.Failure, _ = failureOf(at.GetFailure())
+	case e.GetChildWorkflowExecutionCanceledEventAttributes() != nil:
+		child = e.GetChildWorkflowExecutionCanceledEventAttributes().GetWorkflowExecution()
+	case e.GetChildWorkflowExecutionTimedOutEventAttributes() != nil:
+		child, out.Failure = e.GetChildWorkflowExecutionTimedOutEventAttributes().GetWorkflowExecution(), timedOut
+	case e.GetChildWorkflowExecutionTerminatedEventAttributes() != nil:
+		child = e.GetChildWorkflowExecutionTerminatedEventAttributes().GetWorkflowExecution()
+	default:
+		return false
+	}
+
+	if child != nil {
+		out.WorkflowId, out.RunId = child.GetWorkflowId(), child.GetRunId()
+		if out.GetSummary() == "" {
+			out.Summary = child.GetWorkflowId()
+		}
+	}
+
+	return true
+}
+
+// RunQueue is the task queue of a run: where the audit finds the service a
+// run command is addressed to when its id does not say.
+func (o *Ops) RunQueue(ctx context.Context, workflowID, runID string) (string, error) {
+	c, err := o.client()
+	if err != nil {
+		return "", err
+	}
+
+	desc, err := c.DescribeWorkflowExecution(ctx, workflowID, runID)
+	if err != nil {
+		return "", fmt.Errorf("describe %s: %w", workflowID, err)
+	}
+
+	return desc.GetWorkflowExecutionInfo().GetTaskQueue(), nil
 }
 
 // CancelRun implements WorkflowService.
@@ -542,18 +767,23 @@ func (a WorkflowAPI) SignalRun(
 		return nil, a.o.status(ctx, fmt.Errorf("%w: signal is required", ErrInput))
 	}
 
-	var arg any
-
-	if in := []byte(req.GetInput()); len(in) > 0 {
-		if !json.Valid(in) {
-			return nil, a.o.status(ctx, fmt.Errorf("%w: input is not valid JSON", ErrInput))
-		}
-
-		arg = json.RawMessage(in)
+	in := []byte(req.GetInput())
+	if len(in) > 0 && !json.Valid(in) {
+		return nil, a.o.status(ctx, fmt.Errorf("%w: input is not valid JSON", ErrInput))
 	}
 
 	if err := a.act(ctx, "workflow.signal", req.GetWorkflowId(), req.GetRunId(), func(c client.Client) error {
-		return c.SignalWorkflow(ctx, req.GetWorkflowId(), req.GetRunId(), req.GetSignal(), arg)
+		if len(in) > 0 {
+			return c.SignalWorkflow(ctx, req.GetWorkflowId(), req.GetRunId(), req.GetSignal(), json.RawMessage(in))
+		}
+
+		// The SDK would send one null argument; the API sends none.
+		_, err := c.WorkflowService().SignalWorkflowExecution(ctx, &workflowservice.SignalWorkflowExecutionRequest{
+			Namespace: a.o.namespace, SignalName: req.GetSignal(), Identity: a.o.author(ctx), RequestId: uuid.NewString(),
+			WorkflowExecution: &commonpb.WorkflowExecution{WorkflowId: req.GetWorkflowId(), RunId: req.GetRunId()},
+		})
+
+		return err //nolint:wrapcheck // Temporal's status travels as is
 	}, xlog.String("signal", req.GetSignal())); err != nil {
 		return nil, err
 	}
