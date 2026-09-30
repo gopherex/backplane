@@ -9,19 +9,19 @@ RETURNING sequence;
 SELECT sequence, retained_after FROM backplane.audit_clock WHERE singleton = true;
 
 -- name: InsertAuditEntry :one
-INSERT INTO backplane.audit_entry (sequence, id, actor, action, subject, outcome, operation_id, detail)
-VALUES (@sequence, @id, @actor, @action, @subject, @outcome, @operation_id, @detail)
-RETURNING sequence, id, created_at, actor, action, subject, outcome, operation_id, detail;
+INSERT INTO backplane.audit_entry (sequence, id, actor, action, subject, outcome, operation_id, detail, service)
+VALUES (@sequence, @id, @actor, @action, @subject, @outcome, @operation_id, @detail, @service)
+RETURNING sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service;
 
 -- name: InsertAuditOutbox :exec
 INSERT INTO backplane.audit_outbox (sequence) VALUES (@sequence);
 
 -- name: GetAuditEntry :one
-SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
 FROM backplane.audit_entry WHERE sequence = @sequence;
 
 -- name: ListAuditEntries :many
-SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
 FROM backplane.audit_entry
 WHERE sequence > @after_sequence AND sequence <= @through_sequence
   AND (@actor::text = '' OR actor = @actor)
@@ -29,6 +29,7 @@ WHERE sequence > @after_sequence AND sequence <= @through_sequence
   AND (@subject::text = '' OR subject = @subject)
   AND (@outcome::text = '' OR outcome = @outcome)
   AND (@operation_id::text = '' OR operation_id::text = @operation_id)
+  AND (@service::text = '' OR service = @service)
   AND created_at >= @start_at AND created_at < @end_at
 ORDER BY CASE WHEN @descending::boolean THEN sequence END DESC, sequence ASC
 LIMIT @page_size;

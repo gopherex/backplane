@@ -182,6 +182,35 @@ func TestAuditReplicasAndRecovery(t *testing.T) {
 	}
 }
 
+func TestAuditServiceFilter(t *testing.T) {
+	t.Parallel()
+
+	svc, st := replica(t, isolatedDatabase(t), func(context.Context, audit.Entry) error { return nil })
+	for _, draft := range []store.AuditDraft{
+		{Actor: "operator", Action: "config.save", Subject: "hello", Outcome: "succeeded", Service: "hello"},
+		{Actor: "operator", Action: "hook.call", Subject: "hook=hello.Greet", Outcome: "intent", Service: "hello"},
+		{Actor: "operator", Action: "config.save", Subject: "formatter", Outcome: "succeeded", Service: "formatter"},
+		{Actor: "admin", Action: "session.create", Subject: uuid.NewString(), Outcome: "succeeded"},
+	} {
+		if _, err := st.AppendAudit(t.Context(), draft); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	api := consolev1.NewAuditServiceClient(client(t, svc.Register))
+
+	page, err := api.ListAudit(t.Context(), &consolev1.ListAuditRequest{Filter: &consolev1.AuditFilter{Service: "hello"}})
+	if err != nil || len(page.GetEntries()) != 2 {
+		t.Fatal(page, err)
+	}
+
+	for _, entry := range page.GetEntries() {
+		if entry.GetService() != "hello" {
+			t.Fatal("entry of another service", entry)
+		}
+	}
+}
+
 func TestAuditSnapshotAndWatch(t *testing.T) {
 	t.Parallel()
 

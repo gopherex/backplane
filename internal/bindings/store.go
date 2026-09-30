@@ -355,7 +355,9 @@ func (m *Manager) insertBinding(
 			return fmt.Errorf("set current: %w", err)
 		}
 
-		return st.AuditControl(ctx, author, versionAction("binding", def == nil, rollback), hook, store.AuditDetail{
+		action := versionAction("binding", def == nil, rollback)
+
+		return st.AuditControl(ctx, author, action, hook, store.ServiceOf(hook), store.AuditDetail{
 			Revision:   next.Version,
 			RollbackOf: rollback,
 		})
@@ -550,7 +552,12 @@ func (m *Manager) PauseRule(ctx context.Context, id uuid.UUID, paused bool) (Rul
 			return fmt.Errorf("bindings: pause rule %s: %w", id, updateErr)
 		}
 
-		return st.AuditControl(ctx, m.author(ctx), "rule.pause", id.String(), store.AuditDetail{Paused: &paused})
+		service, err := ruleService(ctx, st, id)
+		if err != nil {
+			return err
+		}
+
+		return st.AuditControl(ctx, m.author(ctx), "rule.pause", id.String(), service, store.AuditDetail{Paused: &paused})
 	})
 	if err != nil {
 		return RuleEntry{}, fmt.Errorf("bindings: pause transaction: %w", err)
@@ -642,7 +649,14 @@ func (m *Manager) insertRule(
 			return fmt.Errorf("set current: %w", err)
 		}
 
-		return st.AuditControl(ctx, author, versionAction("rule", def == nil, rollback), ruleID.String(), store.AuditDetail{
+		service, err := ruleService(ctx, st, ruleID)
+		if err != nil {
+			return err
+		}
+
+		action := versionAction("rule", def == nil, rollback)
+
+		return st.AuditControl(ctx, author, action, ruleID.String(), service, store.AuditDetail{
 			Revision:   next.Version,
 			RollbackOf: rollback,
 		})
@@ -654,6 +668,21 @@ func (m *Manager) insertRule(
 	m.changes.notify()
 
 	return ruleVersionRow(saved).version()
+}
+
+// ruleService is the service whose event the rule reacts to: the owner of the
+// rule's latest definition's event.
+func ruleService(ctx context.Context, st *store.Store, id uuid.UUID) (string, error) {
+	event, err := st.Q.GetRuleEvent(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("rule event: %w", err)
+	}
+
+	return store.ServiceOf(event.Event), nil
 }
 
 func versionAction(kind string, deleted bool, rollback int64) string {

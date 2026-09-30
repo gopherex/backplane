@@ -33,9 +33,13 @@ type AuditEntry struct {
 	// succeeded (database control change), intent, succeeded/failed/partial/rejected/unknown
 	// (external command result). Intent without a result has an unknown outcome;
 	// never replay the command merely because its result entry is missing.
-	Outcome       string       `protobuf:"bytes,7,opt,name=outcome,proto3" json:"outcome,omitempty"`
-	OperationId   string       `protobuf:"bytes,8,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
-	Detail        *AuditDetail `protobuf:"bytes,9,opt,name=detail,proto3" json:"detail,omitempty"`
+	Outcome     string       `protobuf:"bytes,7,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	OperationId string       `protobuf:"bytes,8,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Detail      *AuditDetail `protobuf:"bytes,9,opt,name=detail,proto3" json:"detail,omitempty"`
+	// The service the entry is about: its configuration, the binding of one of
+	// its hooks, a rule on one of its events or a command addressed to it.
+	// Empty for installation-wide entries (sessions).
+	Service       string `protobuf:"bytes,10,opt,name=service,proto3" json:"service,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -131,6 +135,13 @@ func (x *AuditEntry) GetDetail() *AuditDetail {
 		return x.Detail
 	}
 	return nil
+}
+
+func (x *AuditEntry) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
 }
 
 // Safe control metadata only. No request payload, arbitrary error text,
@@ -243,8 +254,10 @@ type AuditFilter struct {
 	Outcome     string                 `protobuf:"bytes,4,opt,name=outcome,proto3" json:"outcome,omitempty"`
 	OperationId string                 `protobuf:"bytes,5,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	// Inclusive start, exclusive end. Absent = unbounded.
-	Start         *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=start,proto3" json:"start,omitempty"`
-	End           *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=end,proto3" json:"end,omitempty"`
+	Start *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=start,proto3" json:"start,omitempty"`
+	End   *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=end,proto3" json:"end,omitempty"`
+	// Only entries about this service (AuditEntry.service).
+	Service       string `protobuf:"bytes,8,opt,name=service,proto3" json:"service,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -326,6 +339,13 @@ func (x *AuditFilter) GetEnd() *timestamppb.Timestamp {
 		return x.End
 	}
 	return nil
+}
+
+func (x *AuditFilter) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
 }
 
 type ListAuditRequest struct {
@@ -560,7 +580,7 @@ var File_backplanepb_console_v1_audit_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\n" +
-	"\"backplanepb/console/v1/audit.proto\x12\x14backplane.console.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb3\x02\n" +
+	"\"backplanepb/console/v1/audit.proto\x12\x14backplane.console.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xcd\x02\n" +
 	"\n" +
 	"AuditEntry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
@@ -572,7 +592,9 @@ const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\asubject\x18\x06 \x01(\tR\asubject\x12\x18\n" +
 	"\aoutcome\x18\a \x01(\tR\aoutcome\x12!\n" +
 	"\foperation_id\x18\b \x01(\tR\voperationId\x129\n" +
-	"\x06detail\x18\t \x01(\v2!.backplane.console.v1.AuditDetailR\x06detail\"\xee\x01\n" +
+	"\x06detail\x18\t \x01(\v2!.backplane.console.v1.AuditDetailR\x06detail\x12\x18\n" +
+	"\aservice\x18\n" +
+	" \x01(\tR\aservice\"\xee\x01\n" +
 	"\vAuditDetail\x12\x1a\n" +
 	"\brevision\x18\x01 \x01(\x04R\brevision\x12\x1f\n" +
 	"\vrollback_of\x18\x02 \x01(\x04R\n" +
@@ -584,7 +606,7 @@ const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"workflowId\x12\x15\n" +
 	"\x06run_id\x18\a \x01(\tR\x05runId\x12\x1a\n" +
 	"\baffected\x18\b \x01(\x04R\baffectedB\t\n" +
-	"\a_paused\"\xf2\x01\n" +
+	"\a_paused\"\x8c\x02\n" +
 	"\vAuditFilter\x12\x14\n" +
 	"\x05actor\x18\x01 \x01(\tR\x05actor\x12\x16\n" +
 	"\x06action\x18\x02 \x01(\tR\x06action\x12\x18\n" +
@@ -592,7 +614,8 @@ const file_backplanepb_console_v1_audit_proto_rawDesc = "" +
 	"\aoutcome\x18\x04 \x01(\tR\aoutcome\x12!\n" +
 	"\foperation_id\x18\x05 \x01(\tR\voperationId\x120\n" +
 	"\x05start\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\x05start\x12,\n" +
-	"\x03end\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x03end\"\x8b\x01\n" +
+	"\x03end\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x03end\x12\x18\n" +
+	"\aservice\x18\b \x01(\tR\aservice\"\x8b\x01\n" +
 	"\x10ListAuditRequest\x129\n" +
 	"\x06filter\x18\x01 \x01(\v2!.backplane.console.v1.AuditFilterR\x06filter\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\rR\bpageSize\x12\x1f\n" +

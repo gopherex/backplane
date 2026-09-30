@@ -64,10 +64,12 @@ func decodeCursor(raw, kind, installation, filter string) (cursor, error) {
 func filterParams(filter *consolev1.AuditFilter) (db.ListAuditEntriesParams, string, error) {
 	params := db.ListAuditEntriesParams{
 		Actor: filter.GetActor(), Action: filter.GetAction(), Subject: filter.GetSubject(),
-		Outcome: filter.GetOutcome(), OperationID: filter.GetOperationId(),
+		Outcome: filter.GetOutcome(), OperationID: filter.GetOperationId(), Service: filter.GetService(),
 		StartAt: time.Unix(0, 0), EndAt: time.Unix(0, math.MaxInt64),
 	}
-	for _, value := range []string{params.Actor, params.Action, params.Subject, params.Outcome, params.OperationID} {
+
+	values := []string{params.Actor, params.Action, params.Subject, params.Outcome, params.OperationID, params.Service}
+	for _, value := range values {
 		if len(value) > maxFilterBytes {
 			return params, "", rpcError(codes.InvalidArgument, "audit filter exceeds byte budget")
 		}

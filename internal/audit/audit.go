@@ -41,6 +41,7 @@ type Entry struct {
 	Outcome     string            `json:"outcome"`
 	OperationID string            `json:"operation_id"`
 	Detail      store.AuditDetail `json:"detail"`
+	Service     string            `json:"service,omitempty"`
 }
 
 // Service reads committed history. Delivery failures leave the outbox intact.
@@ -138,7 +139,7 @@ func (s *Service) deliverOne(ctx context.Context, row db.GetAuditEntryRow, lease
 
 	entry := Entry{
 		ID: row.ID.String(), Sequence: strconv.FormatInt(row.Sequence, 10), CreatedAt: row.CreatedAt,
-		Actor: row.Actor, Action: row.Action, Subject: row.Subject,
+		Actor: row.Actor, Action: row.Action, Subject: row.Subject, Service: row.Service,
 		Outcome: row.Outcome, OperationID: row.OperationID.String(), Detail: detail,
 	}
 

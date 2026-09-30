@@ -84,7 +84,7 @@ func (p PG) Create(ctx context.Context, tokenHash []byte, s Session) (uuid.UUID,
 
 		id = row.ID
 
-		return st.AuditControl(ctx, "admin", "session.create", id.String(), store.AuditDetail{})
+		return st.AuditControl(ctx, "admin", "session.create", id.String(), "", store.AuditDetail{})
 	})
 	if err != nil {
 		return id, fmt.Errorf("console session transaction: %w", err)
@@ -167,7 +167,7 @@ func (p PG) Delete(ctx context.Context, id uuid.UUID) (bool, error) {
 			actor = current
 		}
 
-		return st.AuditControl(ctx, "console:"+actor.String(), "session.revoke", id.String(), store.AuditDetail{})
+		return st.AuditControl(ctx, "console:"+actor.String(), "session.revoke", id.String(), "", store.AuditDetail{})
 	})
 	if err != nil {
 		return deleted, fmt.Errorf("console session transaction: %w", err)
@@ -193,7 +193,7 @@ func (p PG) DeleteOthers(ctx context.Context, keep uuid.UUID) (int64, error) {
 			return nil
 		}
 
-		return st.AuditControl(ctx, "console:"+keep.String(), "session.revoke_others", keep.String(), store.AuditDetail{
+		return st.AuditControl(ctx, "console:"+keep.String(), "session.revoke_others", keep.String(), "", store.AuditDetail{
 			Affected: n,
 		})
 	})
@@ -221,7 +221,7 @@ func (p PG) DeleteStale(ctx context.Context, now, idleSince time.Time) (int64, e
 			return nil
 		}
 
-		return st.AuditControl(ctx, "system:session-expiry", "session.expire", "console", store.AuditDetail{Affected: n})
+		return st.AuditControl(ctx, "system:session-expiry", "session.expire", "console", "", store.AuditDetail{Affected: n})
 	})
 	if err != nil {
 		return affected, fmt.Errorf("console session transaction: %w", err)

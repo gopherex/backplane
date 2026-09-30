@@ -299,7 +299,7 @@ func (m *Manager) insert(
 			action = "config.rollback"
 		}
 
-		return st.AuditControl(ctx, author, action, service, store.AuditDetail{
+		return st.AuditControl(ctx, author, action, service, service, store.AuditDetail{
 			Revision: next.Revision, RollbackOf: rollbackOf, Keys: slices.Sorted(maps.Keys(o.values)),
 		})
 	})

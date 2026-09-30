@@ -55,6 +55,17 @@ cannot acknowledge a newer claim. Delivery is at least once, can be reordered
 across replicas, and uses entry UUID as the stable CloudEvent/deduplication ID.
 Consumers deduplicate by ID and use sequence when ordering matters.
 
+Every entry names the service it is about in `service`: the service whose
+configuration was saved, the owner of a bound hook (`hello` for `hello.Greet`),
+the owner of the event a rule reacts to, or the service a command addresses
+(its `service`/`subscriber` field, the owner of its hook, activity or event, the
+hook of a `binding/<hook>/…` or `test/<hook>/…` run, or the event owner of a
+rule id). Installation-wide entries such as sessions leave it empty. The field
+is computed when the entry is written and stored in its own indexed column;
+entries written before the column existed were attributed by the same rules in
+the migration. Filtering by `service` therefore covers entries whose subject
+does not contain the service name, such as rule ids.
+
 `backplane.AuditEntry` is a normal SDK event. Its sequence is a decimal string;
 the RPC uses protobuf `uint64` (`bigint` in TypeScript). The event contains the
 same allowlisted metadata as the stored entry. NATS being unavailable never
@@ -64,7 +75,7 @@ removes pending records or rolls back a committed control mutation.
 
 `ListAudit(filter?, page_size?, page_cursor?)` returns newest first. Default page
 size is 100, maximum 500. Filters are exact actor, action, subject, outcome,
-operation UUID and inclusive-start/exclusive-end timestamps. Each text filter
+operation UUID, service and inclusive-start/exclusive-end timestamps. Each text filter
 is limited to 2048 bytes. Its first response supplies a committed snapshot and
 `watch_cursor`. Continue history with `next_page_cursor` and the identical filter;
 later commits do not shift that snapshot. Empty next cursor means no older

@@ -34,6 +34,10 @@ message AuditEntry {
   string outcome = 7;
   string operation_id = 8;
   AuditDetail detail = 9;
+  // The service the entry is about: its configuration, the binding of one of
+  // its hooks, a rule on one of its events or a command addressed to it.
+  // Empty for installation-wide entries (sessions).
+  string service = 10;
 }
 
 // Safe control metadata only. No request payload, arbitrary error text,
@@ -58,6 +62,8 @@ message AuditFilter {
   // Inclusive start, exclusive end. Absent = unbounded.
   google.protobuf.Timestamp start = 6;
   google.protobuf.Timestamp end = 7;
+  // Only entries about this service (AuditEntry.service).
+  string service = 8;
 }
 
 message ListAuditRequest {

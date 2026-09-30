@@ -73,3 +73,34 @@ func TestCommandSubjectExcludesPayload(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestCommandService(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		request any
+		service string
+	}{
+		{"workflow start", &consolev1.StartWorkflowRequest{Service: "hello", Workflow: "GreetMany"}, "hello"},
+		{"schedule", &consolev1.PauseScheduleRequest{Service: "hello", Name: "HourlyReport"}, "hello"},
+		{"dead letters", &consolev1.RedriveDeadLettersRequest{Subscriber: "formatter", Consumer: "c"}, "formatter"},
+		{"hook call", &consolev1.CallHookRequest{Hook: "hello.Greet"}, "hello"},
+		{"activity run", &consolev1.RunActivityRequest{Activity: "formatter.Format"}, "formatter"},
+		{"test event", &consolev1.PublishTestEventRequest{Event: "hello.Greeted"}, "hello"},
+		{"unsaved binding test", &consolev1.TestBindingRequest{Definition: &consolev1.BindingDefinition{Hook: "hello.Greet"}}, "hello"},
+		{"unsaved rule test", &consolev1.TestRuleRequest{Definition: &consolev1.RuleDefinition{Event: "hello.Greeted"}}, "hello"},
+		{"binding run", &consolev1.CancelBindingRunRequest{WorkflowId: "binding/hello.Greet/request"}, "hello"},
+		{"binding test run", &consolev1.CancelBindingRunRequest{WorkflowId: "test/hello.Greet/request"}, "hello"},
+		{"plain run", &consolev1.CancelRunRequest{WorkflowId: "orders-42", RunId: "run"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := (&Service{}).commandService(t.Context(), tc.request); got != tc.service {
+				t.Fatalf("got %q, want %q", got, tc.service)
+			}
+		})
+	}
+}

@@ -97,6 +97,7 @@ func (s *Service) command(ctx context.Context, actor, action string, req any, ne
 		Subject:     commandSubject(req),
 		Outcome:     "intent",
 		OperationID: uuid.New(),
+		Service:     s.commandService(ctx, req),
 	}
 	if _, err := s.store.Get().AppendAudit(ctx, draft); err != nil {
 		return nil, rpcError(codes.Unavailable, "cannot persist audit intent; command was not dispatched")
@@ -150,6 +151,81 @@ func commandSubject(value any) string {
 	}
 
 	return strings.Join(parts, ";")
+}
+
+// commandService is the service a command is addressed to: its service or
+// subscriber, the owner of its hook/activity/event, the hook of a binding run,
+// or the event owner of a rule. Empty when the request names none of these.
+func (s *Service) commandService(ctx context.Context, value any) string {
+	message, isMessage := value.(proto.Message)
+	if !isMessage {
+		return ""
+	}
+
+	if service := declaredService(message, value); service != "" {
+		return service
+	}
+
+	if service := bindingRunService(stringField(message, "workflow_id")); service != "" {
+		return service
+	}
+
+	if id, err := uuid.Parse(stringField(message, "id")); err == nil {
+		if event, eventErr := s.store.Get().Q.GetRuleEvent(ctx, id); eventErr == nil {
+			return store.ServiceOf(event.Event)
+		}
+	}
+
+	return ""
+}
+
+// declaredService reads the service a request names directly or through a
+// qualified hook, activity, event or unsaved definition.
+func declaredService(message proto.Message, value any) string {
+	for _, name := range []protoreflect.Name{"service", "subscriber"} {
+		if service := stringField(message, name); service != "" {
+			return service
+		}
+	}
+
+	for _, name := range []protoreflect.Name{"hook", "activity"} {
+		if qualified := stringField(message, name); qualified != "" {
+			return store.ServiceOf(qualified)
+		}
+	}
+
+	switch req := value.(type) {
+	case *consolev1.PublishTestEventRequest:
+		return store.ServiceOf(req.GetEvent())
+	case *consolev1.TestBindingRequest:
+		return store.ServiceOf(req.GetDefinition().GetHook())
+	case *consolev1.TestRuleRequest:
+		return store.ServiceOf(req.GetDefinition().GetEvent())
+	}
+
+	return ""
+}
+
+// bindingRunService is the hook owner of a binding run: binding/<hook>/...
+// or test/<hook>/...
+func bindingRunService(workflowID string) string {
+	const segments = 3 // kind / hook / request
+
+	parts := strings.SplitN(workflowID, "/", segments)
+	if len(parts) == segments && (parts[0] == "binding" || parts[0] == "test") {
+		return store.ServiceOf(parts[1])
+	}
+
+	return ""
+}
+
+func stringField(message proto.Message, name protoreflect.Name) string {
+	field := message.ProtoReflect().Descriptor().Fields().ByName(name)
+	if field == nil || field.Kind() != protoreflect.StringKind || field.IsList() {
+		return ""
+	}
+
+	return message.ProtoReflect().Get(field).String()
 }
 
 func commandResult(response any, err error) (string, store.AuditDetail) {

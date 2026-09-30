@@ -97,6 +97,7 @@ type BackplaneAuditEntry struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      json.RawMessage
+	Service     string
 }
 
 type BackplaneAuditOutbox struct {

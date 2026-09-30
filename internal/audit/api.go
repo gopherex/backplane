@@ -195,7 +195,7 @@ func entriesPB(rows []db.ListAuditEntriesRow) ([]*consolev1.AuditEntry, error) {
 
 		entries = append(entries, &consolev1.AuditEntry{
 			Id: row.ID.String(), Sequence: positive(row.Sequence), CreatedAt: timestamppb.New(row.CreatedAt),
-			Actor: row.Actor, Action: row.Action, Subject: row.Subject,
+			Actor: row.Actor, Action: row.Action, Subject: row.Subject, Service: row.Service,
 			Outcome: row.Outcome, OperationId: row.OperationID.String(),
 			Detail: &consolev1.AuditDetail{
 				Revision: positive(detail.Revision), RollbackOf: positive(detail.RollbackOf),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -32,6 +33,8 @@ type AuditDraft struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      AuditDetail
+	// Service the entry is about; empty for installation-wide entries.
+	Service string
 }
 
 // AppendAudit joins the caller's control transaction or opens its own. The
@@ -60,7 +63,7 @@ func (s *Store) AppendAudit(ctx context.Context, draft AuditDraft) (db.InsertAud
 
 		entry, insertErr = s.Q.InsertAuditEntry(ctx, db.InsertAuditEntryParams{
 			Sequence: sequence.Sequence, ID: id, Actor: draft.Actor, Action: draft.Action, Subject: draft.Subject,
-			Outcome: draft.Outcome, OperationID: draft.OperationID, Detail: detail,
+			Outcome: draft.Outcome, OperationID: draft.OperationID, Detail: detail, Service: draft.Service,
 		})
 		if insertErr != nil {
 			return fmt.Errorf("audit entry: %w", insertErr)
@@ -77,14 +80,23 @@ func (s *Store) AppendAudit(ctx context.Context, draft AuditDraft) (db.InsertAud
 }
 
 // AuditControl is the transaction participant for a completed database mutation.
-func (s *Store) AuditControl(ctx context.Context, actor, action, subject string, detail AuditDetail) error {
+// service is the service the change is about; empty for installation-wide ones.
+func (s *Store) AuditControl(ctx context.Context, actor, action, subject, service string, detail AuditDetail) error {
 	_, err := s.AppendAudit(ctx, AuditDraft{
 		Actor:   actor,
 		Action:  action,
 		Subject: subject,
 		Outcome: "succeeded",
 		Detail:  detail,
+		Service: service,
 	})
 
 	return err
+}
+
+// ServiceOf is the service of a qualified name "<service>.<Name>".
+func ServiceOf(name string) string {
+	service, _, _ := strings.Cut(name, ".")
+
+	return service
 }

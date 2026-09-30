@@ -94,3 +94,10 @@ LIMIT @page_size;
 SELECT (SELECT count(*) FROM backplane.binding_version)::bigint AS bindings,
        (SELECT count(*) FROM backplane.rule_version)::bigint AS rules,
        (SELECT COALESCE(max(updated_at), 'epoch'::timestamptz) FROM backplane.rule)::timestamptz AS rules_updated_at;
+
+-- name: GetRuleEvent :one
+-- The event of the rule's latest definition (a delete keeps the one before it).
+SELECT COALESCE(definition->>'event', '')::text AS event
+FROM backplane.rule_version
+WHERE rule_id = @rule_id AND definition IS NOT NULL
+ORDER BY version DESC LIMIT 1;

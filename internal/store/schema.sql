@@ -127,10 +127,15 @@ CREATE TABLE backplane.audit_entry (
   subject text NOT NULL,
   outcome text NOT NULL,
   operation_id uuid NOT NULL,
-  detail jsonb NOT NULL DEFAULT '{}'
+  detail jsonb NOT NULL DEFAULT '{}',
+  -- The service the entry is about (its configuration, the binding of one of
+  -- its hooks, a rule on one of its events, a command addressed to it); empty
+  -- for installation-wide entries such as sessions.
+  service text NOT NULL DEFAULT ''
 );
 
 CREATE INDEX audit_entry_created_at_idx ON backplane.audit_entry (created_at);
+CREATE INDEX audit_entry_service_idx ON backplane.audit_entry (service, sequence);
 CREATE INDEX audit_entry_operation_id_idx ON backplane.audit_entry (operation_id);
 
 -- Entries and delivery work are inserted with the control mutation. Leases

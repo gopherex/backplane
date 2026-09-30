@@ -61,9 +61,9 @@ func (q *Queries) GetAuditClock(ctx context.Context) (GetAuditClockRow, error) {
 	return i, err
 }
 
-const insertAuditEntrySQL = `INSERT INTO backplane.audit_entry (sequence, id, actor, action, subject, outcome, operation_id, detail)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING sequence, id, created_at, actor, action, subject, outcome, operation_id, detail;`
+const insertAuditEntrySQL = `INSERT INTO backplane.audit_entry (sequence, id, actor, action, subject, outcome, operation_id, detail, service)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service;`
 
 type InsertAuditEntryParams struct {
 	Sequence    int64
@@ -74,6 +74,7 @@ type InsertAuditEntryParams struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      json.RawMessage
+	Service     string
 }
 
 type InsertAuditEntryRow struct {
@@ -86,12 +87,13 @@ type InsertAuditEntryRow struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      json.RawMessage
+	Service     string
 }
 
 func (q *Queries) InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) (InsertAuditEntryRow, error) {
-	row := q.db.QueryRow(ctx, insertAuditEntrySQL, arg.Sequence, arg.ID, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.Detail)
+	row := q.db.QueryRow(ctx, insertAuditEntrySQL, arg.Sequence, arg.ID, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.Detail, arg.Service)
 	var i InsertAuditEntryRow
-	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail)
+	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail, &i.Service)
 	return i, err
 }
 
@@ -102,7 +104,7 @@ func (q *Queries) InsertAuditOutbox(ctx context.Context, sequence int64) error {
 	return err
 }
 
-const getAuditEntrySQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+const getAuditEntrySQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
 FROM backplane.audit_entry WHERE sequence = $1;`
 
 type GetAuditEntryRow struct {
@@ -115,16 +117,17 @@ type GetAuditEntryRow struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      json.RawMessage
+	Service     string
 }
 
 func (q *Queries) GetAuditEntry(ctx context.Context, sequence int64) (GetAuditEntryRow, error) {
 	row := q.db.QueryRow(ctx, getAuditEntrySQL, sequence)
 	var i GetAuditEntryRow
-	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail)
+	err := row.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail, &i.Service)
 	return i, err
 }
 
-const listAuditEntriesSQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail
+const listAuditEntriesSQL = `SELECT sequence, id, created_at, actor, action, subject, outcome, operation_id, detail, service
 FROM backplane.audit_entry
 WHERE sequence > $1 AND sequence <= $2
   AND ($3::text = '' OR actor = $3)
@@ -132,9 +135,10 @@ WHERE sequence > $1 AND sequence <= $2
   AND ($5::text = '' OR subject = $5)
   AND ($6::text = '' OR outcome = $6)
   AND ($7::text = '' OR operation_id::text = $7)
-  AND created_at >= $8 AND created_at < $9
-ORDER BY CASE WHEN $10::boolean THEN sequence END DESC, sequence ASC
-LIMIT $11;`
+  AND ($8::text = '' OR service = $8)
+  AND created_at >= $9 AND created_at < $10
+ORDER BY CASE WHEN $11::boolean THEN sequence END DESC, sequence ASC
+LIMIT $12;`
 
 type ListAuditEntriesParams struct {
 	AfterSequence   int64
@@ -144,6 +148,7 @@ type ListAuditEntriesParams struct {
 	Subject         string
 	Outcome         string
 	OperationID     string
+	Service         string
 	StartAt         time.Time
 	EndAt           time.Time
 	Descending      bool
@@ -160,10 +165,11 @@ type ListAuditEntriesRow struct {
 	Outcome     string
 	OperationID uuid.UUID
 	Detail      json.RawMessage
+	Service     string
 }
 
 func (q *Queries) ListAuditEntries(ctx context.Context, arg ListAuditEntriesParams) ([]ListAuditEntriesRow, error) {
-	rows, err := q.db.Query(ctx, listAuditEntriesSQL, arg.AfterSequence, arg.ThroughSequence, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.StartAt, arg.EndAt, arg.Descending, arg.PageSize)
+	rows, err := q.db.Query(ctx, listAuditEntriesSQL, arg.AfterSequence, arg.ThroughSequence, arg.Actor, arg.Action, arg.Subject, arg.Outcome, arg.OperationID, arg.Service, arg.StartAt, arg.EndAt, arg.Descending, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +177,7 @@ func (q *Queries) ListAuditEntries(ctx context.Context, arg ListAuditEntriesPara
 	var items []ListAuditEntriesRow
 	for rows.Next() {
 		var i ListAuditEntriesRow
-		if err := rows.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail); err != nil {
+		if err := rows.Scan(&i.Sequence, &i.ID, &i.CreatedAt, &i.Actor, &i.Action, &i.Subject, &i.Outcome, &i.OperationID, &i.Detail, &i.Service); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -743,6 +749,23 @@ func (q *Queries) BindingsStamp(ctx context.Context) (BindingsStampRow, error) {
 	row := q.db.QueryRow(ctx, bindingsStampSQL)
 	var i BindingsStampRow
 	err := row.Scan(&i.Bindings, &i.Rules, &i.RulesUpdatedAt)
+	return i, err
+}
+
+const getRuleEventSQL = `-- The event of the rule's latest definition (a delete keeps the one before it).
+SELECT COALESCE(definition->>'event', '')::text AS event
+FROM backplane.rule_version
+WHERE rule_id = $1 AND definition IS NOT NULL
+ORDER BY version DESC LIMIT 1;`
+
+type GetRuleEventRow struct {
+	Event string
+}
+
+func (q *Queries) GetRuleEvent(ctx context.Context, ruleID uuid.UUID) (GetRuleEventRow, error) {
+	row := q.db.QueryRow(ctx, getRuleEventSQL, ruleID)
+	var i GetRuleEventRow
+	err := row.Scan(&i.Event)
 	return i, err
 }
 
