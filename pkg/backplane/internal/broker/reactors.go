@@ -239,7 +239,7 @@ func (b *Broker) missing(ctx context.Context, re reactor) bool {
 
 	_, err = jet.Consumer(lctx, StreamName(re.source), re.durable)
 
-	return errors.Is(err, jetstream.ErrConsumerNotFound)
+	return errors.Is(err, jetstream.ErrConsumerNotFound) || errors.Is(err, jetstream.ErrStreamNotFound)
 }
 
 // consume ensures the source and dead-letter streams and the durable
@@ -267,7 +267,14 @@ func (b *Broker) consume(
 		return nil, nil, err
 	}
 
-	cfg, err := b.startAt(ctx, jet, re, resume)
+	stream, err := jet.Stream(ctx, StreamName(re.source))
+	if err != nil {
+		return nil, nil, fmt.Errorf("broker: stream %s: %w", StreamName(re.source), err)
+	}
+
+	created := stream.CachedInfo().Created
+
+	cfg, err := b.startAt(ctx, jet, re, resume, created)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -277,7 +284,7 @@ func (b *Broker) consume(
 		return nil, nil, fmt.Errorf("broker: consumer %s: %w", re.durable, err)
 	}
 
-	re.pos.started(cons.CachedInfo().AckFloor.Stream)
+	re.pos.started(cons.CachedInfo().AckFloor.Stream, created)
 
 	sem := make(chan struct{}, re.delivery.concurrency)
 	lost := make(chan error, 1)
@@ -306,9 +313,12 @@ func (b *Broker) consume(
 // startAt is the consumer configuration with its start position. The
 // server does not let an existing consumer's start change, so an existing
 // consumer keeps its own; a missing one starts at resume when set, else
-// where the reactor asks: new messages or the whole stream.
+// where the reactor asks: new messages or the whole stream. resume counts
+// in the stream the reactor consumed; when the stream (created at created)
+// is another one — deleted and created again since — every message in it
+// came after the loss, so the consumer starts at its first.
 func (b *Broker) startAt(
-	ctx context.Context, jet jetstream.JetStream, re reactor, resume uint64,
+	ctx context.Context, jet jetstream.JetStream, re reactor, resume uint64, created time.Time,
 ) (jetstream.ConsumerConfig, error) {
 	cfg := b.consumerConfig(re)
 
@@ -320,8 +330,10 @@ func (b *Broker) startAt(
 		cfg.DeliverPolicy, cfg.OptStartSeq, cfg.OptStartTime = have.DeliverPolicy, have.OptStartSeq, have.OptStartTime
 	case !errors.Is(err, jetstream.ErrConsumerNotFound):
 		return cfg, fmt.Errorf("broker: consumer %s: %w", re.durable, err)
-	case resume > 0:
+	case resume > 0 && re.pos.in(created):
 		cfg.DeliverPolicy, cfg.OptStartSeq = jetstream.DeliverByStartSequencePolicy, resume
+	case resume > 0:
+		cfg.DeliverPolicy = jetstream.DeliverAllPolicy
 	case re.delivery.startAll:
 		cfg.DeliverPolicy = jetstream.DeliverAllPolicy
 	}

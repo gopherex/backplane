@@ -1,26 +1,47 @@
 package broker
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // position follows how far a reactor got in its source stream, so a
 // consumer deleted on the server is recreated where the old one stopped
 // instead of at the stream's end: at the oldest message not settled yet,
-// else right after the newest one seen.
+// else right after the newest one seen. Sequences belong to one stream: a
+// stream deleted and created again numbers from 1, so the position records
+// which one it is in (its creation time).
 type position struct {
-	mu   sync.Mutex
-	base uint64              // ack floor of the consumer when consumption started
-	high uint64              // newest stream sequence delivered
-	open map[uint64]struct{} // delivered, not yet acked or terminated
+	mu     sync.Mutex
+	stream time.Time           // creation of the stream the sequences are in
+	base   uint64              // ack floor of the consumer when consumption started
+	high   uint64              // newest stream sequence delivered
+	open   map[uint64]struct{} // delivered, not yet acked or terminated
 }
 
 func newPosition() *position { return &position{open: map[uint64]struct{}{}} }
 
-// started records the consumer's ack floor at the start of a consumption.
-func (p *position) started(floor uint64) {
+// started records the consumer's ack floor at the start of a consumption
+// in the stream created at stream; a different stream starts the position
+// over.
+func (p *position) started(floor uint64, stream time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if !p.stream.Equal(stream) {
+		p.stream, p.base, p.high, p.open = stream, 0, 0, map[uint64]struct{}{}
+	}
+
 	p.base = max(p.base, floor)
+}
+
+// in reports whether the position's sequences are those of the stream
+// created at stream (or no stream is recorded yet).
+func (p *position) in(stream time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.stream.IsZero() || p.stream.Equal(stream)
 }
 
 // delivered records a delivery of stream sequence seq.

@@ -720,3 +720,74 @@ func TestReactorRecreatesDeletedConsumer(t *testing.T) {
 	startReactors(t, jet, open(t, url, sub, e), src, durable)
 	expect(`{"n":3}`)
 }
+
+// A stream deleted and created again numbers from 1: the reactor's
+// consumer, recreated, starts at the new stream's first message instead of
+// waiting for the old stream's sequence.
+func TestReactorFollowsRecreatedStream(t *testing.T) {
+	t.Parallel()
+
+	url := natsURL(t)
+	src, sub := unique("src"), unique("sub")
+	jet := admin(t, url, src, sub)
+
+	received := make(chan string, 8)
+	e, consumer := subscriber(t, sub, src, func(_ context.Context, in []byte) ([]byte, error) {
+		received <- string(in)
+
+		return nil, nil
+	})
+
+	pub := open(t, url, src, emitter(t, src))
+	recv := open(t, url, sub, e)
+	durable := broker.Durable(sub, consumer)
+	startReactors(t, jet, recv, src, durable)
+
+	publish := func(payload string) {
+		t.Helper()
+
+		if err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expect := func(payload string) {
+		t.Helper()
+
+		select {
+		case got := <-received:
+			if got != payload {
+				t.Fatalf("got %s, want %s", got, payload)
+			}
+		case <-time.After(waitFor):
+			t.Fatalf("%s not received", payload)
+		}
+	}
+
+	for _, payload := range []string{`{"n":1}`, `{"n":2}`, `{"n":3}`} {
+		publish(payload)
+		expect(payload)
+	}
+
+	if err := jet.DeleteStream(t.Context(), broker.StreamName(src)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The publisher and the reactor both create the stream again; either way
+	// its first message is sequence 1, below where the reactor stopped.
+	deadline := time.Now().Add(waitFor)
+
+	for {
+		err := pub.PublishRaw(t.Context(), src+".Greeted", "", []byte(`{"n":4}`))
+		if err == nil {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	expect(`{"n":4}`)
+}
