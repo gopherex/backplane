@@ -9,6 +9,7 @@ import { ServiceHealth, type ServiceSummary } from '@gopherex/backplane-api';
 import { ServiceCard } from './ServiceCard';
 import { ServiceTable } from './ServiceTable';
 import { useServicesOverview } from './useOverview';
+import { wiringLink } from '../WiringRoute';
 
 type View = 'cards' | 'table' | 'map';
 const VIEW_KEY = 'backplane.services.view';
@@ -44,7 +45,7 @@ export function ServicesPage({ services, index, loading, mode }: { services: Ser
     <div className="console-fill console-services-body" data-view={view}>
     {loading && !services.length ? <div className="console-card-grid">{[0, 1, 2].map((key) => <Skeleton key={key} className="h-56 rounded-lg" />)}</div>
       : !visible.length ? <div className="rounded-lg border border-border bg-card"><EmptyState icon={<SearchX />} title={t(services.length ? 'empty' : 'noServices')} description={services.length ? t('emptyHint') : t('noServicesHint')} /></div>
-      : view === 'map' ? <SystemMap services={visible.map((item) => item.summary)} mode={mode} onOpenService={(name) => navigate(`/services/${name}`)} />
+      : view === 'map' ? <SystemMap services={visible.map((item) => item.summary)} mode={mode} onOpenService={(name) => navigate(`/services/${name}`)} onOpenWiring={(target) => navigate(wiringLink(target))} />
       : view === 'cards' ? <div className="console-card-grid">{visible.map((item) => <ServiceCard key={item.summary.name} item={item} />)}</div>
       : <div className="flex min-h-0 flex-1 flex-col overflow-auto rounded-lg border border-border bg-card"><ServiceTable items={visible} /></div>}
     </div>

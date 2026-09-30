@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-const stories = ['services-and-health', 'configuration', 'audit', 'explore', 'operations', 'bindings', 'rules', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
+const stories = ['services-and-health', 'configuration', 'audit', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
 for (const theme of ['dark', 'light']) for (const story of stories) {
   test(`${theme}: platform ${story}`, async ({ page }) => {
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
@@ -47,25 +47,31 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await page.getByRole('button', { name: 'Execute', exact: true }).click(); await expect(page.getByLabel('Sent input')).toHaveText('{"name":"World","sequence":18446744073709551615}');
       await expect(page.getByRole('textbox', { name: 'Output', exact: true })).toContainText('hook/hello/Greet/fixture');
     }
-    if (story === 'bindings') {
-      await expect(page.getByText('formatter.Format').first()).toBeVisible();
-      await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    if (story === 'wiring-yaml') {
       const definition = page.getByRole('textbox', { name: 'Definition', exact: true });
       await expect(definition).toContainText('formatter.Format');
-      await definition.fill('{"hook":"hello.Greet","steps":[]}');
-      await page.getByRole('button', { name: 'Validate', exact: true }).click();
-      await expect(page.getByRole('alert')).toContainText('At least one step is required');
-      await expect(page.getByLabel('Write attempts')).toHaveText('0');
-      await definition.fill('{"hook":"hello.Greet","steps":[{"name":"format","activity":"formatter.Format"}]}');
-      await page.getByRole('button', { name: 'Validate', exact: true }).click(); await expect(page.getByText('Validation passed.')).toBeVisible();
-      await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByRole('dialog')).toHaveCount(0);
-      await expect(page.getByLabel('Write attempts')).toHaveText('1');
+      await definition.fill('hook: hello.Greet\nsteps:\n  format:\n    input: {name: req.name}\nresult: {text: format.text}\n');
+      await expect(page.getByRole('button', { name: /Every step needs an activity/ })).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Save/ })).toBeDisabled();
+      await definition.fill('hook: hello.Greet\nsteps:\n  format:\n    activity: formatter.Format\n    input: {name: "req.name + \'!\'"}\nresult: {text: format.text}\n');
+      await expect(page.getByText('No problems', { exact: true })).toBeVisible();
+      await page.getByRole('textbox', { name: 'Comment', exact: true }).fill('louder');
+      await page.getByRole('button', { name: /^Save/ }).click(); await expect(page.getByLabel('Write attempts')).toHaveText('1');
+      await page.getByRole('button', { name: 'Versions', exact: true }).click(); await expect(page.getByText('Initial', { exact: true })).toBeVisible();
     }
-    if (story === 'rules') {
-      await page.getByLabel('Name', { exact: true }).fill('Greeted rule');
-      await page.getByRole('textbox', { name: 'Definition', exact: true }).fill('{"event":"hello.Greeted","steps":[{"name":"record","activity":"formatter.Record"}]}');
-      await page.getByRole('button', { name: 'Validate', exact: true }).click(); await expect(page.getByText('Validation passed.')).toBeVisible();
-      await page.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page.getByLabel('Write attempts')).toHaveText('1');
+    if (story === 'wiring-graph') {
+      const node = page.locator('.react-flow__node').filter({ hasText: 'formatter.Format' });
+      await expect(node).toBeVisible(); await expect(node.getByText('req.name', { exact: true })).toBeVisible();
+      await expect(page.locator('.react-flow__edge')).not.toHaveCount(0);
+      await node.click(); await expect(page.getByRole('textbox', { name: 'Step name', exact: true })).toHaveValue('format');
+      await expect(page.getByText('formatter.Format').first()).toBeVisible();
+      await expect(page.getByLabel('Write attempts')).toHaveText('0');
+    }
+    if (story === 'wiring-rule') {
+      await expect(page.getByText('Everything is wired', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: /Greeted rule/ }).click();
+      await expect(page.getByRole('textbox', { name: 'Definition', exact: true })).toContainText('formatter.Record');
+      await expect(page.getByRole('textbox', { name: 'Rule name', exact: true })).toHaveValue('Greeted rule');
     }
     if (story === 'workflows') {
       const table = page.getByRole('table', { name: 'Runs', exact: true }); await expect(table.getByRole('cell', { name: '9007199254740993', exact: true })).toBeVisible();
@@ -102,9 +108,8 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
       await page.getByRole('button', { name: 'Confirm', exact: true }).click(); await expect(page.getByLabel('Sent input')).toHaveText('9007199254740993'); await expect(page.getByLabel('Write attempts')).toHaveText('1');
     }
     if (story === 'automation') {
-      await expect(page.getByText('formatter.Format').first()).toBeVisible();
-      await page.getByRole('button', { name: /Greeted rule/ }).click();
-      await expect(page.getByText('formatter.Record').first()).toBeVisible();
+      await expect(page.getByText(/formatter\.Format/).first()).toBeVisible();
+      await expect(page.getByText(/formatter\.Record/).first()).toBeVisible();
     }
     if (story === 'workflows-workspace') {
       await expect(page.getByText('Greets a new user')).toBeVisible();

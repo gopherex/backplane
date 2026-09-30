@@ -8,8 +8,12 @@ import type { CallResult } from "./calls_pb.js";
 import { file_backplanepb_console_v1_calls } from "./calls_pb.js";
 import type { GetRunResponse, Run, RunStatus } from "./workflows_pb.js";
 import { file_backplanepb_console_v1_workflows } from "./workflows_pb.js";
+import type { EditorLayout, Step, StepRun, Violation } from "./step_pb.js";
+import { file_backplanepb_console_v1_step } from "./step_pb.js";
 import type { Duration } from "../../../google/protobuf/duration_pb.js";
 import { file_google_protobuf_duration } from "../../../google/protobuf/duration_pb.js";
+import type { Value } from "../../../google/protobuf/struct_pb.js";
+import { file_google_protobuf_struct } from "../../../google/protobuf/struct_pb.js";
 import type { Timestamp } from "../../../google/protobuf/timestamp_pb.js";
 import { file_google_protobuf_timestamp } from "../../../google/protobuf/timestamp_pb.js";
 import type { Message } from "@bufbuild/protobuf";
@@ -18,11 +22,12 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/console/v1/bindings.proto.
  */
 export const file_backplanepb_console_v1_bindings: GenFile = /*@__PURE__*/
-  fileDesc("CiViYWNrcGxhbmVwYi9jb25zb2xlL3YxL2JpbmRpbmdzLnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSKHAQoRQmluZGluZ0RlZmluaXRpb24SDAoEaG9vaxgBIAEoCRIwCgVzdGVwcxgCIAMoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdTdGVwEjIKBnJlc3VsdBgDIAEoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWYWx1ZSLXAgoLQmluZGluZ1N0ZXASDAoEbmFtZRgBIAEoCRIQCghhY3Rpdml0eRgCIAEoCRIxCgVpbnB1dBgDIAEoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWYWx1ZRIMCgR3aGVuGAQgASgJEg0KBWFmdGVyGAUgAygJEgwKBHVuZG8YBiABKAkSNgoKdW5kb19pbnB1dBgHIAEoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWYWx1ZRIxCgVyZXRyeRgIIAEoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdSZXRyeRIxCg5zdGFydF90b19jbG9zZRgJIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIsCgloZWFydGJlYXQYCiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24iUAoMQmluZGluZ1ZhbHVlEjIKBmZpZWxkcxgBIAMoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdGaWVsZBIMCgRleHByGAIgASgJIioKDEJpbmRpbmdGaWVsZBIMCgRuYW1lGAEgASgJEgwKBGV4cHIYAiABKAkilwEKDEJpbmRpbmdSZXRyeRIQCghhdHRlbXB0cxgBIAEoDRIzChBpbml0aWFsX2ludGVydmFsGAIgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEi8KDG1heF9pbnRlcnZhbBgDIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIPCgdiYWNrb2ZmGAQgASgBIuMBCg5CaW5kaW5nVmVyc2lvbhIMCgRob29rGAEgASgJEg8KB3ZlcnNpb24YAiABKAQSOwoKZGVmaW5pdGlvbhgDIAEoCzInLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdEZWZpbml0aW9uEg8KB2RlbGV0ZWQYBCABKAgSDgoGYXV0aG9yGAUgASgJEg8KB2NvbW1lbnQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcm9sbGJhY2tfb2YYCCABKAQizwEKC0hvb2tCaW5kaW5nEgwKBGhvb2sYASABKAkSDwoHc2VydmljZRgCIAEoCRIQCghkZWNsYXJlZBgDIAEoCBIQCghyZXF1aXJlZBgEIAEoCBITCgtkZXNjcmlwdGlvbhgFIAEoCRIxCgVzdGF0ZRgGIAEoDjIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdTdGF0ZRI1CgdjdXJyZW50GAcgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1ZlcnNpb24iPwoQQmluZGluZ1Zpb2xhdGlvbhIMCgRwYXRoGAEgASgJEgwKBGNvZGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSJCChFCaW5kaW5nUGFyc2VFcnJvchIMCgRsaW5lGAEgASgNEg4KBmNvbHVtbhgCIAEoDRIPCgdtZXNzYWdlGAMgASgJIiYKE0xpc3RCaW5kaW5nc1JlcXVlc3QSDwoHc2VydmljZRgBIAEoCSJLChRMaXN0QmluZGluZ3NSZXNwb25zZRIzCghiaW5kaW5ncxgBIAMoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLkhvb2tCaW5kaW5nIjIKEUdldEJpbmRpbmdSZXF1ZXN0EgwKBGhvb2sYASABKAkSDwoHdmVyc2lvbhgCIAEoBCJLChJHZXRCaW5kaW5nUmVzcG9uc2USNQoHdmVyc2lvbhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWZXJzaW9uIk0KGkxpc3RCaW5kaW5nVmVyc2lvbnNSZXF1ZXN0EgwKBGhvb2sYASABKAkSDgoGYmVmb3JlGAIgASgEEhEKCXBhZ2Vfc2l6ZRgDIAEoDSJqChtMaXN0QmluZGluZ1ZlcnNpb25zUmVzcG9uc2USNgoIdmVyc2lvbnMYASADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nVmVyc2lvbhITCgtuZXh0X2JlZm9yZRgCIAEoBCJVChZWYWxpZGF0ZUJpbmRpbmdSZXF1ZXN0EjsKCmRlZmluaXRpb24YASABKAsyJy5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nRGVmaW5pdGlvbiJVChdWYWxpZGF0ZUJpbmRpbmdSZXNwb25zZRI6Cgp2aW9sYXRpb25zGAEgAygLMiYuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1Zpb2xhdGlvbiJiChJTYXZlQmluZGluZ1JlcXVlc3QSOwoKZGVmaW5pdGlvbhgBIAEoCzInLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdEZWZpbml0aW9uEg8KB2NvbW1lbnQYAiABKAkiiAEKE1NhdmVCaW5kaW5nUmVzcG9uc2USNQoHdmVyc2lvbhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWZXJzaW9uEjoKCnZpb2xhdGlvbnMYAiADKAsyJi5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nVmlvbGF0aW9uIkgKFlJvbGxiYWNrQmluZGluZ1JlcXVlc3QSDAoEaG9vaxgBIAEoCRIPCgd2ZXJzaW9uGAIgASgEEg8KB2NvbW1lbnQYAyABKAkijAEKF1JvbGxiYWNrQmluZGluZ1Jlc3BvbnNlEjUKB3ZlcnNpb24YASABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nVmVyc2lvbhI6Cgp2aW9sYXRpb25zGAIgAygLMiYuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1Zpb2xhdGlvbiI1ChREZWxldGVCaW5kaW5nUmVxdWVzdBIMCgRob29rGAEgASgJEg8KB2NvbW1lbnQYAiABKAkiTgoVRGVsZXRlQmluZGluZ1Jlc3BvbnNlEjUKB3ZlcnNpb24YASABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nVmVyc2lvbiIjChNQYXJzZUJpbmRpbmdSZXF1ZXN0EgwKBHRleHQYASABKAkijAEKFFBhcnNlQmluZGluZ1Jlc3BvbnNlEjsKCmRlZmluaXRpb24YASABKAsyJy5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nRGVmaW5pdGlvbhI3CgZlcnJvcnMYAiADKAsyJy5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nUGFyc2VFcnJvciJTChRGb3JtYXRCaW5kaW5nUmVxdWVzdBI7CgpkZWZpbml0aW9uGAEgASgLMicuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ0RlZmluaXRpb24iJQoVRm9ybWF0QmluZGluZ1Jlc3BvbnNlEgwKBHRleHQYASABKAkiJwoUV2F0Y2hCaW5kaW5nc1JlcXVlc3QSDwoHc2VydmljZRgBIAEoCSJMChVXYXRjaEJpbmRpbmdzUmVzcG9uc2USMwoIYmluZGluZ3MYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5Ib29rQmluZGluZyKrAQoSVGVzdEJpbmRpbmdSZXF1ZXN0EgwKBGhvb2sYASABKAkSDQoFaW5wdXQYAiABKAkSDwoHdmVyc2lvbhgDIAEoBBI7CgpkZWZpbml0aW9uGAQgASgLMicuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ0RlZmluaXRpb24SKgoHdGltZW91dBgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiKUAQoTVGVzdEJpbmRpbmdSZXNwb25zZRI6Cgp2aW9sYXRpb25zGAEgAygLMiYuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1Zpb2xhdGlvbhIwCgZyZXN1bHQYAiABKAsyIC5iYWNrcGxhbmUuY29uc29sZS52MS5DYWxsUmVzdWx0Eg8KB3ZlcnNpb24YAyABKAQijQEKFkxpc3RCaW5kaW5nUnVuc1JlcXVlc3QSDAoEaG9vaxgBIAEoCRIvCgZzdGF0dXMYAiABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW5TdGF0dXMSDQoFdGVzdHMYAyABKAgSEQoJcGFnZV9zaXplGAQgASgNEhIKCnBhZ2VfdG9rZW4YBSABKAwiagoXTGlzdEJpbmRpbmdSdW5zUmVzcG9uc2USJwoEcnVucxgBIAMoCzIZLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bhIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAwSDQoFcXVlcnkYAyABKAkiOwoUR2V0QmluZGluZ1J1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIu4CCg5CaW5kaW5nU3RlcFJ1bhIMCgRzdGVwGAEgASgJEhAKCGFjdGl2aXR5GAIgASgJEgwKBHVuZG8YAyABKAgSEAoId29ya2Zsb3cYBCABKAgSMwoGc3RhdHVzGAUgASgOMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuU3RlcFJ1blN0YXR1cxIPCgdhdHRlbXB0GAYgASgFEjIKDnNjaGVkdWxlZF90aW1lGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxzdGFydGVkX3RpbWUYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCmNsb3NlX3RpbWUYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg0KBWlucHV0GAogASgJEg4KBm91dHB1dBgLIAEoCRINCgVlcnJvchgMIAEoCRISCgplcnJvcl90eXBlGA0gASgJIqwBChVHZXRCaW5kaW5nUnVuUmVzcG9uc2USMQoDcnVuGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0UnVuUmVzcG9uc2USDAoEaG9vaxgCIAEoCRIPCgd2ZXJzaW9uGAMgASgEEgwKBHRlc3QYBCABKAgSMwoFc3RlcHMYBSADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nU3RlcFJ1biI+ChdDYW5jZWxCaW5kaW5nUnVuUmVxdWVzdBITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkiGgoYQ2FuY2VsQmluZGluZ1J1blJlc3BvbnNlKoUBCgxCaW5kaW5nU3RhdGUSHQoZQklORElOR19TVEFURV9VTlNQRUNJRklFRBAAEhcKE0JJTkRJTkdfU1RBVEVfQk9VTkQQARIZChVCSU5ESU5HX1NUQVRFX1VOQk9VTkQQAhIiCh5CSU5ESU5HX1NUQVRFX1JFUVVJUkVEX1VOQk9VTkQQAyqBAgoNU3RlcFJ1blN0YXR1cxIfChtTVEVQX1JVTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdTVEVQX1JVTl9TVEFUVVNfTk9UX1JVThABEh0KGVNURVBfUlVOX1NUQVRVU19TQ0hFRFVMRUQQAhIbChdTVEVQX1JVTl9TVEFUVVNfU1RBUlRFRBADEh0KGVNURVBfUlVOX1NUQVRVU19DT01QTEVURUQQBBIaChZTVEVQX1JVTl9TVEFUVVNfRkFJTEVEEAUSHQoZU1RFUF9SVU5fU1RBVFVTX1RJTUVEX09VVBAGEhwKGFNURVBfUlVOX1NUQVRVU19DQU5DRUxFRBAHMvALCg5CaW5kaW5nU2VydmljZRJlCgxMaXN0QmluZGluZ3MSKS5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0QmluZGluZ3NSZXF1ZXN0GiouYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdEJpbmRpbmdzUmVzcG9uc2USXwoKR2V0QmluZGluZxInLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldEJpbmRpbmdSZXF1ZXN0GiguYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0QmluZGluZ1Jlc3BvbnNlEnoKE0xpc3RCaW5kaW5nVmVyc2lvbnMSMC5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0QmluZGluZ1ZlcnNpb25zUmVxdWVzdBoxLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RCaW5kaW5nVmVyc2lvbnNSZXNwb25zZRJuCg9WYWxpZGF0ZUJpbmRpbmcSLC5iYWNrcGxhbmUuY29uc29sZS52MS5WYWxpZGF0ZUJpbmRpbmdSZXF1ZXN0Gi0uYmFja3BsYW5lLmNvbnNvbGUudjEuVmFsaWRhdGVCaW5kaW5nUmVzcG9uc2USYgoLU2F2ZUJpbmRpbmcSKC5iYWNrcGxhbmUuY29uc29sZS52MS5TYXZlQmluZGluZ1JlcXVlc3QaKS5iYWNrcGxhbmUuY29uc29sZS52MS5TYXZlQmluZGluZ1Jlc3BvbnNlEm4KD1JvbGxiYWNrQmluZGluZxIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlJvbGxiYWNrQmluZGluZ1JlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5Sb2xsYmFja0JpbmRpbmdSZXNwb25zZRJoCg1EZWxldGVCaW5kaW5nEiouYmFja3BsYW5lLmNvbnNvbGUudjEuRGVsZXRlQmluZGluZ1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5EZWxldGVCaW5kaW5nUmVzcG9uc2USZQoMUGFyc2VCaW5kaW5nEikuYmFja3BsYW5lLmNvbnNvbGUudjEuUGFyc2VCaW5kaW5nUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlBhcnNlQmluZGluZ1Jlc3BvbnNlEmgKDUZvcm1hdEJpbmRpbmcSKi5iYWNrcGxhbmUuY29uc29sZS52MS5Gb3JtYXRCaW5kaW5nUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkZvcm1hdEJpbmRpbmdSZXNwb25zZRJqCg1XYXRjaEJpbmRpbmdzEiouYmFja3BsYW5lLmNvbnNvbGUudjEuV2F0Y2hCaW5kaW5nc1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5XYXRjaEJpbmRpbmdzUmVzcG9uc2UwARJiCgtUZXN0QmluZGluZxIoLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RCaW5kaW5nUmVxdWVzdBopLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RCaW5kaW5nUmVzcG9uc2USbgoPTGlzdEJpbmRpbmdSdW5zEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdEJpbmRpbmdSdW5zUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RCaW5kaW5nUnVuc1Jlc3BvbnNlEmgKDUdldEJpbmRpbmdSdW4SKi5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRCaW5kaW5nUnVuUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldEJpbmRpbmdSdW5SZXNwb25zZRJxChBDYW5jZWxCaW5kaW5nUnVuEi0uYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsQmluZGluZ1J1blJlcXVlc3QaLi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxCaW5kaW5nUnVuUmVzcG9uc2VCQFo+Z2l0aHViLmNvbS9nb3BoZXJleC9iYWNrcGxhbmUvYmFja3BsYW5lcGIvY29uc29sZS92MTtjb25zb2xldjFiBnByb3RvMw", [file_backplanepb_console_v1_calls, file_backplanepb_console_v1_workflows, file_google_protobuf_duration, file_google_protobuf_timestamp]);
+  fileDesc("CiViYWNrcGxhbmVwYi9jb25zb2xlL3YxL2JpbmRpbmdzLnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSKfAgoRQmluZGluZ0RlZmluaXRpb24SDAoEaG9vaxgBIAEoCRJBCgVzdGVwcxgCIAMoCzIyLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdEZWZpbml0aW9uLlN0ZXBzRW50cnkSJgoGcmVzdWx0GAMgASgLMhYuZ29vZ2xlLnByb3RvYnVmLlZhbHVlEhMKC2Rlc2NyaXB0aW9uGAQgASgJEjIKBmVkaXRvchgPIAEoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkVkaXRvckxheW91dBpICgpTdGVwc0VudHJ5EgsKA2tleRgBIAEoCRIpCgV2YWx1ZRgCIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlN0ZXA6AjgBIuMBCg5CaW5kaW5nVmVyc2lvbhIMCgRob29rGAEgASgJEg8KB3ZlcnNpb24YAiABKAQSOwoKZGVmaW5pdGlvbhgDIAEoCzInLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdEZWZpbml0aW9uEg8KB2RlbGV0ZWQYBCABKAgSDgoGYXV0aG9yGAUgASgJEg8KB2NvbW1lbnQYBiABKAkSLgoKY3JlYXRlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcm9sbGJhY2tfb2YYCCABKAQihAIKC0hvb2tCaW5kaW5nEgwKBGhvb2sYASABKAkSDwoHc2VydmljZRgCIAEoCRIQCghkZWNsYXJlZBgDIAEoCBIQCghyZXF1aXJlZBgEIAEoCBITCgtkZXNjcmlwdGlvbhgFIAEoCRIxCgVzdGF0ZRgGIAEoDjIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdTdGF0ZRI1CgdjdXJyZW50GAcgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1ZlcnNpb24SMwoKdmlvbGF0aW9ucxgIIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiImChNMaXN0QmluZGluZ3NSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkiSwoUTGlzdEJpbmRpbmdzUmVzcG9uc2USMwoIYmluZGluZ3MYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5Ib29rQmluZGluZyIyChFHZXRCaW5kaW5nUmVxdWVzdBIMCgRob29rGAEgASgJEg8KB3ZlcnNpb24YAiABKAQigAEKEkdldEJpbmRpbmdSZXNwb25zZRI1Cgd2ZXJzaW9uGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1ZlcnNpb24SMwoKdmlvbGF0aW9ucxgCIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiJNChpMaXN0QmluZGluZ1ZlcnNpb25zUmVxdWVzdBIMCgRob29rGAEgASgJEg4KBmJlZm9yZRgCIAEoBBIRCglwYWdlX3NpemUYAyABKA0iagobTGlzdEJpbmRpbmdWZXJzaW9uc1Jlc3BvbnNlEjYKCHZlcnNpb25zGAEgAygLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1ZlcnNpb24SEwoLbmV4dF9iZWZvcmUYAiABKAQiVQoWVmFsaWRhdGVCaW5kaW5nUmVxdWVzdBI7CgpkZWZpbml0aW9uGAEgASgLMicuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ0RlZmluaXRpb24iTgoXVmFsaWRhdGVCaW5kaW5nUmVzcG9uc2USMwoKdmlvbGF0aW9ucxgBIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiKOAQoSU2F2ZUJpbmRpbmdSZXF1ZXN0EjsKCmRlZmluaXRpb24YASABKAsyJy5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nRGVmaW5pdGlvbhIPCgdjb21tZW50GAIgASgJEhkKDGJhc2VfdmVyc2lvbhgDIAEoBEgAiAEBQg8KDV9iYXNlX3ZlcnNpb24igQEKE1NhdmVCaW5kaW5nUmVzcG9uc2USNQoHdmVyc2lvbhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWZXJzaW9uEjMKCnZpb2xhdGlvbnMYAiADKAsyHy5iYWNrcGxhbmUuY29uc29sZS52MS5WaW9sYXRpb24idAoWUm9sbGJhY2tCaW5kaW5nUmVxdWVzdBIMCgRob29rGAEgASgJEg8KB3ZlcnNpb24YAiABKAQSDwoHY29tbWVudBgDIAEoCRIZCgxiYXNlX3ZlcnNpb24YBCABKARIAIgBAUIPCg1fYmFzZV92ZXJzaW9uIoUBChdSb2xsYmFja0JpbmRpbmdSZXNwb25zZRI1Cgd2ZXJzaW9uGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1ZlcnNpb24SMwoKdmlvbGF0aW9ucxgCIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiJhChREZWxldGVCaW5kaW5nUmVxdWVzdBIMCgRob29rGAEgASgJEg8KB2NvbW1lbnQYAiABKAkSGQoMYmFzZV92ZXJzaW9uGAMgASgESACIAQFCDwoNX2Jhc2VfdmVyc2lvbiJOChVEZWxldGVCaW5kaW5nUmVzcG9uc2USNQoHdmVyc2lvbhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWZXJzaW9uIicKFFdhdGNoQmluZGluZ3NSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkiTAoVV2F0Y2hCaW5kaW5nc1Jlc3BvbnNlEjMKCGJpbmRpbmdzGAEgAygLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuSG9va0JpbmRpbmciqwEKElRlc3RCaW5kaW5nUmVxdWVzdBIMCgRob29rGAEgASgJEg0KBWlucHV0GAIgASgJEg8KB3ZlcnNpb24YAyABKAQSOwoKZGVmaW5pdGlvbhgEIAEoCzInLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdEZWZpbml0aW9uEioKB3RpbWVvdXQYBSABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24ijQEKE1Rlc3RCaW5kaW5nUmVzcG9uc2USMwoKdmlvbGF0aW9ucxgBIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbhIwCgZyZXN1bHQYAiABKAsyIC5iYWNrcGxhbmUuY29uc29sZS52MS5DYWxsUmVzdWx0Eg8KB3ZlcnNpb24YAyABKAQijQEKFkxpc3RCaW5kaW5nUnVuc1JlcXVlc3QSDAoEaG9vaxgBIAEoCRIvCgZzdGF0dXMYAiABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW5TdGF0dXMSDQoFdGVzdHMYAyABKAgSEQoJcGFnZV9zaXplGAQgASgNEhIKCnBhZ2VfdG9rZW4YBSABKAwiagoXTGlzdEJpbmRpbmdSdW5zUmVzcG9uc2USJwoEcnVucxgBIAMoCzIZLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bhIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAwSDQoFcXVlcnkYAyABKAkiOwoUR2V0QmluZGluZ1J1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIqUBChVHZXRCaW5kaW5nUnVuUmVzcG9uc2USMQoDcnVuGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0UnVuUmVzcG9uc2USDAoEaG9vaxgCIAEoCRIPCgd2ZXJzaW9uGAMgASgEEgwKBHRlc3QYBCABKAgSLAoFc3RlcHMYBSADKAsyHS5iYWNrcGxhbmUuY29uc29sZS52MS5TdGVwUnVuIj4KF0NhbmNlbEJpbmRpbmdSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSIaChhDYW5jZWxCaW5kaW5nUnVuUmVzcG9uc2UqnwEKDEJpbmRpbmdTdGF0ZRIdChlCSU5ESU5HX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTQklORElOR19TVEFURV9CT1VORBABEhkKFUJJTkRJTkdfU1RBVEVfVU5CT1VORBACEiIKHkJJTkRJTkdfU1RBVEVfUkVRVUlSRURfVU5CT1VORBADEhgKFEJJTkRJTkdfU1RBVEVfQlJPS0VOEAQynwoKDkJpbmRpbmdTZXJ2aWNlEmUKDExpc3RCaW5kaW5ncxIpLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RCaW5kaW5nc1JlcXVlc3QaKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0QmluZGluZ3NSZXNwb25zZRJfCgpHZXRCaW5kaW5nEicuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0QmluZGluZ1JlcXVlc3QaKC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRCaW5kaW5nUmVzcG9uc2USegoTTGlzdEJpbmRpbmdWZXJzaW9ucxIwLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RCaW5kaW5nVmVyc2lvbnNSZXF1ZXN0GjEuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdEJpbmRpbmdWZXJzaW9uc1Jlc3BvbnNlEm4KD1ZhbGlkYXRlQmluZGluZxIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlZhbGlkYXRlQmluZGluZ1JlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5WYWxpZGF0ZUJpbmRpbmdSZXNwb25zZRJiCgtTYXZlQmluZGluZxIoLmJhY2twbGFuZS5jb25zb2xlLnYxLlNhdmVCaW5kaW5nUmVxdWVzdBopLmJhY2twbGFuZS5jb25zb2xlLnYxLlNhdmVCaW5kaW5nUmVzcG9uc2USbgoPUm9sbGJhY2tCaW5kaW5nEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuUm9sbGJhY2tCaW5kaW5nUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLlJvbGxiYWNrQmluZGluZ1Jlc3BvbnNlEmgKDURlbGV0ZUJpbmRpbmcSKi5iYWNrcGxhbmUuY29uc29sZS52MS5EZWxldGVCaW5kaW5nUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkRlbGV0ZUJpbmRpbmdSZXNwb25zZRJqCg1XYXRjaEJpbmRpbmdzEiouYmFja3BsYW5lLmNvbnNvbGUudjEuV2F0Y2hCaW5kaW5nc1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5XYXRjaEJpbmRpbmdzUmVzcG9uc2UwARJiCgtUZXN0QmluZGluZxIoLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RCaW5kaW5nUmVxdWVzdBopLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RCaW5kaW5nUmVzcG9uc2USbgoPTGlzdEJpbmRpbmdSdW5zEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdEJpbmRpbmdSdW5zUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RCaW5kaW5nUnVuc1Jlc3BvbnNlEmgKDUdldEJpbmRpbmdSdW4SKi5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRCaW5kaW5nUnVuUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldEJpbmRpbmdSdW5SZXNwb25zZRJxChBDYW5jZWxCaW5kaW5nUnVuEi0uYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsQmluZGluZ1J1blJlcXVlc3QaLi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxCaW5kaW5nUnVuUmVzcG9uc2VCQFo+Z2l0aHViLmNvbS9nb3BoZXJleC9iYWNrcGxhbmUvYmFja3BsYW5lcGIvY29uc29sZS92MTtjb25zb2xldjFiBnByb3RvMw", [file_backplanepb_console_v1_calls, file_backplanepb_console_v1_workflows, file_backplanepb_console_v1_step, file_google_protobuf_duration, file_google_protobuf_struct, file_google_protobuf_timestamp]);
 
 /**
  * BindingDefinition is what a binding says: the hook it implements, the
- * steps, and the hook's output.
+ * steps, and the hook's output. Its protojson is the canonical form (the
+ * console edits it as YAML).
  *
  * @generated from message backplane.console.v1.BindingDefinition
  */
@@ -35,18 +40,33 @@ export type BindingDefinition = Message<"backplane.console.v1.BindingDefinition"
   hook: string;
 
   /**
-   * In declaration order; the order of execution follows dependencies.
+   * By name. Order is not significant: a step runs once the steps it
+   * depends on are done (ties by name).
    *
-   * @generated from field: repeated backplane.console.v1.BindingStep steps = 2;
+   * @generated from field: map<string, backplane.console.v1.Step> steps = 2;
    */
-  steps: BindingStep[];
+  steps: { [key: string]: Step };
 
   /**
-   * The hook's output, CEL over `req` and the steps; empty: {}.
+   * The hook's output, a value over `req` and the steps; absent: {}.
    *
-   * @generated from field: backplane.console.v1.BindingValue result = 3;
+   * @generated from field: google.protobuf.Value result = 3;
    */
-  result?: BindingValue | undefined;
+  result?: Value | undefined;
+
+  /**
+   * Free text for people; not executed.
+   *
+   * @generated from field: string description = 4;
+   */
+  description: string;
+
+  /**
+   * The graph editor's layout; ignored by compile and execution.
+   *
+   * @generated from field: backplane.console.v1.EditorLayout editor = 15;
+   */
+  editor?: EditorLayout | undefined;
 };
 
 /**
@@ -55,189 +75,6 @@ export type BindingDefinition = Message<"backplane.console.v1.BindingDefinition"
  */
 export const BindingDefinitionSchema: GenMessage<BindingDefinition> = /*@__PURE__*/
   messageDesc(file_backplanepb_console_v1_bindings, 0);
-
-/**
- * BindingStep is one call of an activity.
- *
- * @generated from message backplane.console.v1.BindingStep
- */
-export type BindingStep = Message<"backplane.console.v1.BindingStep"> & {
-  /**
-   * Identifier, unique in the definition; the step's output is a CEL
-   * variable of this name.
-   *
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * Full activity name "<service>.<Activity>".
-   *
-   * @generated from field: string activity = 2;
-   */
-  activity: string;
-
-  /**
-   * The activity's input; empty: {}.
-   *
-   * @generated from field: backplane.console.v1.BindingValue input = 3;
-   */
-  input?: BindingValue | undefined;
-
-  /**
-   * CEL bool: the step runs only when true; empty: always.
-   *
-   * @generated from field: string when = 4;
-   */
-  when: string;
-
-  /**
-   * Steps this one runs after besides those its expressions reference.
-   *
-   * @generated from field: repeated string after = 5;
-   */
-  after: string[];
-
-  /**
-   * Compensation: full activity name run when a later step fails (saga);
-   * empty: none.
-   *
-   * @generated from field: string undo = 6;
-   */
-  undo: string;
-
-  /**
-   * The undo activity's input; empty: the step's output.
-   *
-   * @generated from field: backplane.console.v1.BindingValue undo_input = 7;
-   */
-  undoInput?: BindingValue | undefined;
-
-  /**
-   * Unset fields take the activity's manifest defaults, then the
-   * platform's.
-   *
-   * @generated from field: backplane.console.v1.BindingRetry retry = 8;
-   */
-  retry?: BindingRetry | undefined;
-
-  /**
-   * One attempt (one run of a workflow activity); unset: the activity's
-   * default, then the platform's.
-   *
-   * @generated from field: google.protobuf.Duration start_to_close = 9;
-   */
-  startToClose?: Duration | undefined;
-
-  /**
-   * An attempt without a heartbeat this long is lost; unset: the
-   * activity's default, else none.
-   *
-   * @generated from field: google.protobuf.Duration heartbeat = 10;
-   */
-  heartbeat?: Duration | undefined;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingStep.
- * Use `create(BindingStepSchema)` to create a new message.
- */
-export const BindingStepSchema: GenMessage<BindingStep> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 1);
-
-/**
- * BindingValue is a value built by CEL: either named fields, each from an
- * expression (an object), or one expression for the whole value. Neither:
- * the default of its place.
- *
- * @generated from message backplane.console.v1.BindingValue
- */
-export type BindingValue = Message<"backplane.console.v1.BindingValue"> & {
-  /**
-   * @generated from field: repeated backplane.console.v1.BindingField fields = 1;
-   */
-  fields: BindingField[];
-
-  /**
-   * CEL expression; exclusive with fields.
-   *
-   * @generated from field: string expr = 2;
-   */
-  expr: string;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingValue.
- * Use `create(BindingValueSchema)` to create a new message.
- */
-export const BindingValueSchema: GenMessage<BindingValue> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 2);
-
-/**
- * BindingField is one field of an object built by CEL.
- *
- * @generated from message backplane.console.v1.BindingField
- */
-export type BindingField = Message<"backplane.console.v1.BindingField"> & {
-  /**
-   * JSON field name.
-   *
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * CEL expression of its value.
-   *
-   * @generated from field: string expr = 2;
-   */
-  expr: string;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingField.
- * Use `create(BindingFieldSchema)` to create a new message.
- */
-export const BindingFieldSchema: GenMessage<BindingField> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 3);
-
-/**
- * BindingRetry is the retry policy of a step; zero fields are unset.
- *
- * @generated from message backplane.console.v1.BindingRetry
- */
-export type BindingRetry = Message<"backplane.console.v1.BindingRetry"> & {
-  /**
-   * Attempts in total, the first included.
-   *
-   * @generated from field: uint32 attempts = 1;
-   */
-  attempts: number;
-
-  /**
-   * @generated from field: google.protobuf.Duration initial_interval = 2;
-   */
-  initialInterval?: Duration | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Duration max_interval = 3;
-   */
-  maxInterval?: Duration | undefined;
-
-  /**
-   * Multiplier of the interval after each attempt (>= 1).
-   *
-   * @generated from field: double backoff = 4;
-   */
-  backoff: number;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingRetry.
- * Use `create(BindingRetrySchema)` to create a new message.
- */
-export const BindingRetrySchema: GenMessage<BindingRetry> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 4);
 
 /**
  * BindingVersion is one saved version of a hook's binding.
@@ -299,7 +136,7 @@ export type BindingVersion = Message<"backplane.console.v1.BindingVersion"> & {
  * Use `create(BindingVersionSchema)` to create a new message.
  */
 export const BindingVersionSchema: GenMessage<BindingVersion> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 5);
+  messageDesc(file_backplanepb_console_v1_bindings, 1);
 
 /**
  * HookBinding is a hook and its binding, as ListBindings shows it.
@@ -348,6 +185,14 @@ export type HookBinding = Message<"backplane.console.v1.HookBinding"> & {
    * @generated from field: backplane.console.v1.BindingVersion current = 7;
    */
   current?: BindingVersion | undefined;
+
+  /**
+   * Why the current definition does not compile against the latest
+   * manifests (state BROKEN); empty otherwise.
+   *
+   * @generated from field: repeated backplane.console.v1.Violation violations = 8;
+   */
+  violations: Violation[];
 };
 
 /**
@@ -355,77 +200,7 @@ export type HookBinding = Message<"backplane.console.v1.HookBinding"> & {
  * Use `create(HookBindingSchema)` to create a new message.
  */
 export const HookBindingSchema: GenMessage<HookBinding> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 6);
-
-/**
- * BindingViolation is one reason a definition is rejected.
- *
- * @generated from message backplane.console.v1.BindingViolation
- */
-export type BindingViolation = Message<"backplane.console.v1.BindingViolation"> & {
-  /**
-   * Place in the definition: "hook", "steps[1].input.to", "result",
-   * "steps[0].retry.attempts"; empty for the whole definition.
-   *
-   * @generated from field: string path = 1;
-   */
-  path: string;
-
-  /**
-   * Machine code: INVALID_NAME, RESERVED_NAME, DUPLICATE_STEP,
-   * UNKNOWN_HOOK, UNKNOWN_EVENT, UNKNOWN_ACTIVITY, UNKNOWN_STEP, CYCLE,
-   * UNDO_REFERENCE, CEL_ERROR, TYPE_MISMATCH, MISSING_FIELD, UNKNOWN_FIELD,
-   * DUPLICATE_FIELD, INVALID_VALUE, INVALID_OPTION.
-   *
-   * @generated from field: string code = 2;
-   */
-  code: string;
-
-  /**
-   * @generated from field: string message = 3;
-   */
-  message: string;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingViolation.
- * Use `create(BindingViolationSchema)` to create a new message.
- */
-export const BindingViolationSchema: GenMessage<BindingViolation> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 7);
-
-/**
- * BindingParseError is where the text form does not read.
- *
- * @generated from message backplane.console.v1.BindingParseError
- */
-export type BindingParseError = Message<"backplane.console.v1.BindingParseError"> & {
-  /**
-   * From 1; 0 when the error is not tied to a place.
-   *
-   * @generated from field: uint32 line = 1;
-   */
-  line: number;
-
-  /**
-   * From 1, in characters.
-   *
-   * @generated from field: uint32 column = 2;
-   */
-  column: number;
-
-  /**
-   * @generated from field: string message = 3;
-   */
-  message: string;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingParseError.
- * Use `create(BindingParseErrorSchema)` to create a new message.
- */
-export const BindingParseErrorSchema: GenMessage<BindingParseError> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 8);
+  messageDesc(file_backplanepb_console_v1_bindings, 2);
 
 /**
  * @generated from message backplane.console.v1.ListBindingsRequest
@@ -444,7 +219,7 @@ export type ListBindingsRequest = Message<"backplane.console.v1.ListBindingsRequ
  * Use `create(ListBindingsRequestSchema)` to create a new message.
  */
 export const ListBindingsRequestSchema: GenMessage<ListBindingsRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 9);
+  messageDesc(file_backplanepb_console_v1_bindings, 3);
 
 /**
  * @generated from message backplane.console.v1.ListBindingsResponse
@@ -463,7 +238,7 @@ export type ListBindingsResponse = Message<"backplane.console.v1.ListBindingsRes
  * Use `create(ListBindingsResponseSchema)` to create a new message.
  */
 export const ListBindingsResponseSchema: GenMessage<ListBindingsResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 10);
+  messageDesc(file_backplanepb_console_v1_bindings, 4);
 
 /**
  * @generated from message backplane.console.v1.GetBindingRequest
@@ -487,7 +262,7 @@ export type GetBindingRequest = Message<"backplane.console.v1.GetBindingRequest"
  * Use `create(GetBindingRequestSchema)` to create a new message.
  */
 export const GetBindingRequestSchema: GenMessage<GetBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 11);
+  messageDesc(file_backplanepb_console_v1_bindings, 5);
 
 /**
  * @generated from message backplane.console.v1.GetBindingResponse
@@ -497,6 +272,14 @@ export type GetBindingResponse = Message<"backplane.console.v1.GetBindingRespons
    * @generated from field: backplane.console.v1.BindingVersion version = 1;
    */
   version?: BindingVersion | undefined;
+
+  /**
+   * Why the version does not compile against the latest manifests; empty
+   * when it does (or is a tombstone).
+   *
+   * @generated from field: repeated backplane.console.v1.Violation violations = 2;
+   */
+  violations: Violation[];
 };
 
 /**
@@ -504,7 +287,7 @@ export type GetBindingResponse = Message<"backplane.console.v1.GetBindingRespons
  * Use `create(GetBindingResponseSchema)` to create a new message.
  */
 export const GetBindingResponseSchema: GenMessage<GetBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 12);
+  messageDesc(file_backplanepb_console_v1_bindings, 6);
 
 /**
  * @generated from message backplane.console.v1.ListBindingVersionsRequest
@@ -535,7 +318,7 @@ export type ListBindingVersionsRequest = Message<"backplane.console.v1.ListBindi
  * Use `create(ListBindingVersionsRequestSchema)` to create a new message.
  */
 export const ListBindingVersionsRequestSchema: GenMessage<ListBindingVersionsRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 13);
+  messageDesc(file_backplanepb_console_v1_bindings, 7);
 
 /**
  * @generated from message backplane.console.v1.ListBindingVersionsResponse
@@ -559,7 +342,7 @@ export type ListBindingVersionsResponse = Message<"backplane.console.v1.ListBind
  * Use `create(ListBindingVersionsResponseSchema)` to create a new message.
  */
 export const ListBindingVersionsResponseSchema: GenMessage<ListBindingVersionsResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 14);
+  messageDesc(file_backplanepb_console_v1_bindings, 8);
 
 /**
  * @generated from message backplane.console.v1.ValidateBindingRequest
@@ -576,7 +359,7 @@ export type ValidateBindingRequest = Message<"backplane.console.v1.ValidateBindi
  * Use `create(ValidateBindingRequestSchema)` to create a new message.
  */
 export const ValidateBindingRequestSchema: GenMessage<ValidateBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 15);
+  messageDesc(file_backplanepb_console_v1_bindings, 9);
 
 /**
  * @generated from message backplane.console.v1.ValidateBindingResponse
@@ -585,9 +368,9 @@ export type ValidateBindingResponse = Message<"backplane.console.v1.ValidateBind
   /**
    * Empty: the definition is valid.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 1;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 1;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -595,7 +378,7 @@ export type ValidateBindingResponse = Message<"backplane.console.v1.ValidateBind
  * Use `create(ValidateBindingResponseSchema)` to create a new message.
  */
 export const ValidateBindingResponseSchema: GenMessage<ValidateBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 16);
+  messageDesc(file_backplanepb_console_v1_bindings, 10);
 
 /**
  * @generated from message backplane.console.v1.SaveBindingRequest
@@ -610,6 +393,16 @@ export type SaveBindingRequest = Message<"backplane.console.v1.SaveBindingReques
    * @generated from field: string comment = 2;
    */
   comment: string;
+
+  /**
+   * The current version the edit started from (0: the hook had no
+   * binding). Set: the save is refused with ABORTED when the current
+   * version is another one, so two editors never overwrite each other
+   * silently. Unset: no check.
+   *
+   * @generated from field: optional uint64 base_version = 3;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -617,7 +410,7 @@ export type SaveBindingRequest = Message<"backplane.console.v1.SaveBindingReques
  * Use `create(SaveBindingRequestSchema)` to create a new message.
  */
 export const SaveBindingRequestSchema: GenMessage<SaveBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 17);
+  messageDesc(file_backplanepb_console_v1_bindings, 11);
 
 /**
  * @generated from message backplane.console.v1.SaveBindingResponse
@@ -633,9 +426,9 @@ export type SaveBindingResponse = Message<"backplane.console.v1.SaveBindingRespo
   /**
    * Why the definition is rejected; empty when saved.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 2;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 2;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -643,7 +436,7 @@ export type SaveBindingResponse = Message<"backplane.console.v1.SaveBindingRespo
  * Use `create(SaveBindingResponseSchema)` to create a new message.
  */
 export const SaveBindingResponseSchema: GenMessage<SaveBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 18);
+  messageDesc(file_backplanepb_console_v1_bindings, 12);
 
 /**
  * @generated from message backplane.console.v1.RollbackBindingRequest
@@ -665,6 +458,13 @@ export type RollbackBindingRequest = Message<"backplane.console.v1.RollbackBindi
    * @generated from field: string comment = 3;
    */
   comment: string;
+
+  /**
+   * As SaveBindingRequest.base_version.
+   *
+   * @generated from field: optional uint64 base_version = 4;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -672,7 +472,7 @@ export type RollbackBindingRequest = Message<"backplane.console.v1.RollbackBindi
  * Use `create(RollbackBindingRequestSchema)` to create a new message.
  */
 export const RollbackBindingRequestSchema: GenMessage<RollbackBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 19);
+  messageDesc(file_backplanepb_console_v1_bindings, 13);
 
 /**
  * @generated from message backplane.console.v1.RollbackBindingResponse
@@ -689,9 +489,9 @@ export type RollbackBindingResponse = Message<"backplane.console.v1.RollbackBind
    * Why the definition is rejected now (manifests may have changed since);
    * empty when saved.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 2;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 2;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -699,7 +499,7 @@ export type RollbackBindingResponse = Message<"backplane.console.v1.RollbackBind
  * Use `create(RollbackBindingResponseSchema)` to create a new message.
  */
 export const RollbackBindingResponseSchema: GenMessage<RollbackBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 20);
+  messageDesc(file_backplanepb_console_v1_bindings, 14);
 
 /**
  * @generated from message backplane.console.v1.DeleteBindingRequest
@@ -714,6 +514,13 @@ export type DeleteBindingRequest = Message<"backplane.console.v1.DeleteBindingRe
    * @generated from field: string comment = 2;
    */
   comment: string;
+
+  /**
+   * As SaveBindingRequest.base_version.
+   *
+   * @generated from field: optional uint64 base_version = 3;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -721,7 +528,7 @@ export type DeleteBindingRequest = Message<"backplane.console.v1.DeleteBindingRe
  * Use `create(DeleteBindingRequestSchema)` to create a new message.
  */
 export const DeleteBindingRequestSchema: GenMessage<DeleteBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 21);
+  messageDesc(file_backplanepb_console_v1_bindings, 15);
 
 /**
  * @generated from message backplane.console.v1.DeleteBindingResponse
@@ -740,82 +547,7 @@ export type DeleteBindingResponse = Message<"backplane.console.v1.DeleteBindingR
  * Use `create(DeleteBindingResponseSchema)` to create a new message.
  */
 export const DeleteBindingResponseSchema: GenMessage<DeleteBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 22);
-
-/**
- * @generated from message backplane.console.v1.ParseBindingRequest
- */
-export type ParseBindingRequest = Message<"backplane.console.v1.ParseBindingRequest"> & {
-  /**
-   * @generated from field: string text = 1;
-   */
-  text: string;
-};
-
-/**
- * Describes the message backplane.console.v1.ParseBindingRequest.
- * Use `create(ParseBindingRequestSchema)` to create a new message.
- */
-export const ParseBindingRequestSchema: GenMessage<ParseBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 23);
-
-/**
- * @generated from message backplane.console.v1.ParseBindingResponse
- */
-export type ParseBindingResponse = Message<"backplane.console.v1.ParseBindingResponse"> & {
-  /**
-   * Absent when the text does not read.
-   *
-   * @generated from field: backplane.console.v1.BindingDefinition definition = 1;
-   */
-  definition?: BindingDefinition | undefined;
-
-  /**
-   * @generated from field: repeated backplane.console.v1.BindingParseError errors = 2;
-   */
-  errors: BindingParseError[];
-};
-
-/**
- * Describes the message backplane.console.v1.ParseBindingResponse.
- * Use `create(ParseBindingResponseSchema)` to create a new message.
- */
-export const ParseBindingResponseSchema: GenMessage<ParseBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 24);
-
-/**
- * @generated from message backplane.console.v1.FormatBindingRequest
- */
-export type FormatBindingRequest = Message<"backplane.console.v1.FormatBindingRequest"> & {
-  /**
-   * @generated from field: backplane.console.v1.BindingDefinition definition = 1;
-   */
-  definition?: BindingDefinition | undefined;
-};
-
-/**
- * Describes the message backplane.console.v1.FormatBindingRequest.
- * Use `create(FormatBindingRequestSchema)` to create a new message.
- */
-export const FormatBindingRequestSchema: GenMessage<FormatBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 25);
-
-/**
- * @generated from message backplane.console.v1.FormatBindingResponse
- */
-export type FormatBindingResponse = Message<"backplane.console.v1.FormatBindingResponse"> & {
-  /**
-   * @generated from field: string text = 1;
-   */
-  text: string;
-};
-
-/**
- * Describes the message backplane.console.v1.FormatBindingResponse.
- * Use `create(FormatBindingResponseSchema)` to create a new message.
- */
-export const FormatBindingResponseSchema: GenMessage<FormatBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 26);
+  messageDesc(file_backplanepb_console_v1_bindings, 16);
 
 /**
  * @generated from message backplane.console.v1.WatchBindingsRequest
@@ -834,7 +566,7 @@ export type WatchBindingsRequest = Message<"backplane.console.v1.WatchBindingsRe
  * Use `create(WatchBindingsRequestSchema)` to create a new message.
  */
 export const WatchBindingsRequestSchema: GenMessage<WatchBindingsRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 27);
+  messageDesc(file_backplanepb_console_v1_bindings, 17);
 
 /**
  * @generated from message backplane.console.v1.WatchBindingsResponse
@@ -851,7 +583,7 @@ export type WatchBindingsResponse = Message<"backplane.console.v1.WatchBindingsR
  * Use `create(WatchBindingsResponseSchema)` to create a new message.
  */
 export const WatchBindingsResponseSchema: GenMessage<WatchBindingsResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 28);
+  messageDesc(file_backplanepb_console_v1_bindings, 18);
 
 /**
  * @generated from message backplane.console.v1.TestBindingRequest
@@ -901,7 +633,7 @@ export type TestBindingRequest = Message<"backplane.console.v1.TestBindingReques
  * Use `create(TestBindingRequestSchema)` to create a new message.
  */
 export const TestBindingRequestSchema: GenMessage<TestBindingRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 29);
+  messageDesc(file_backplanepb_console_v1_bindings, 19);
 
 /**
  * @generated from message backplane.console.v1.TestBindingResponse
@@ -911,9 +643,9 @@ export type TestBindingResponse = Message<"backplane.console.v1.TestBindingRespo
    * Violations of the definition (or of the saved version against today's
    * manifests); when present nothing ran.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 1;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 1;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 
   /**
    * The run's end: output (the hook's result) or the error ("step send:
@@ -936,7 +668,7 @@ export type TestBindingResponse = Message<"backplane.console.v1.TestBindingRespo
  * Use `create(TestBindingResponseSchema)` to create a new message.
  */
 export const TestBindingResponseSchema: GenMessage<TestBindingResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 30);
+  messageDesc(file_backplanepb_console_v1_bindings, 20);
 
 /**
  * @generated from message backplane.console.v1.ListBindingRunsRequest
@@ -981,7 +713,7 @@ export type ListBindingRunsRequest = Message<"backplane.console.v1.ListBindingRu
  * Use `create(ListBindingRunsRequestSchema)` to create a new message.
  */
 export const ListBindingRunsRequestSchema: GenMessage<ListBindingRunsRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 31);
+  messageDesc(file_backplanepb_console_v1_bindings, 21);
 
 /**
  * @generated from message backplane.console.v1.ListBindingRunsResponse
@@ -1012,7 +744,7 @@ export type ListBindingRunsResponse = Message<"backplane.console.v1.ListBindingR
  * Use `create(ListBindingRunsResponseSchema)` to create a new message.
  */
 export const ListBindingRunsResponseSchema: GenMessage<ListBindingRunsResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 32);
+  messageDesc(file_backplanepb_console_v1_bindings, 22);
 
 /**
  * @generated from message backplane.console.v1.GetBindingRunRequest
@@ -1038,101 +770,7 @@ export type GetBindingRunRequest = Message<"backplane.console.v1.GetBindingRunRe
  * Use `create(GetBindingRunRequestSchema)` to create a new message.
  */
 export const GetBindingRunRequestSchema: GenMessage<GetBindingRunRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 33);
-
-/**
- * BindingStepRun is one call of a run: a step, or the compensation (undo)
- * of one.
- *
- * @generated from message backplane.console.v1.BindingStepRun
- */
-export type BindingStepRun = Message<"backplane.console.v1.BindingStepRun"> & {
-  /**
-   * @generated from field: string step = 1;
-   */
-  step: string;
-
-  /**
-   * Full activity name: the step's activity, or its undo activity.
-   *
-   * @generated from field: string activity = 2;
-   */
-  activity: string;
-
-  /**
-   * The call is the step's compensation.
-   *
-   * @generated from field: bool undo = 3;
-   */
-  undo: boolean;
-
-  /**
-   * The activity is a workflow (a child workflow of the run).
-   *
-   * @generated from field: bool workflow = 4;
-   */
-  workflow: boolean;
-
-  /**
-   * @generated from field: backplane.console.v1.StepRunStatus status = 5;
-   */
-  status: StepRunStatus;
-
-  /**
-   * Of the last attempt that started; 0 before the first.
-   *
-   * @generated from field: int32 attempt = 6;
-   */
-  attempt: number;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp scheduled_time = 7;
-   */
-  scheduledTime?: Timestamp | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp started_time = 8;
-   */
-  startedTime?: Timestamp | undefined;
-
-  /**
-   * @generated from field: google.protobuf.Timestamp close_time = 9;
-   */
-  closeTime?: Timestamp | undefined;
-
-  /**
-   * ActivityCall.payload, JSON text.
-   *
-   * @generated from field: string input = 10;
-   */
-  input: string;
-
-  /**
-   * ActivityResult.payload, JSON text; empty until completed.
-   *
-   * @generated from field: string output = 11;
-   */
-  output: string;
-
-  /**
-   * The failure's message and application error type.
-   *
-   * @generated from field: string error = 12;
-   */
-  error: string;
-
-  /**
-   * @generated from field: string error_type = 13;
-   */
-  errorType: string;
-};
-
-/**
- * Describes the message backplane.console.v1.BindingStepRun.
- * Use `create(BindingStepRunSchema)` to create a new message.
- */
-export const BindingStepRunSchema: GenMessage<BindingStepRun> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 34);
+  messageDesc(file_backplanepb_console_v1_bindings, 23);
 
 /**
  * @generated from message backplane.console.v1.GetBindingRunResponse
@@ -1164,12 +802,12 @@ export type GetBindingRunResponse = Message<"backplane.console.v1.GetBindingRunR
   test: boolean;
 
   /**
-   * The program's steps in declaration order, then every compensation in
+   * The program's steps by name, then every compensation in
    * the order it was scheduled.
    *
-   * @generated from field: repeated backplane.console.v1.BindingStepRun steps = 5;
+   * @generated from field: repeated backplane.console.v1.StepRun steps = 5;
    */
-  steps: BindingStepRun[];
+  steps: StepRun[];
 };
 
 /**
@@ -1177,7 +815,7 @@ export type GetBindingRunResponse = Message<"backplane.console.v1.GetBindingRunR
  * Use `create(GetBindingRunResponseSchema)` to create a new message.
  */
 export const GetBindingRunResponseSchema: GenMessage<GetBindingRunResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 35);
+  messageDesc(file_backplanepb_console_v1_bindings, 24);
 
 /**
  * @generated from message backplane.console.v1.CancelBindingRunRequest
@@ -1201,7 +839,7 @@ export type CancelBindingRunRequest = Message<"backplane.console.v1.CancelBindin
  * Use `create(CancelBindingRunRequestSchema)` to create a new message.
  */
 export const CancelBindingRunRequestSchema: GenMessage<CancelBindingRunRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 36);
+  messageDesc(file_backplanepb_console_v1_bindings, 25);
 
 /**
  * @generated from message backplane.console.v1.CancelBindingRunResponse
@@ -1214,7 +852,7 @@ export type CancelBindingRunResponse = Message<"backplane.console.v1.CancelBindi
  * Use `create(CancelBindingRunResponseSchema)` to create a new message.
  */
 export const CancelBindingRunResponseSchema: GenMessage<CancelBindingRunResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_bindings, 37);
+  messageDesc(file_backplanepb_console_v1_bindings, 26);
 
 /**
  * BindingState is whether a hook is answered.
@@ -1247,6 +885,15 @@ export enum BindingState {
    * @generated from enum value: BINDING_STATE_REQUIRED_UNBOUND = 3;
    */
   REQUIRED_UNBOUND = 3,
+
+  /**
+   * The current version is a definition that no longer compiles against
+   * the latest manifests (a service changed a contract it uses): calls
+   * fail until it is fixed. HookBinding.violations say why.
+   *
+   * @generated from enum value: BINDING_STATE_BROKEN = 4;
+   */
+  BROKEN = 4,
 }
 
 /**
@@ -1256,72 +903,13 @@ export const BindingStateSchema: GenEnum<BindingState> = /*@__PURE__*/
   enumDesc(file_backplanepb_console_v1_bindings, 0);
 
 /**
- * StepRunStatus is where a step's call is.
- *
- * @generated from enum backplane.console.v1.StepRunStatus
- */
-export enum StepRunStatus {
-  /**
-   * @generated from enum value: STEP_RUN_STATUS_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * Never scheduled: skipped by its `when`, or not reached (an earlier
-   * step failed, the run is still before it, or was canceled).
-   *
-   * @generated from enum value: STEP_RUN_STATUS_NOT_RUN = 1;
-   */
-  NOT_RUN = 1,
-
-  /**
-   * Scheduled, not yet picked up by the target service.
-   *
-   * @generated from enum value: STEP_RUN_STATUS_SCHEDULED = 2;
-   */
-  SCHEDULED = 2,
-
-  /**
-   * An attempt is running.
-   *
-   * @generated from enum value: STEP_RUN_STATUS_STARTED = 3;
-   */
-  STARTED = 3,
-
-  /**
-   * @generated from enum value: STEP_RUN_STATUS_COMPLETED = 4;
-   */
-  COMPLETED = 4,
-
-  /**
-   * @generated from enum value: STEP_RUN_STATUS_FAILED = 5;
-   */
-  FAILED = 5,
-
-  /**
-   * @generated from enum value: STEP_RUN_STATUS_TIMED_OUT = 6;
-   */
-  TIMED_OUT = 6,
-
-  /**
-   * @generated from enum value: STEP_RUN_STATUS_CANCELED = 7;
-   */
-  CANCELED = 7,
-}
-
-/**
- * Describes the enum backplane.console.v1.StepRunStatus.
- */
-export const StepRunStatusSchema: GenEnum<StepRunStatus> = /*@__PURE__*/
-  enumDesc(file_backplanepb_console_v1_bindings, 1);
-
-/**
  * BindingService is the console's view of bindings (§7.1): the
  * implementation of a hook ("<service>.<Hook>") assembled from activities
  * of other services, kept as versions in PostgreSQL. A save validates the
  * definition against the latest manifests (the hook, every activity, CEL
  * type-checked by the schemas); a delete is a tombstone version, so the
- * history stays.
+ * history stays. A saved definition that stops compiling when a manifest
+ * changes is BROKEN until fixed.
  *
  * Runs belong to the executor (internal/executor) and come as their own
  * RPCs next to these: TestBinding, ListBindingRuns, GetBindingRun,
@@ -1408,27 +996,6 @@ export const BindingService: GenService<{
     methodKind: "unary";
     input: typeof DeleteBindingRequestSchema;
     output: typeof DeleteBindingResponseSchema;
-  },
-  /**
-   * ParseBinding reads the text form of a binding (§7.1).
-   *
-   * @generated from rpc backplane.console.v1.BindingService.ParseBinding
-   */
-  parseBinding: {
-    methodKind: "unary";
-    input: typeof ParseBindingRequestSchema;
-    output: typeof ParseBindingResponseSchema;
-  },
-  /**
-   * FormatBinding writes the text form of a definition; ParseBinding reads
-   * it back into the same definition.
-   *
-   * @generated from rpc backplane.console.v1.BindingService.FormatBinding
-   */
-  formatBinding: {
-    methodKind: "unary";
-    input: typeof FormatBindingRequestSchema;
-    output: typeof FormatBindingResponseSchema;
   },
   /**
    * WatchBindings streams ListBindings: now, then again whenever it

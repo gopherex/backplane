@@ -26,7 +26,7 @@ const phaseTone: Record<InstancePhase, StatusTone> = {
   [InstancePhase.UNSPECIFIED]: 'neutral', [InstancePhase.STARTING]: 'info', [InstancePhase.SERVING]: 'success', [InstancePhase.STOPPING]: 'warning',
 };
 const bindingTone: Record<BindingState, StatusTone> = {
-  [BindingState.UNSPECIFIED]: 'neutral', [BindingState.BOUND]: 'success', [BindingState.UNBOUND]: 'neutral', [BindingState.REQUIRED_UNBOUND]: 'danger',
+  [BindingState.UNSPECIFIED]: 'neutral', [BindingState.BOUND]: 'success', [BindingState.UNBOUND]: 'neutral', [BindingState.REQUIRED_UNBOUND]: 'danger', [BindingState.BROKEN]: 'danger',
 };
 
 /** One dense row inside a flush panel. */

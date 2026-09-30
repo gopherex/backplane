@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AuditFeed, AutomationPanel, BindingEditor, ConfigurationPanel, EventStreams, ExplorePanel, ServiceCatalog, ServiceInspector, ServiceOperations, WorkflowRuns, SchedulesPanel } from '@gopherex/backplane-platform-ui';
+import { AuditFeed, AutomationPanel, ConfigurationPanel, EventStreams, ExplorePanel, ServiceCatalog, ServiceInspector, ServiceOperations, WiringWorkspace, WorkflowRuns, SchedulesPanel, type WiringState } from '@gopherex/backplane-platform-ui';
 import { PageHeader, Panel, TabBar } from '@gopherex/backplane-ui';
 
-const views = ['services', 'configuration', 'operations', 'binding', 'automation', 'events', 'runs', 'schedules', 'audit', 'explore'] as const;
+const views = ['services', 'configuration', 'operations', 'wiring', 'automation', 'events', 'runs', 'schedules', 'audit', 'explore'] as const;
 
 /** Technical acceptance page: every platform composition against the live installation. */
 export default function Development({ mode }: { mode: 'dark' | 'light' }) {
   const { t } = useTranslation('host'), [service, setService] = useState('hello'), [view, setView] = useState<typeof views[number]>('services');
+  const [wiring, setWiring] = useState<WiringState>({ target: { kind: 'binding', hook: 'hello.Greet' }, view: 'yaml' });
   return <section className="grid gap-4">
     <PageHeader title={t('development')} description={t('developmentDescription')} />
     <TabBar aria-label={t('development')}>{views.map((name) => <button key={name} type="button" aria-pressed={view === name} aria-current={view === name ? 'page' : undefined} onClick={() => setView(name)}
@@ -15,7 +16,7 @@ export default function Development({ mode }: { mode: 'dark' | 'light' }) {
     {view === 'services' && <><Panel title={t('services')}><ServiceCatalog onSelect={(selected) => setService(selected.name)} /></Panel><ServiceInspector service={service} mode={mode} /></>}
     {view === 'configuration' && <ConfigurationPanel service={service} mode={mode} />}
     {view === 'operations' && <ServiceOperations service={service} mode={mode} />}
-    {view === 'binding' && <BindingEditor hook="hello.Greet" mode={mode} />}
+    {view === 'wiring' && <div className="h-[760px]"><WiringWorkspace mode={mode} state={wiring} onStateChange={setWiring} /></div>}
     {view === 'automation' && <AutomationPanel service={service} mode={mode} />}
     {view === 'events' && <EventStreams service={service} mode={mode} />}
     {view === 'runs' && <WorkflowRuns service={service} mode={mode} />}

@@ -47,7 +47,7 @@ try {
   else await override.click();
   await page.getByRole('button', { name: 'Save revision', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Save revision', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Binding', exact: true }).click();
+  await page.getByRole('button', { name: 'Wiring', exact: true }).click();
   await expect(page.getByText('formatter.Format').first()).toBeVisible();
   await page.getByRole('button', { name: 'Operations', exact: true }).click();
   await page.getByRole('button', { name: /^Greet/ }).click();

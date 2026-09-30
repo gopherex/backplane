@@ -32,16 +32,17 @@
     "react-i18next": ">=17 <18"
   },
   "dependencies": {
-    "@gopherex/backplane-ui": "0.1.0",
-    "@gopherex/backplane-theme": "0.1.0",
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/lang-json": "6.0.2",
+    "@codemirror/lang-yaml": "6.1.3",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/merge": "6.12.2",
     "@codemirror/state": "6.7.6",
     "@codemirror/view": "6.43.13",
-    "@codemirror/language": "6.12.4",
-    "@codemirror/commands": "6.11.1",
-    "@codemirror/autocomplete": "6.20.3",
-    "@codemirror/lint": "6.9.7",
-    "@codemirror/lang-json": "6.0.2",
-    "@codemirror/merge": "6.12.2",
+    "@gopherex/backplane-theme": "0.1.0",
+    "@gopherex/backplane-ui": "0.1.0",
     "@lezer/highlight": "1.2.5"
   }
 }

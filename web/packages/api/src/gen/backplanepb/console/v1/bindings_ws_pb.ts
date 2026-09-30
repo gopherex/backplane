@@ -3,8 +3,8 @@
 /* eslint-disable */
 
 import { applyUnaryCallbacks, iterateStream, MethodInfo, WsTransport } from "@gopherex/ws-proto-transport";
-import type { CancelBindingRunRequest, CancelBindingRunResponse, DeleteBindingRequest, DeleteBindingResponse, FormatBindingRequest, FormatBindingResponse, GetBindingRequest, GetBindingResponse, GetBindingRunRequest, GetBindingRunResponse, ListBindingRunsRequest, ListBindingRunsResponse, ListBindingsRequest, ListBindingsResponse, ListBindingVersionsRequest, ListBindingVersionsResponse, ParseBindingRequest, ParseBindingResponse, RollbackBindingRequest, RollbackBindingResponse, SaveBindingRequest, SaveBindingResponse, TestBindingRequest, TestBindingResponse, ValidateBindingRequest, ValidateBindingResponse, WatchBindingsRequest, WatchBindingsResponse } from "./bindings_pb.js";
-import { CancelBindingRunRequestSchema, CancelBindingRunResponseSchema, DeleteBindingRequestSchema, DeleteBindingResponseSchema, FormatBindingRequestSchema, FormatBindingResponseSchema, GetBindingRequestSchema, GetBindingResponseSchema, GetBindingRunRequestSchema, GetBindingRunResponseSchema, ListBindingRunsRequestSchema, ListBindingRunsResponseSchema, ListBindingsRequestSchema, ListBindingsResponseSchema, ListBindingVersionsRequestSchema, ListBindingVersionsResponseSchema, ParseBindingRequestSchema, ParseBindingResponseSchema, RollbackBindingRequestSchema, RollbackBindingResponseSchema, SaveBindingRequestSchema, SaveBindingResponseSchema, TestBindingRequestSchema, TestBindingResponseSchema, ValidateBindingRequestSchema, ValidateBindingResponseSchema, WatchBindingsRequestSchema, WatchBindingsResponseSchema } from "./bindings_pb.js";
+import type { CancelBindingRunRequest, CancelBindingRunResponse, DeleteBindingRequest, DeleteBindingResponse, GetBindingRequest, GetBindingResponse, GetBindingRunRequest, GetBindingRunResponse, ListBindingRunsRequest, ListBindingRunsResponse, ListBindingsRequest, ListBindingsResponse, ListBindingVersionsRequest, ListBindingVersionsResponse, RollbackBindingRequest, RollbackBindingResponse, SaveBindingRequest, SaveBindingResponse, TestBindingRequest, TestBindingResponse, ValidateBindingRequest, ValidateBindingResponse, WatchBindingsRequest, WatchBindingsResponse } from "./bindings_pb.js";
+import { CancelBindingRunRequestSchema, CancelBindingRunResponseSchema, DeleteBindingRequestSchema, DeleteBindingResponseSchema, GetBindingRequestSchema, GetBindingResponseSchema, GetBindingRunRequestSchema, GetBindingRunResponseSchema, ListBindingRunsRequestSchema, ListBindingRunsResponseSchema, ListBindingsRequestSchema, ListBindingsResponseSchema, ListBindingVersionsRequestSchema, ListBindingVersionsResponseSchema, RollbackBindingRequestSchema, RollbackBindingResponseSchema, SaveBindingRequestSchema, SaveBindingResponseSchema, TestBindingRequestSchema, TestBindingResponseSchema, ValidateBindingRequestSchema, ValidateBindingResponseSchema, WatchBindingsRequestSchema, WatchBindingsResponseSchema } from "./bindings_pb.js";
 
 export interface CallOptions {
   /** Request metadata sent as headers on the opening frame. */
@@ -75,22 +75,6 @@ const BindingService_DeleteBinding: MethodInfo<DeleteBindingRequest, DeleteBindi
   output: DeleteBindingResponseSchema,
 };
 
-const BindingService_ParseBinding: MethodInfo<ParseBindingRequest, ParseBindingResponse> = {
-  typeName: "backplane.console.v1.BindingService",
-  name: "ParseBinding",
-  kind: "unary",
-  input: ParseBindingRequestSchema,
-  output: ParseBindingResponseSchema,
-};
-
-const BindingService_FormatBinding: MethodInfo<FormatBindingRequest, FormatBindingResponse> = {
-  typeName: "backplane.console.v1.BindingService",
-  name: "FormatBinding",
-  kind: "unary",
-  input: FormatBindingRequestSchema,
-  output: FormatBindingResponseSchema,
-};
-
 const BindingService_WatchBindings: MethodInfo<WatchBindingsRequest, WatchBindingsResponse> = {
   typeName: "backplane.console.v1.BindingService",
   name: "WatchBindings",
@@ -137,7 +121,8 @@ const BindingService_CancelBindingRun: MethodInfo<CancelBindingRunRequest, Cance
  * of other services, kept as versions in PostgreSQL. A save validates the
  * definition against the latest manifests (the hook, every activity, CEL
  * type-checked by the schemas); a delete is a tombstone version, so the
- * history stays.
+ * history stays. A saved definition that stops compiling when a manifest
+ * changes is BROKEN until fixed.
  *
  * Runs belong to the executor (internal/executor) and come as their own
  * RPCs next to these: TestBinding, ListBindingRuns, GetBindingRun,
@@ -224,27 +209,6 @@ export class BindingServiceClient {
    */
   async deleteBinding(req: DeleteBindingRequest, options?: CallOptions): Promise<DeleteBindingResponse> {
     const res = await this.transport.unary(BindingService_DeleteBinding, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
-    return applyUnaryCallbacks(res, options);
-  }
-
-  /**
-   * ParseBinding reads the text form of a binding (§7.1).
-   *
-   * @generated from rpc backplane.console.v1.BindingService.ParseBinding
-   */
-  async parseBinding(req: ParseBindingRequest, options?: CallOptions): Promise<ParseBindingResponse> {
-    const res = await this.transport.unary(BindingService_ParseBinding, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
-    return applyUnaryCallbacks(res, options);
-  }
-
-  /**
-   * FormatBinding writes the text form of a definition; ParseBinding reads
-   * it back into the same definition.
-   *
-   * @generated from rpc backplane.console.v1.BindingService.FormatBinding
-   */
-  async formatBinding(req: FormatBindingRequest, options?: CallOptions): Promise<FormatBindingResponse> {
-    const res = await this.transport.unary(BindingService_FormatBinding, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
     return applyUnaryCallbacks(res, options);
   }
 

@@ -1,5 +1,5 @@
 export const consoleEnglish = {
-  brand: 'Backplane', platform: 'Platform', services: 'Services', explore: 'Explore', audit: 'Audit', dev: 'Development',
+  brand: 'Backplane', platform: 'Platform', services: 'Services', wiring: 'Wiring', explore: 'Explore', audit: 'Audit', dev: 'Development',
   servicePages: 'Services', navigation: 'Main navigation', breadcrumbs: 'Breadcrumbs', skip: 'Skip to content',
   pin: 'Pin navigation', unpin: 'Collapse navigation', resize: 'Navigation width', close: 'Close navigation',
   open: 'Open navigation', filter: 'Filter services', empty: 'No matching services', emptyHint: 'Try a different name.',
@@ -13,6 +13,7 @@ export const consoleEnglish = {
   stale: 'Connection lost. Showing the last received catalog.', logoutFailed: 'Could not log out. Your session is still active.',
   servicesDescription: 'Registered services, running instances and their wiring across the platform.',
   exploreDescription: 'Query logs, metrics and traces from your telemetry sources.',
+  wiringDescription: 'Bindings and rules: how services call each other through Backplane. Edit them as YAML or as a graph.',
   auditDescription: 'Changes and operations across the platform.',
   overview: 'Overview', configuration: 'Configuration', automation: 'Automation', telemetry: 'Telemetry', operations: 'Operations', events: 'Events', runs: 'Runs', schedules: 'Schedules',
   registered: 'Services', instances: 'Instances', healthyInstances: 'healthy instances', healthyShort: 'healthy',

@@ -6,7 +6,7 @@ const profiles = {
   CatalogService: 'catalog', SessionService: 'session', ConfigService: 'config',
   BindingService: 'binding', RuleService: 'rule', EventService: 'operations',
   WorkflowService: 'operations', ScheduleService: 'operations', CallService: 'operations',
-  AuditService: 'audit', ObsService: 'observability',
+  AuditService: 'audit', ObsService: 'observability', WiringService: 'wiring',
 };
 const commands = new Set(('PublishTestEvent RedriveDeadLetters PurgeDeadLetters StartWorkflow CancelRun TerminateRun SignalRun PauseSchedule UnpauseSchedule TriggerSchedule CallHook RunActivity TestBinding CancelBindingRun TestRule CancelRuleRun').split(' '));
 const mutations = new Set(('SaveRevision Rollback SaveBinding RollbackBinding DeleteBinding SaveRule RollbackRule DeleteRule PauseRule ResumeRule RevokeSession RevokeOtherSessions').split(' '));

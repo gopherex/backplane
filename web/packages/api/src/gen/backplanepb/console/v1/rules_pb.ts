@@ -2,12 +2,12 @@
 // @generated from file backplanepb/console/v1/rules.proto (package backplane.console.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { BindingParseError, BindingStep, BindingViolation } from "./bindings_pb.js";
-import { file_backplanepb_console_v1_bindings } from "./bindings_pb.js";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { CallResult } from "./calls_pb.js";
 import { file_backplanepb_console_v1_calls } from "./calls_pb.js";
+import type { EditorLayout, Step, StepRun, Violation } from "./step_pb.js";
+import { file_backplanepb_console_v1_step } from "./step_pb.js";
 import type { GetRunResponse, Run, RunStatus } from "./workflows_pb.js";
 import { file_backplanepb_console_v1_workflows } from "./workflows_pb.js";
 import type { Duration } from "../../../google/protobuf/duration_pb.js";
@@ -20,10 +20,11 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/console/v1/rules.proto.
  */
 export const file_backplanepb_console_v1_rules: GenFile = /*@__PURE__*/
-  fileDesc("CiJiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3J1bGVzLnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSJfCg5SdWxlRGVmaW5pdGlvbhINCgVldmVudBgBIAEoCRIMCgR3aGVuGAIgASgJEjAKBXN0ZXBzGAMgAygLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1N0ZXAi7gEKC1J1bGVWZXJzaW9uEg8KB3J1bGVfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoBBIMCgRuYW1lGAMgASgJEjgKCmRlZmluaXRpb24YBCABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRGVmaW5pdGlvbhIPCgdkZWxldGVkGAUgASgIEg4KBmF1dGhvchgGIAEoCRIPCgdjb21tZW50GAcgASgJEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhMKC3JvbGxiYWNrX29mGAkgASgEIoYBCgRSdWxlEgoKAmlkGAEgASgJEg4KBnBhdXNlZBgCIAEoCBIyCgdjdXJyZW50GAMgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZVZlcnNpb24SLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiIQoQTGlzdFJ1bGVzUmVxdWVzdBINCgVldmVudBgBIAEoCSI+ChFMaXN0UnVsZXNSZXNwb25zZRIpCgVydWxlcxgBIAMoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUiLQoOR2V0UnVsZVJlcXVlc3QSCgoCaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoBCJvCg9HZXRSdWxlUmVzcG9uc2USKAoEcnVsZRgBIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUSMgoHdmVyc2lvbhgCIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVWZXJzaW9uIkgKF0xpc3RSdWxlVmVyc2lvbnNSZXF1ZXN0EgoKAmlkGAEgASgJEg4KBmJlZm9yZRgCIAEoBBIRCglwYWdlX3NpemUYAyABKA0iZAoYTGlzdFJ1bGVWZXJzaW9uc1Jlc3BvbnNlEjMKCHZlcnNpb25zGAEgAygLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZVZlcnNpb24SEwoLbmV4dF9iZWZvcmUYAiABKAQiTwoTVmFsaWRhdGVSdWxlUmVxdWVzdBI4CgpkZWZpbml0aW9uGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZURlZmluaXRpb24iUgoUVmFsaWRhdGVSdWxlUmVzcG9uc2USOgoKdmlvbGF0aW9ucxgBIAMoCzImLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWaW9sYXRpb24idgoPU2F2ZVJ1bGVSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSOAoKZGVmaW5pdGlvbhgDIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVEZWZpbml0aW9uEg8KB2NvbW1lbnQYBCABKAkiggEKEFNhdmVSdWxlUmVzcG9uc2USMgoHdmVyc2lvbhgBIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVWZXJzaW9uEjoKCnZpb2xhdGlvbnMYAiADKAsyJi5iYWNrcGxhbmUuY29uc29sZS52MS5CaW5kaW5nVmlvbGF0aW9uIkMKE1JvbGxiYWNrUnVsZVJlcXVlc3QSCgoCaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoBBIPCgdjb21tZW50GAMgASgJIoYBChRSb2xsYmFja1J1bGVSZXNwb25zZRIyCgd2ZXJzaW9uGAEgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZVZlcnNpb24SOgoKdmlvbGF0aW9ucxgCIAMoCzImLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdWaW9sYXRpb24iMAoRRGVsZXRlUnVsZVJlcXVlc3QSCgoCaWQYASABKAkSDwoHY29tbWVudBgCIAEoCSJIChJEZWxldGVSdWxlUmVzcG9uc2USMgoHdmVyc2lvbhgBIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVWZXJzaW9uIh4KEFBhdXNlUnVsZVJlcXVlc3QSCgoCaWQYASABKAkiPQoRUGF1c2VSdWxlUmVzcG9uc2USKAoEcnVsZRgBIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUiHwoRUmVzdW1lUnVsZVJlcXVlc3QSCgoCaWQYASABKAkiPgoSUmVzdW1lUnVsZVJlc3BvbnNlEigKBHJ1bGUYASABKAsyGi5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlIiAKEFBhcnNlUnVsZVJlcXVlc3QSDAoEdGV4dBgBIAEoCSKGAQoRUGFyc2VSdWxlUmVzcG9uc2USOAoKZGVmaW5pdGlvbhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVEZWZpbml0aW9uEjcKBmVycm9ycxgCIAMoCzInLmJhY2twbGFuZS5jb25zb2xlLnYxLkJpbmRpbmdQYXJzZUVycm9yIk0KEUZvcm1hdFJ1bGVSZXF1ZXN0EjgKCmRlZmluaXRpb24YASABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRGVmaW5pdGlvbiIiChJGb3JtYXRSdWxlUmVzcG9uc2USDAoEdGV4dBgBIAEoCSIiChFXYXRjaFJ1bGVzUmVxdWVzdBINCgVldmVudBgBIAEoCSI/ChJXYXRjaFJ1bGVzUmVzcG9uc2USKQoFcnVsZXMYASADKAsyGi5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlInQKDVJ1bGVFdmVudE1ldGESCgoCaWQYASABKAkSDgoGc291cmNlGAIgASgJEg8KB3N1YmplY3QYAyABKAkSDAoEdHlwZRgEIAEoCRIoCgR0aW1lGAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLnAQoPVGVzdFJ1bGVSZXF1ZXN0EgoKAmlkGAEgASgJEg8KB3ZlcnNpb24YAiABKAQSOAoKZGVmaW5pdGlvbhgDIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVEZWZpbml0aW9uEg0KBWV2ZW50GAQgASgJEjEKBG1ldGEYBSABKAsyIy5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRXZlbnRNZXRhEg8KB2RyeV9ydW4YBiABKAgSKgoHdGltZW91dBgHIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbiLTAQoQVGVzdFJ1bGVSZXNwb25zZRI6Cgp2aW9sYXRpb25zGAEgAygLMiYuYmFja3BsYW5lLmNvbnNvbGUudjEuQmluZGluZ1Zpb2xhdGlvbhIPCgdtYXRjaGVkGAIgASgIEg0KBWVycm9yGAMgASgJEjEKBG1ldGEYBCABKAsyIy5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRXZlbnRNZXRhEjAKBnJlc3VsdBgFIAEoCzIgLmJhY2twbGFuZS5jb25zb2xlLnYxLkNhbGxSZXN1bHQiiAEKE0xpc3RSdWxlUnVuc1JlcXVlc3QSCgoCaWQYASABKAkSLwoGc3RhdHVzGAIgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEg0KBXRlc3RzGAMgASgIEhEKCXBhZ2Vfc2l6ZRgEIAEoDRISCgpwYWdlX3Rva2VuGAUgASgMImcKFExpc3RSdWxlUnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIkQKEUdldFJ1bGVSdW5SZXF1ZXN0EgoKAmlkGAEgASgJEhMKC3dvcmtmbG93X2lkGAIgASgJEg4KBnJ1bl9pZBgDIAEoCSJHChJHZXRSdWxlUnVuUmVzcG9uc2USMQoDcnVuGAEgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0UnVuUmVzcG9uc2UiRwoUQ2FuY2VsUnVsZVJ1blJlcXVlc3QSCgoCaWQYASABKAkSEwoLd29ya2Zsb3dfaWQYAiABKAkSDgoGcnVuX2lkGAMgASgJIhcKFUNhbmNlbFJ1bGVSdW5SZXNwb25zZTKuDAoLUnVsZVNlcnZpY2USXAoJTGlzdFJ1bGVzEiYuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFJ1bGVzUmVxdWVzdBonLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RSdWxlc1Jlc3BvbnNlElYKB0dldFJ1bGUSJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdWxlUmVxdWVzdBolLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1bGVSZXNwb25zZRJxChBMaXN0UnVsZVZlcnNpb25zEi0uYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFJ1bGVWZXJzaW9uc1JlcXVlc3QaLi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVsZVZlcnNpb25zUmVzcG9uc2USZQoMVmFsaWRhdGVSdWxlEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVmFsaWRhdGVSdWxlUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlZhbGlkYXRlUnVsZVJlc3BvbnNlElkKCFNhdmVSdWxlEiUuYmFja3BsYW5lLmNvbnNvbGUudjEuU2F2ZVJ1bGVSZXF1ZXN0GiYuYmFja3BsYW5lLmNvbnNvbGUudjEuU2F2ZVJ1bGVSZXNwb25zZRJlCgxSb2xsYmFja1J1bGUSKS5iYWNrcGxhbmUuY29uc29sZS52MS5Sb2xsYmFja1J1bGVSZXF1ZXN0GiouYmFja3BsYW5lLmNvbnNvbGUudjEuUm9sbGJhY2tSdWxlUmVzcG9uc2USXwoKRGVsZXRlUnVsZRInLmJhY2twbGFuZS5jb25zb2xlLnYxLkRlbGV0ZVJ1bGVSZXF1ZXN0GiguYmFja3BsYW5lLmNvbnNvbGUudjEuRGVsZXRlUnVsZVJlc3BvbnNlElwKCVBhdXNlUnVsZRImLmJhY2twbGFuZS5jb25zb2xlLnYxLlBhdXNlUnVsZVJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5QYXVzZVJ1bGVSZXNwb25zZRJfCgpSZXN1bWVSdWxlEicuYmFja3BsYW5lLmNvbnNvbGUudjEuUmVzdW1lUnVsZVJlcXVlc3QaKC5iYWNrcGxhbmUuY29uc29sZS52MS5SZXN1bWVSdWxlUmVzcG9uc2USXAoJUGFyc2VSdWxlEiYuYmFja3BsYW5lLmNvbnNvbGUudjEuUGFyc2VSdWxlUmVxdWVzdBonLmJhY2twbGFuZS5jb25zb2xlLnYxLlBhcnNlUnVsZVJlc3BvbnNlEl8KCkZvcm1hdFJ1bGUSJy5iYWNrcGxhbmUuY29uc29sZS52MS5Gb3JtYXRSdWxlUmVxdWVzdBooLmJhY2twbGFuZS5jb25zb2xlLnYxLkZvcm1hdFJ1bGVSZXNwb25zZRJhCgpXYXRjaFJ1bGVzEicuYmFja3BsYW5lLmNvbnNvbGUudjEuV2F0Y2hSdWxlc1JlcXVlc3QaKC5iYWNrcGxhbmUuY29uc29sZS52MS5XYXRjaFJ1bGVzUmVzcG9uc2UwARJZCghUZXN0UnVsZRIlLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RSdWxlUmVxdWVzdBomLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlc3RSdWxlUmVzcG9uc2USZQoMTGlzdFJ1bGVSdW5zEikuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFJ1bGVSdW5zUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RSdWxlUnVuc1Jlc3BvbnNlEl8KCkdldFJ1bGVSdW4SJy5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdWxlUnVuUmVxdWVzdBooLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1bGVSdW5SZXNwb25zZRJoCg1DYW5jZWxSdWxlUnVuEiouYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVsZVJ1blJlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxSdWxlUnVuUmVzcG9uc2VCQFo+Z2l0aHViLmNvbS9nb3BoZXJleC9iYWNrcGxhbmUvYmFja3BsYW5lcGIvY29uc29sZS92MTtjb25zb2xldjFiBnByb3RvMw", [file_backplanepb_console_v1_bindings, file_backplanepb_console_v1_calls, file_backplanepb_console_v1_workflows, file_google_protobuf_duration, file_google_protobuf_timestamp]);
+  fileDesc("CiJiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3J1bGVzLnByb3RvEhRiYWNrcGxhbmUuY29uc29sZS52MSKAAgoOUnVsZURlZmluaXRpb24SDQoFZXZlbnQYASABKAkSDAoEd2hlbhgCIAEoCRI+CgVzdGVwcxgDIAMoCzIvLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVEZWZpbml0aW9uLlN0ZXBzRW50cnkSEwoLZGVzY3JpcHRpb24YBCABKAkSMgoGZWRpdG9yGA8gASgLMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuRWRpdG9yTGF5b3V0GkgKClN0ZXBzRW50cnkSCwoDa2V5GAEgASgJEikKBXZhbHVlGAIgASgLMhouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RlcDoCOAEi7gEKC1J1bGVWZXJzaW9uEg8KB3J1bGVfaWQYASABKAkSDwoHdmVyc2lvbhgCIAEoBBIMCgRuYW1lGAMgASgJEjgKCmRlZmluaXRpb24YBCABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRGVmaW5pdGlvbhIPCgdkZWxldGVkGAUgASgIEg4KBmF1dGhvchgGIAEoCRIPCgdjb21tZW50GAcgASgJEi4KCmNyZWF0ZWRfYXQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhMKC3JvbGxiYWNrX29mGAkgASgEIusBCgRSdWxlEgoKAmlkGAEgASgJEg4KBnBhdXNlZBgCIAEoCBIyCgdjdXJyZW50GAMgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZVZlcnNpb24SLgoKY3JlYXRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoFc3RhdGUYBSABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlU3RhdGUSMwoKdmlvbGF0aW9ucxgGIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiIhChBMaXN0UnVsZXNSZXF1ZXN0Eg0KBWV2ZW50GAEgASgJIj4KEUxpc3RSdWxlc1Jlc3BvbnNlEikKBXJ1bGVzGAEgAygLMhouYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZSItCg5HZXRSdWxlUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgEIqQBCg9HZXRSdWxlUmVzcG9uc2USKAoEcnVsZRgBIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUSMgoHdmVyc2lvbhgCIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVWZXJzaW9uEjMKCnZpb2xhdGlvbnMYAyADKAsyHy5iYWNrcGxhbmUuY29uc29sZS52MS5WaW9sYXRpb24iSAoXTGlzdFJ1bGVWZXJzaW9uc1JlcXVlc3QSCgoCaWQYASABKAkSDgoGYmVmb3JlGAIgASgEEhEKCXBhZ2Vfc2l6ZRgDIAEoDSJkChhMaXN0UnVsZVZlcnNpb25zUmVzcG9uc2USMwoIdmVyc2lvbnMYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlVmVyc2lvbhITCgtuZXh0X2JlZm9yZRgCIAEoBCJPChNWYWxpZGF0ZVJ1bGVSZXF1ZXN0EjgKCmRlZmluaXRpb24YASABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRGVmaW5pdGlvbiJLChRWYWxpZGF0ZVJ1bGVSZXNwb25zZRIzCgp2aW9sYXRpb25zGAEgAygLMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuVmlvbGF0aW9uIqIBCg9TYXZlUnVsZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRI4CgpkZWZpbml0aW9uGAMgASgLMiQuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZURlZmluaXRpb24SDwoHY29tbWVudBgEIAEoCRIZCgxiYXNlX3ZlcnNpb24YBSABKARIAIgBAUIPCg1fYmFzZV92ZXJzaW9uInsKEFNhdmVSdWxlUmVzcG9uc2USMgoHdmVyc2lvbhgBIAEoCzIhLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGVWZXJzaW9uEjMKCnZpb2xhdGlvbnMYAiADKAsyHy5iYWNrcGxhbmUuY29uc29sZS52MS5WaW9sYXRpb24ibwoTUm9sbGJhY2tSdWxlUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgEEg8KB2NvbW1lbnQYAyABKAkSGQoMYmFzZV92ZXJzaW9uGAQgASgESACIAQFCDwoNX2Jhc2VfdmVyc2lvbiJ/ChRSb2xsYmFja1J1bGVSZXNwb25zZRIyCgd2ZXJzaW9uGAEgASgLMiEuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZVZlcnNpb24SMwoKdmlvbGF0aW9ucxgCIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbiJcChFEZWxldGVSdWxlUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgdjb21tZW50GAIgASgJEhkKDGJhc2VfdmVyc2lvbhgDIAEoBEgAiAEBQg8KDV9iYXNlX3ZlcnNpb24iSAoSRGVsZXRlUnVsZVJlc3BvbnNlEjIKB3ZlcnNpb24YASABKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlVmVyc2lvbiJKChBQYXVzZVJ1bGVSZXF1ZXN0EgoKAmlkGAEgASgJEhkKDGJhc2VfdmVyc2lvbhgCIAEoBEgAiAEBQg8KDV9iYXNlX3ZlcnNpb24iPQoRUGF1c2VSdWxlUmVzcG9uc2USKAoEcnVsZRgBIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUiSwoRUmVzdW1lUnVsZVJlcXVlc3QSCgoCaWQYASABKAkSGQoMYmFzZV92ZXJzaW9uGAIgASgESACIAQFCDwoNX2Jhc2VfdmVyc2lvbiI+ChJSZXN1bWVSdWxlUmVzcG9uc2USKAoEcnVsZRgBIAEoCzIaLmJhY2twbGFuZS5jb25zb2xlLnYxLlJ1bGUiIgoRV2F0Y2hSdWxlc1JlcXVlc3QSDQoFZXZlbnQYASABKAkiPwoSV2F0Y2hSdWxlc1Jlc3BvbnNlEikKBXJ1bGVzGAEgAygLMhouYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZSJ0Cg1SdWxlRXZlbnRNZXRhEgoKAmlkGAEgASgJEg4KBnNvdXJjZRgCIAEoCRIPCgdzdWJqZWN0GAMgASgJEgwKBHR5cGUYBCABKAkSKAoEdGltZRgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAi5wEKD1Rlc3RSdWxlUmVxdWVzdBIKCgJpZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgEEjgKCmRlZmluaXRpb24YAyABKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRGVmaW5pdGlvbhINCgVldmVudBgEIAEoCRIxCgRtZXRhGAUgASgLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVsZUV2ZW50TWV0YRIPCgdkcnlfcnVuGAYgASgIEioKB3RpbWVvdXQYByABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24izAEKEFRlc3RSdWxlUmVzcG9uc2USMwoKdmlvbGF0aW9ucxgBIAMoCzIfLmJhY2twbGFuZS5jb25zb2xlLnYxLlZpb2xhdGlvbhIPCgdtYXRjaGVkGAIgASgIEg0KBWVycm9yGAMgASgJEjEKBG1ldGEYBCABKAsyIy5iYWNrcGxhbmUuY29uc29sZS52MS5SdWxlRXZlbnRNZXRhEjAKBnJlc3VsdBgFIAEoCzIgLmJhY2twbGFuZS5jb25zb2xlLnYxLkNhbGxSZXN1bHQiiAEKE0xpc3RSdWxlUnVuc1JlcXVlc3QSCgoCaWQYASABKAkSLwoGc3RhdHVzGAIgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEg0KBXRlc3RzGAMgASgIEhEKCXBhZ2Vfc2l6ZRgEIAEoDRISCgpwYWdlX3Rva2VuGAUgASgMImcKFExpc3RSdWxlUnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIkQKEUdldFJ1bGVSdW5SZXF1ZXN0EgoKAmlkGAEgASgJEhMKC3dvcmtmbG93X2lkGAIgASgJEg4KBnJ1bl9pZBgDIAEoCSKUAQoSR2V0UnVsZVJ1blJlc3BvbnNlEjEKA3J1bhgBIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1blJlc3BvbnNlEg8KB3ZlcnNpb24YAiABKAQSDAoEdGVzdBgDIAEoCBIsCgVzdGVwcxgEIAMoCzIdLmJhY2twbGFuZS5jb25zb2xlLnYxLlN0ZXBSdW4iRwoUQ2FuY2VsUnVsZVJ1blJlcXVlc3QSCgoCaWQYASABKAkSEwoLd29ya2Zsb3dfaWQYAiABKAkSDgoGcnVuX2lkGAMgASgJIhcKFUNhbmNlbFJ1bGVSdW5SZXNwb25zZSqEAQoJUnVsZVN0YXRlEhoKFlJVTEVfU1RBVEVfVU5TUEVDSUZJRUQQABIVChFSVUxFX1NUQVRFX0FDVElWRRABEhUKEVJVTEVfU1RBVEVfUEFVU0VEEAISFgoSUlVMRV9TVEFURV9ERUxFVEVEEAMSFQoRUlVMRV9TVEFURV9CUk9LRU4QBDLvCgoLUnVsZVNlcnZpY2USXAoJTGlzdFJ1bGVzEiYuYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFJ1bGVzUmVxdWVzdBonLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RSdWxlc1Jlc3BvbnNlElYKB0dldFJ1bGUSJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdWxlUmVxdWVzdBolLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1bGVSZXNwb25zZRJxChBMaXN0UnVsZVZlcnNpb25zEi0uYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFJ1bGVWZXJzaW9uc1JlcXVlc3QaLi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVsZVZlcnNpb25zUmVzcG9uc2USZQoMVmFsaWRhdGVSdWxlEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVmFsaWRhdGVSdWxlUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlZhbGlkYXRlUnVsZVJlc3BvbnNlElkKCFNhdmVSdWxlEiUuYmFja3BsYW5lLmNvbnNvbGUudjEuU2F2ZVJ1bGVSZXF1ZXN0GiYuYmFja3BsYW5lLmNvbnNvbGUudjEuU2F2ZVJ1bGVSZXNwb25zZRJlCgxSb2xsYmFja1J1bGUSKS5iYWNrcGxhbmUuY29uc29sZS52MS5Sb2xsYmFja1J1bGVSZXF1ZXN0GiouYmFja3BsYW5lLmNvbnNvbGUudjEuUm9sbGJhY2tSdWxlUmVzcG9uc2USXwoKRGVsZXRlUnVsZRInLmJhY2twbGFuZS5jb25zb2xlLnYxLkRlbGV0ZVJ1bGVSZXF1ZXN0GiguYmFja3BsYW5lLmNvbnNvbGUudjEuRGVsZXRlUnVsZVJlc3BvbnNlElwKCVBhdXNlUnVsZRImLmJhY2twbGFuZS5jb25zb2xlLnYxLlBhdXNlUnVsZVJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5QYXVzZVJ1bGVSZXNwb25zZRJfCgpSZXN1bWVSdWxlEicuYmFja3BsYW5lLmNvbnNvbGUudjEuUmVzdW1lUnVsZVJlcXVlc3QaKC5iYWNrcGxhbmUuY29uc29sZS52MS5SZXN1bWVSdWxlUmVzcG9uc2USYQoKV2F0Y2hSdWxlcxInLmJhY2twbGFuZS5jb25zb2xlLnYxLldhdGNoUnVsZXNSZXF1ZXN0GiguYmFja3BsYW5lLmNvbnNvbGUudjEuV2F0Y2hSdWxlc1Jlc3BvbnNlMAESWQoIVGVzdFJ1bGUSJS5iYWNrcGxhbmUuY29uc29sZS52MS5UZXN0UnVsZVJlcXVlc3QaJi5iYWNrcGxhbmUuY29uc29sZS52MS5UZXN0UnVsZVJlc3BvbnNlEmUKDExpc3RSdWxlUnVucxIpLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RSdWxlUnVuc1JlcXVlc3QaKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVsZVJ1bnNSZXNwb25zZRJfCgpHZXRSdWxlUnVuEicuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0UnVsZVJ1blJlcXVlc3QaKC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdWxlUnVuUmVzcG9uc2USaAoNQ2FuY2VsUnVsZVJ1bhIqLmJhY2twbGFuZS5jb25zb2xlLnYxLkNhbmNlbFJ1bGVSdW5SZXF1ZXN0GisuYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVsZVJ1blJlc3BvbnNlQkBaPmdpdGh1Yi5jb20vZ29waGVyZXgvYmFja3BsYW5lL2JhY2twbGFuZXBiL2NvbnNvbGUvdjE7Y29uc29sZXYxYgZwcm90bzM", [file_backplanepb_console_v1_calls, file_backplanepb_console_v1_step, file_backplanepb_console_v1_workflows, file_google_protobuf_duration, file_google_protobuf_timestamp]);
 
 /**
  * RuleDefinition is what a rule says: the event, the filter and the steps.
+ * Its protojson is the canonical form (the console edits it as YAML).
  *
  * @generated from message backplane.console.v1.RuleDefinition
  */
@@ -44,9 +45,25 @@ export type RuleDefinition = Message<"backplane.console.v1.RuleDefinition"> & {
   when: string;
 
   /**
-   * @generated from field: repeated backplane.console.v1.BindingStep steps = 3;
+   * By name; order as in BindingDefinition.steps.
+   *
+   * @generated from field: map<string, backplane.console.v1.Step> steps = 3;
    */
-  steps: BindingStep[];
+  steps: { [key: string]: Step };
+
+  /**
+   * Free text for people; not executed.
+   *
+   * @generated from field: string description = 4;
+   */
+  description: string;
+
+  /**
+   * The graph editor's layout; ignored by compile and execution.
+   *
+   * @generated from field: backplane.console.v1.EditorLayout editor = 15;
+   */
+  editor?: EditorLayout | undefined;
 };
 
 /**
@@ -154,6 +171,22 @@ export type Rule = Message<"backplane.console.v1.Rule"> & {
    * @generated from field: google.protobuf.Timestamp created_at = 4;
    */
   createdAt?: Timestamp | undefined;
+
+  /**
+   * BROKEN wins over PAUSED: a paused rule that no longer compiles is
+   * broken.
+   *
+   * @generated from field: backplane.console.v1.RuleState state = 5;
+   */
+  state: RuleState;
+
+  /**
+   * Why the current definition does not compile against the latest
+   * manifests (state BROKEN); empty otherwise.
+   *
+   * @generated from field: repeated backplane.console.v1.Violation violations = 6;
+   */
+  violations: Violation[];
 };
 
 /**
@@ -240,6 +273,14 @@ export type GetRuleResponse = Message<"backplane.console.v1.GetRuleResponse"> & 
    * @generated from field: backplane.console.v1.RuleVersion version = 2;
    */
   version?: RuleVersion | undefined;
+
+  /**
+   * Why that version does not compile against the latest manifests;
+   * empty when it does (or is a tombstone).
+   *
+   * @generated from field: repeated backplane.console.v1.Violation violations = 3;
+   */
+  violations: Violation[];
 };
 
 /**
@@ -328,9 +369,9 @@ export type ValidateRuleResponse = Message<"backplane.console.v1.ValidateRuleRes
   /**
    * Empty: the definition is valid.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 1;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 1;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -365,6 +406,15 @@ export type SaveRuleRequest = Message<"backplane.console.v1.SaveRuleRequest"> & 
    * @generated from field: string comment = 4;
    */
   comment: string;
+
+  /**
+   * The current version the edit started from. Set: the save is refused
+   * with ABORTED when the rule's current version is another one. Unset
+   * (and for a new rule): no check.
+   *
+   * @generated from field: optional uint64 base_version = 5;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -386,9 +436,9 @@ export type SaveRuleResponse = Message<"backplane.console.v1.SaveRuleResponse"> 
   version?: RuleVersion | undefined;
 
   /**
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 2;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 2;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -418,6 +468,13 @@ export type RollbackRuleRequest = Message<"backplane.console.v1.RollbackRuleRequ
    * @generated from field: string comment = 3;
    */
   comment: string;
+
+  /**
+   * As SaveRuleRequest.base_version.
+   *
+   * @generated from field: optional uint64 base_version = 4;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -437,9 +494,9 @@ export type RollbackRuleResponse = Message<"backplane.console.v1.RollbackRuleRes
   version?: RuleVersion | undefined;
 
   /**
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 2;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 2;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 };
 
 /**
@@ -462,6 +519,13 @@ export type DeleteRuleRequest = Message<"backplane.console.v1.DeleteRuleRequest"
    * @generated from field: string comment = 2;
    */
   comment: string;
+
+  /**
+   * As SaveRuleRequest.base_version.
+   *
+   * @generated from field: optional uint64 base_version = 3;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -498,6 +562,14 @@ export type PauseRuleRequest = Message<"backplane.console.v1.PauseRuleRequest"> 
    * @generated from field: string id = 1;
    */
   id: string;
+
+  /**
+   * As SaveRuleRequest.base_version: the pause applies to the version the
+   * operator saw.
+   *
+   * @generated from field: optional uint64 base_version = 2;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -532,6 +604,13 @@ export type ResumeRuleRequest = Message<"backplane.console.v1.ResumeRuleRequest"
    * @generated from field: string id = 1;
    */
   id: string;
+
+  /**
+   * As PauseRuleRequest.base_version.
+   *
+   * @generated from field: optional uint64 base_version = 2;
+   */
+  baseVersion?: bigint | undefined;
 };
 
 /**
@@ -559,81 +638,6 @@ export const ResumeRuleResponseSchema: GenMessage<ResumeRuleResponse> = /*@__PUR
   messageDesc(file_backplanepb_console_v1_rules, 20);
 
 /**
- * @generated from message backplane.console.v1.ParseRuleRequest
- */
-export type ParseRuleRequest = Message<"backplane.console.v1.ParseRuleRequest"> & {
-  /**
-   * @generated from field: string text = 1;
-   */
-  text: string;
-};
-
-/**
- * Describes the message backplane.console.v1.ParseRuleRequest.
- * Use `create(ParseRuleRequestSchema)` to create a new message.
- */
-export const ParseRuleRequestSchema: GenMessage<ParseRuleRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 21);
-
-/**
- * @generated from message backplane.console.v1.ParseRuleResponse
- */
-export type ParseRuleResponse = Message<"backplane.console.v1.ParseRuleResponse"> & {
-  /**
-   * Absent when the text does not read.
-   *
-   * @generated from field: backplane.console.v1.RuleDefinition definition = 1;
-   */
-  definition?: RuleDefinition | undefined;
-
-  /**
-   * @generated from field: repeated backplane.console.v1.BindingParseError errors = 2;
-   */
-  errors: BindingParseError[];
-};
-
-/**
- * Describes the message backplane.console.v1.ParseRuleResponse.
- * Use `create(ParseRuleResponseSchema)` to create a new message.
- */
-export const ParseRuleResponseSchema: GenMessage<ParseRuleResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 22);
-
-/**
- * @generated from message backplane.console.v1.FormatRuleRequest
- */
-export type FormatRuleRequest = Message<"backplane.console.v1.FormatRuleRequest"> & {
-  /**
-   * @generated from field: backplane.console.v1.RuleDefinition definition = 1;
-   */
-  definition?: RuleDefinition | undefined;
-};
-
-/**
- * Describes the message backplane.console.v1.FormatRuleRequest.
- * Use `create(FormatRuleRequestSchema)` to create a new message.
- */
-export const FormatRuleRequestSchema: GenMessage<FormatRuleRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 23);
-
-/**
- * @generated from message backplane.console.v1.FormatRuleResponse
- */
-export type FormatRuleResponse = Message<"backplane.console.v1.FormatRuleResponse"> & {
-  /**
-   * @generated from field: string text = 1;
-   */
-  text: string;
-};
-
-/**
- * Describes the message backplane.console.v1.FormatRuleResponse.
- * Use `create(FormatRuleResponseSchema)` to create a new message.
- */
-export const FormatRuleResponseSchema: GenMessage<FormatRuleResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 24);
-
-/**
  * @generated from message backplane.console.v1.WatchRulesRequest
  */
 export type WatchRulesRequest = Message<"backplane.console.v1.WatchRulesRequest"> & {
@@ -650,7 +654,7 @@ export type WatchRulesRequest = Message<"backplane.console.v1.WatchRulesRequest"
  * Use `create(WatchRulesRequestSchema)` to create a new message.
  */
 export const WatchRulesRequestSchema: GenMessage<WatchRulesRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 25);
+  messageDesc(file_backplanepb_console_v1_rules, 21);
 
 /**
  * @generated from message backplane.console.v1.WatchRulesResponse
@@ -667,7 +671,7 @@ export type WatchRulesResponse = Message<"backplane.console.v1.WatchRulesRespons
  * Use `create(WatchRulesResponseSchema)` to create a new message.
  */
 export const WatchRulesResponseSchema: GenMessage<WatchRulesResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 26);
+  messageDesc(file_backplanepb_console_v1_rules, 22);
 
 /**
  * RuleEventMeta are the CloudEvents attributes of a sample event (the CEL
@@ -717,7 +721,7 @@ export type RuleEventMeta = Message<"backplane.console.v1.RuleEventMeta"> & {
  * Use `create(RuleEventMetaSchema)` to create a new message.
  */
 export const RuleEventMetaSchema: GenMessage<RuleEventMeta> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 27);
+  messageDesc(file_backplanepb_console_v1_rules, 23);
 
 /**
  * @generated from message backplane.console.v1.TestRuleRequest
@@ -776,7 +780,7 @@ export type TestRuleRequest = Message<"backplane.console.v1.TestRuleRequest"> & 
  * Use `create(TestRuleRequestSchema)` to create a new message.
  */
 export const TestRuleRequestSchema: GenMessage<TestRuleRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 28);
+  messageDesc(file_backplanepb_console_v1_rules, 24);
 
 /**
  * @generated from message backplane.console.v1.TestRuleResponse
@@ -785,9 +789,9 @@ export type TestRuleResponse = Message<"backplane.console.v1.TestRuleResponse"> 
   /**
    * Violations of the definition; when present nothing was evaluated.
    *
-   * @generated from field: repeated backplane.console.v1.BindingViolation violations = 1;
+   * @generated from field: repeated backplane.console.v1.Violation violations = 1;
    */
-  violations: BindingViolation[];
+  violations: Violation[];
 
   /**
    * The event matched `when` (a rule without when always matches).
@@ -824,7 +828,7 @@ export type TestRuleResponse = Message<"backplane.console.v1.TestRuleResponse"> 
  * Use `create(TestRuleResponseSchema)` to create a new message.
  */
 export const TestRuleResponseSchema: GenMessage<TestRuleResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 29);
+  messageDesc(file_backplanepb_console_v1_rules, 25);
 
 /**
  * @generated from message backplane.console.v1.ListRuleRunsRequest
@@ -869,7 +873,7 @@ export type ListRuleRunsRequest = Message<"backplane.console.v1.ListRuleRunsRequ
  * Use `create(ListRuleRunsRequestSchema)` to create a new message.
  */
 export const ListRuleRunsRequestSchema: GenMessage<ListRuleRunsRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 30);
+  messageDesc(file_backplanepb_console_v1_rules, 26);
 
 /**
  * @generated from message backplane.console.v1.ListRuleRunsResponse
@@ -900,13 +904,16 @@ export type ListRuleRunsResponse = Message<"backplane.console.v1.ListRuleRunsRes
  * Use `create(ListRuleRunsResponseSchema)` to create a new message.
  */
 export const ListRuleRunsResponseSchema: GenMessage<ListRuleRunsResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 31);
+  messageDesc(file_backplanepb_console_v1_rules, 27);
 
 /**
  * @generated from message backplane.console.v1.GetRuleRunRequest
  */
 export type GetRuleRunRequest = Message<"backplane.console.v1.GetRuleRunRequest"> & {
   /**
+   * The rule; empty for a test run of an unsaved definition
+   * (test/rule/draft/...).
+   *
    * @generated from field: string id = 1;
    */
   id: string;
@@ -931,7 +938,7 @@ export type GetRuleRunRequest = Message<"backplane.console.v1.GetRuleRunRequest"
  * Use `create(GetRuleRunRequestSchema)` to create a new message.
  */
 export const GetRuleRunRequestSchema: GenMessage<GetRuleRunRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 32);
+  messageDesc(file_backplanepb_console_v1_rules, 28);
 
 /**
  * @generated from message backplane.console.v1.GetRuleRunResponse
@@ -941,6 +948,27 @@ export type GetRuleRunResponse = Message<"backplane.console.v1.GetRuleRunRespons
    * @generated from field: backplane.console.v1.GetRunResponse run = 1;
    */
   run?: GetRunResponse | undefined;
+
+  /**
+   * The version that ran (0: an unsaved definition) and whether it is a
+   * test run.
+   *
+   * @generated from field: uint64 version = 2;
+   */
+  version: bigint;
+
+  /**
+   * @generated from field: bool test = 3;
+   */
+  test: boolean;
+
+  /**
+   * The program's steps by name, then every compensation in
+   * the order it was scheduled.
+   *
+   * @generated from field: repeated backplane.console.v1.StepRun steps = 4;
+   */
+  steps: StepRun[];
 };
 
 /**
@@ -948,13 +976,15 @@ export type GetRuleRunResponse = Message<"backplane.console.v1.GetRuleRunRespons
  * Use `create(GetRuleRunResponseSchema)` to create a new message.
  */
 export const GetRuleRunResponseSchema: GenMessage<GetRuleRunResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 33);
+  messageDesc(file_backplanepb_console_v1_rules, 29);
 
 /**
  * @generated from message backplane.console.v1.CancelRuleRunRequest
  */
 export type CancelRuleRunRequest = Message<"backplane.console.v1.CancelRuleRunRequest"> & {
   /**
+   * As GetRuleRunRequest.id.
+   *
    * @generated from field: string id = 1;
    */
   id: string;
@@ -977,7 +1007,7 @@ export type CancelRuleRunRequest = Message<"backplane.console.v1.CancelRuleRunRe
  * Use `create(CancelRuleRunRequestSchema)` to create a new message.
  */
 export const CancelRuleRunRequestSchema: GenMessage<CancelRuleRunRequest> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 34);
+  messageDesc(file_backplanepb_console_v1_rules, 30);
 
 /**
  * @generated from message backplane.console.v1.CancelRuleRunResponse
@@ -990,7 +1020,54 @@ export type CancelRuleRunResponse = Message<"backplane.console.v1.CancelRuleRunR
  * Use `create(CancelRuleRunResponseSchema)` to create a new message.
  */
 export const CancelRuleRunResponseSchema: GenMessage<CancelRuleRunResponse> = /*@__PURE__*/
-  messageDesc(file_backplanepb_console_v1_rules, 35);
+  messageDesc(file_backplanepb_console_v1_rules, 31);
+
+/**
+ * RuleState is whether a rule runs.
+ *
+ * @generated from enum backplane.console.v1.RuleState
+ */
+export enum RuleState {
+  /**
+   * @generated from enum value: RULE_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Runs on every matching event.
+   *
+   * @generated from enum value: RULE_STATE_ACTIVE = 1;
+   */
+  ACTIVE = 1,
+
+  /**
+   * Paused: no runs start.
+   *
+   * @generated from enum value: RULE_STATE_PAUSED = 2;
+   */
+  PAUSED = 2,
+
+  /**
+   * The current version is a tombstone.
+   *
+   * @generated from enum value: RULE_STATE_DELETED = 3;
+   */
+  DELETED = 3,
+
+  /**
+   * The current definition no longer compiles against the latest
+   * manifests: no runs start until it is fixed. Rule.violations say why.
+   *
+   * @generated from enum value: RULE_STATE_BROKEN = 4;
+   */
+  BROKEN = 4,
+}
+
+/**
+ * Describes the enum backplane.console.v1.RuleState.
+ */
+export const RuleStateSchema: GenEnum<RuleState> = /*@__PURE__*/
+  enumDesc(file_backplanepb_console_v1_rules, 0);
 
 /**
  * RuleService is the console's view of rules (§8.1): a binding whose source
@@ -1103,27 +1180,6 @@ export const RuleService: GenService<{
     output: typeof ResumeRuleResponseSchema;
   },
   /**
-   * ParseRule reads the text form of a rule (§8.1).
-   *
-   * @generated from rpc backplane.console.v1.RuleService.ParseRule
-   */
-  parseRule: {
-    methodKind: "unary";
-    input: typeof ParseRuleRequestSchema;
-    output: typeof ParseRuleResponseSchema;
-  },
-  /**
-   * FormatRule writes the text form of a definition; ParseRule reads it
-   * back into the same definition.
-   *
-   * @generated from rpc backplane.console.v1.RuleService.FormatRule
-   */
-  formatRule: {
-    methodKind: "unary";
-    input: typeof FormatRuleRequestSchema;
-    output: typeof FormatRuleResponseSchema;
-  },
-  /**
    * WatchRules streams ListRules: now, then again whenever it changes.
    *
    * @generated from rpc backplane.console.v1.RuleService.WatchRules
@@ -1160,7 +1216,7 @@ export const RuleService: GenService<{
   },
   /**
    * GetRuleRun is one run of the rule: status, input, result or failure,
-   * pending activities and history.
+   * pending activities, history and the steps' timeline.
    *
    * @generated from rpc backplane.console.v1.RuleService.GetRuleRun
    */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { create } from '@bufbuild/protobuf';
-import { ConfigServiceClient, WatchConfigRequestSchema, ListRevisionsRequestSchema, SaveRevisionRequestSchema, ValidateOverrideRequestSchema, RollbackRequestSchema, type ServiceConfig, type Revision, type Violation, type InstanceConfig } from '@gopherex/backplane-api';
+import { ConfigServiceClient, WatchConfigRequestSchema, ListRevisionsRequestSchema, SaveRevisionRequestSchema, ValidateOverrideRequestSchema, RollbackRequestSchema, type ServiceConfig, type Revision, type ConfigViolation, type InstanceConfig } from '@gopherex/backplane-api';
 import { ConfigSource, InstancePhase } from '@gopherex/backplane-api/backplanepb/v1/instance_pb';
 import { useClient, useSnapshotWatch } from '@gopherex/backplane-react';
 import { toNative, type Schema, type Schema_Field } from '@gopherex/schemapb';
@@ -42,7 +42,7 @@ const same = (a: Values, b: Values) => JSON.stringify(Object.entries(a).sort()) 
 function ConfigDraft({ config, mode }: { config: ServiceConfig; mode: 'dark' | 'light' }) {
   const client = useClient(ConfigServiceClient), text = usePlatformText(), action = usePlatformAction<unknown>();
   const [baseline, setBaseline] = useState(config.current), [values, setValues] = useState<Values>({ ...config.current?.values }), [comment, setComment] = useState('');
-  const [violations, setViolations] = useState<Violation[]>(), [selected, setSelected] = useState<Revision>();
+  const [violations, setViolations] = useState<ConfigViolation[]>(), [selected, setSelected] = useState<Revision>();
   const [before, setBefore] = useState(0n), [older, setOlder] = useState<Revision[]>([]);
   const revisions = usePlatformQuery(`revisions:${config.service}:${before}:${config.current?.revision}`, (signal) => client.listRevisions(create(ListRevisionsRequestSchema, { service: config.service, before, pageSize: 50 }), { signal }));
   useEffect(() => { setOlder([]); setBefore(0n); }, [config.current?.revision]);
@@ -144,7 +144,7 @@ function RolloutRow({ instance, current }: { instance: InstanceConfig; current: 
 const sourceVariant = (source: ConfigSource) => source === ConfigSource.KV ? 'default' as const : 'outline' as const;
 
 function LiveSetting({ path, field, instances, value, committed, violations, disabled, mode, onChange }: {
-  path: string; field?: Schema_Field; instances: InstanceConfig[]; value?: string; committed?: string; violations: Violation[]; disabled: boolean; mode: 'dark' | 'light'; onChange: (value: string | undefined) => void;
+  path: string; field?: Schema_Field; instances: InstanceConfig[]; value?: string; committed?: string; violations: ConfigViolation[]; disabled: boolean; mode: 'dark' | 'light'; onChange: (value: string | undefined) => void;
 }) {
   const text = usePlatformText(), overridden = value !== undefined, changed = value !== committed;
   const effective = instances.flatMap((instance) => instance.live.filter((live) => live.path === path));

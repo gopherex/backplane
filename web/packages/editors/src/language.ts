@@ -1,5 +1,6 @@
 import { StreamLanguage, type StreamParser } from '@codemirror/language';
 import { json } from '@codemirror/lang-json';
+import { yaml } from '@codemirror/lang-yaml';
 import type { EditorLanguage, QueryLanguage } from './types.js';
 
 export const queryKeywords: Record<QueryLanguage, readonly string[]> = {
@@ -28,4 +29,4 @@ export function queryParser(language: QueryLanguage): StreamParser<{ quote: stri
     stream.next(); return null;
   } };
 }
-export function languageExtension(language: EditorLanguage) { return language === 'json' ? json() : language === 'text' ? [] : StreamLanguage.define(queryParser(language)); }
+export function languageExtension(language: EditorLanguage) { return language === 'json' ? json() : language === 'yaml' ? yaml() : language === 'text' ? [] : StreamLanguage.define(queryParser(language)); }

@@ -18,16 +18,17 @@ export function PageHeader({ title, description, actions, meta, className, ...pr
   </header>;
 }
 
-/** Entity title block (GitLab/Stroppy style): icon, name, status, meta line, actions and a tab bar. */
-export function EntityHeader({ icon, title, status, meta, actions, tabs, className, ...props }: Omit<ComponentProps<'header'>, 'title'> & {
-  icon?: ReactNode; title: ReactNode; status?: ReactNode; meta?: ReactNode; actions?: ReactNode; tabs?: ReactNode;
+/** Entity title block (GitLab/Stroppy style): icon, name, status, meta line, actions and a tab bar. `level` 2 inside a page that has its own title. */
+export function EntityHeader({ icon, title, status, meta, actions, tabs, level = 1, className, ...props }: Omit<ComponentProps<'header'>, 'title'> & {
+  icon?: ReactNode; title: ReactNode; status?: ReactNode; meta?: ReactNode; actions?: ReactNode; tabs?: ReactNode; level?: 1 | 2;
 }) {
+  const Heading = level === 1 ? 'h1' : 'h2';
   return <header data-slot="entity-header" {...props} className={cn('mb-4 shrink-0', className)}>
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="flex min-w-0 items-start gap-3">
         {icon && <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-border bg-card text-link [&_svg:not([class*='size-'])]:size-5">{icon}</span>}
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h1 className="m-0 truncate text-xl leading-7 font-medium tracking-tight text-foreground">{title}</h1>{status}</div>
+          <div className="flex flex-wrap items-center gap-2"><Heading className="m-0 truncate text-xl leading-7 font-medium tracking-tight text-foreground">{title}</Heading>{status}</div>
           {meta && <div className="mt-1">{meta}</div>}
         </div>
       </div>

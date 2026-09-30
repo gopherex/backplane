@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 export const platformEnglish = {
   loading: 'Loading…', stale: 'Reconnecting. Showing the last received data.', error: 'Could not load data.', retry: 'Retry', refresh: 'Refresh',
@@ -121,11 +122,38 @@ export const platformEnglish = {
   retention: 'Retention', replicas: 'Replicas', deadLettersBy: 'Dead letters by consumer: {{consumers}}',
   dashboard: 'Dashboard', serviceDashboard: '{{service}} metrics', metricsDashboard: 'All metrics', dashboardHelp: 'Generated from the metrics that are stored; histograms show p95, counters their rate.',
   filterMetrics: 'Filter metrics', noSamples: 'No samples in this range.', noMetrics: 'No metrics stored in this range.', openInExplore: 'Open in Explore',
+  wiring: 'Wiring', wiringHelp: 'Bindings implement a service\'s hooks with activities of other services; rules run activities on events. Pick one on the left, or drag activities from the palette onto the graph.',
+  openWiring: 'Open in Wiring', openInWiring: 'Open in Wiring', filterWiring: 'Filter bindings and rules', filterActivities: 'Filter activities',
+  palette: 'Activities', paletteHelp: 'Drag onto the graph to add a step.', createRule: 'Create rule', pickEvent: 'Pick an event',
+  newRuleHelp: 'A rule runs steps when an event is published. Pick the event it reacts to; you write its steps next.',
+  bound: 'Bound', requiredUnbound: 'Required, unbound', requiredShort: 'required', broken: 'broken', brokenCount: 'Broken',
+  pausedCount_one: '{{count}} paused', pausedCount_other: '{{count}} paused', needsAttention: 'Needs attention',
+  allWired: 'Everything is wired', allWiredHelp: 'No required hook is unbound and every binding and rule compiles against the latest manifests.',
+  wiringView_graph: 'Graph', wiringView_yaml: 'YAML', wiringView_versions: 'Versions', wiringView_test: 'Test', wiringView_runs: 'Runs', wiringEditorView: 'Editor view',
+  bindingOf: 'binding of {{hook}}', noEvent: 'no event', draft: 'Draft', undo: 'Undo', redo: 'Redo', format: 'Format', formatHelp: 'Rewrite the YAML in canonical order and style',
+  checking: 'Checking…', problemsCount_one: '{{count}} problem', problemsCount_other: '{{count}} problems', problems: 'Problems', noProblems: 'No problems',
+  discardDraft: 'Discard', saveShortcut: 'Save (Ctrl+S)', saveRejected_one: 'Not saved: {{count}} violation.', saveRejected_other: 'Not saved: {{count}} violations.',
+  brokenTitle: 'This definition no longer compiles', brokenHelp: 'A service changed a contract it uses; calls fail until it is fixed. The problems list says where.',
+  staleTitle: 'Your draft started from v{{base}}; the current version is v{{current}}',
+  staleHelp: 'Someone saved meanwhile. Compare with the latest, continue from it keeping your draft, or discard the draft.',
+  compareLatest: 'Compare with latest', compareLatestHelp: 'The latest saved version on the left, your draft on the right.',
+  continueFrom: 'Continue from v{{version}}', conflictTitle: 'Not saved: the definition changed since you opened it', conflictHelp: 'Load the latest version to review what changed; your draft is kept.',
+  inspector: 'Inspector', atCursor: 'At cursor', atCursorHelp: 'Place the cursor on a value to see its type and schema.', path: 'Path', celType: 'Type', expectedType: 'Expected',
+  description: 'Description', reads: 'Reads', dependsOn: 'Depends on', levelN: 'level {{level}}',
+  graphNeedsYaml: 'Nothing to draw yet', graphNeedsYamlHelp: 'Fix the YAML errors, then the graph shows the definition.',
+  graphReadOnly: 'The YAML has errors: fix them to edit the graph.', hookInput: 'hook input (req)', eventInput: 'event payload (event, meta)', hookOutput: 'hook output', wholeInput: 'whole input', wholeOutput: 'output', wholeResult: 'whole result',
+  inspectorHelp: 'Select a step to edit it; drag between ports to wire values; drag activities from the palette to add steps.',
+  ruleWhenHelp: 'CEL over event and meta', whenHelp: 'CEL bool: run only when true', stepsTitle: 'Steps', stepsCount_one: '{{count}} step', stepsCount_other: '{{count}} steps',
+  noSchema: 'No schema declared: any JSON.', wholeValue: 'Whole value', wholeValueHelp: 'one expression', undeclaredField: 'not in the schema', editInYaml: 'Edit this value in YAML',
+  stepName: 'Step name', pickActivity: 'Pick an activity', runsAfter: 'Runs after', noOtherSteps: 'No other steps', undoActivity: 'Undo activity', undoHelp: 'runs when a later step fails',
+  undoInput: 'Undo input', none: 'None', attempts: 'Attempts', backoff: 'Backoff', initialInterval: 'Initial interval', maxInterval: 'Max interval', startToClose: 'Attempt timeout', heartbeat: 'Heartbeat',
+  deleteStep: 'Delete step', exampleFromSchema: 'Example from schema', testDraft: 'Test the draft', runDraftTest: 'Run draft', showOnGraph: 'Show on graph', noSteps: 'no steps',
 } as const;
 type PlatformKey = keyof typeof platformEnglish extends infer K ? K extends `${infer B}_${'one' | 'other'}` ? B : K : never;
 export function usePlatformText() {
   const { t } = useTranslation('backplane.platform');
   const english = platformEnglish as Record<string, string>;
   // Plural keys carry both English forms as defaults, so counts read correctly before resources load.
-  return (key: PlatformKey, options?: Record<string, unknown>) => t(key, { defaultValue: english[key] ?? english[`${key}_other`], defaultValue_one: english[`${key}_one`], defaultValue_other: english[`${key}_other`], ...options });
+  // Stable per language: memoized views may depend on it.
+  return useCallback((key: PlatformKey, options?: Record<string, unknown>) => t(key, { defaultValue: english[key] ?? english[`${key}_other`], defaultValue_one: english[`${key}_one`], defaultValue_other: english[`${key}_other`], ...options }), [t, english]);
 }

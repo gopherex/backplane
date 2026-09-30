@@ -11,14 +11,47 @@ router-agnostic: navigation leaves them through callbacks (`onNavigate`,
 | --- | --- |
 | `ServiceCatalog`, `ServiceInspector` | Instances (phase, uptime, address, applied/rejected revision, readiness) with an instance drawer (transports, node readiness, per-key configuration source, effective masked configuration); contract panels for routes, hooks with binding state, activities, published/consumed events, workflows, schedules; component tree; metadata |
 | `ConfigurationPanel` | Live settings grouped by top-level key; each path shows title, description, unit, per-instance source and effective value; an override switch opens a typed editor (switch, number, text, choice, JSON); dirty markers, validation per path, save with comment; rollout per instance; revision history with a diff drawer and rollback |
-| `AutomationPanel` | Live `WatchBindings`/`WatchRules` lists of the service's hooks and of rules on its events; per binding/rule: program (trigger → steps → result), text source, versions with diff and rollback, test runs (the result's workflow id opens its run), paged run list with refresh and step timeline; DSL editor with live parse, validate and save; rules also pause/resume/delete and creation |
-| `BindingEditor`, `RuleEditor` | One binding (by hook) or rule (by id, or a new one for an event) with the same views |
+| `AutomationPanel` | A service's wiring at a glance: its hooks with binding state, version and activities, and the rules on its events with state; every row opens it in Wiring (`onOpenWiring`) |
+| `WiringWorkspace` | Wiring (see below): live lists of bindings and rules by service, the activity palette, an overview of what needs attention, and the editor of the open item; state (`target`, `view`) reported through `onStateChange` for the URL |
+| `WiringEditor` | One binding or rule: Graph and YAML on the same draft, problems, inspector, versions, test and runs |
 | `OperationSelector`, `ServiceOperations` | Declared hooks, activities, events and workflows of a service; schemapb input form when declared, JSON otherwise; outcome with status and timing |
 | `WorkflowsPanel`, `WorkflowRuns`, `SchedulesPanel`, `RunDrawer`, `RunTable`, `RunInspector` | Declared workflows with start-from-schema, an optional workflow id and execution timeout (a running id is refused and says so); a warning when no worker polls a workflow's task queue. Runs switch between the service's workflows and its hook calls (`<service>.hooks` and the console's calls), filter by workflow type (declared and seen), status (including continued-as-new) and workflow-id prefix (a removable chip; a schedule's "Runs of this schedule" sets it), page with tokens and refresh after a start or trigger. The run drawer shows status, who started it (memo `source`) and the rest of the memo, parent and continued-as runs as links opening that run in the same drawer (with a way back), input/result (backplane envelopes with their payload as JSON), failure, every field of pending activities, history with expandable payloads and links to child runs, and cancel/terminate/signal (an empty signal payload sends no argument); a running run refreshes every 3 s while shown. Schedules show Temporal's state against the declaration: "Not in Temporal" (actions disabled), drift of the paused flag, next runs (up to 5), recent runs and running ids linking to their runs, missed/skipped counters, created/updated, owner; pause/resume ask for an optional note. `RunDrawer` accepts a `RunSource` so binding and rule runs load and cancel through their own APIs; their terminate and signal go through WorkflowService, as the controls say |
 | `EventStreams`, `DeadLettersPanel` | Events the service publishes and consumes; stream state (`GetStream`); per event subscribers with pending/ack/redelivery/dead letters, newest-first message pages, message drawer, test publish from schema; dead letters by consumer with redrive and purge |
 | `AuditFeed`, `useAuditFeed` | Filters with value pickers (action, outcome, service, actor, subject, operation), live tail, bounded deduplicated replay, pagination, cursor-expiry state, entry drawer (an entry with a workflow id opens its run); `service` scopes the feed |
 | `ExplorePanel`, `ObsResults`, `TraceLookup`, `TraceView` | See below |
 | `SystemMap`, `collectWires` | Graph of services and their connections (bindings: hook owner → activity owner; rules: event owner → activity owner; subscriptions: event owner → consumer) with filters per kind and a connection list |
+
+## Wiring
+
+A binding or rule is edited as YAML (its protojson written as YAML: steps
+by name, values as JSON trees whose strings are CEL) or as a graph; both
+change the same draft text, so switching views loses nothing and the YAML
+keeps its comments.
+
+- YAML: syntax and shape errors immediately (unknown keys, durations such as
+  `30s`, `1m30s`, `500ms`), server violations from `AnalyzeBinding` /
+  `AnalyzeRule` 250 ms after typing stops, underlined at their place (a JSON
+  Pointer mapped to the YAML node, an expression range inside the scalar).
+  Completion: keys by position, hook/event/activity names from the catalog,
+  step names, CEL variables and schema fields after `x.`. The panel beside it
+  shows the path, CEL type, expected type, description and reads at the
+  cursor.
+- Graph: the trigger (hook input or event and meta), one node per step with
+  typed input ports (the expression of each field) and output ports, the
+  result. Edges come from the analysis: data reads, `when` reads (dashed
+  amber) and `after` (dotted). Drag an activity from the palette to add a
+  step, drag an output port to an input port to write the reference, drag a
+  node to save its position in `editor`, Delete removes a step (and its
+  name from every `after`) or unsets an edge that is exactly a reference.
+  The inspector edits the selected step: rename (server-side, by syntax
+  trees), activity, when, input fields with inline CEL and completion,
+  after, undo, retry and timeouts.
+- Save sends `base_version`; a concurrent save shows a banner with a diff
+  against the latest and "continue from" it. Drafts survive switching items.
+  A broken definition (manifests changed) is flagged in the lists, the
+  overview and the editor.
+- Test runs the draft (unsaved) or the saved version; its run's step status
+  and timing overlay the graph, as does any run opened from Runs.
 
 ## Layout contract
 

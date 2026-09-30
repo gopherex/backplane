@@ -38,7 +38,7 @@ await i18n.use(initReactI18next).init({ lng: 'en', fallbackLng: 'en', supportedL
   'backplane.ui': englishResources,
   console: consoleEnglish,
   login: loginEnglish,
-  host: { development: 'Development acceptance', developmentDescription: 'Live kit components. Product console design is a separate review.', services: 'Services', configuration: 'Configuration', operations: 'Operations', binding: 'Binding', automation: 'Automation', events: 'Events', runs: 'Runs', schedules: 'Schedules', audit: 'Audit', explore: 'Explore', title: 'Embedding fixture', home: 'Platform home', loading: 'Loading module', error: 'Module could not be loaded', light: 'Light theme', dark: 'Dark theme', token: 'Operator token', login: 'Log in', logout: 'Log out', loginError: 'Login failed', state: 'Connection: {{state}}' },
+  host: { development: 'Development acceptance', developmentDescription: 'Live kit components. Product console design is a separate review.', services: 'Services', configuration: 'Configuration', operations: 'Operations', wiring: 'Wiring', automation: 'Automation', events: 'Events', runs: 'Runs', schedules: 'Schedules', audit: 'Audit', explore: 'Explore', title: 'Embedding fixture', home: 'Platform home', loading: 'Loading module', error: 'Module could not be loaded', light: 'Light theme', dark: 'Dark theme', token: 'Operator token', login: 'Log in', logout: 'Log out', loginError: 'Login failed', state: 'Connection: {{state}}' },
 } } });
 
 function Host() {

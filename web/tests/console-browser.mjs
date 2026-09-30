@@ -15,7 +15,7 @@ try {
   await expect(page.getByRole('heading', { name: 'Services', exact: true })).toBeVisible();
   const sidebar = page.getByRole('complementary', { name: 'Main navigation' });
   await expect(sidebar.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
-  assert.deepEqual(await sidebar.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link').allTextContents(), ['Services', 'Explore', 'Audit']);
+  assert.deepEqual(await sidebar.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link').allTextContents(), ['Services', 'Wiring', 'Explore', 'Audit']);
 
   // Services: cards, table and the system map show the same catalog.
   const view = page.getByRole('group', { name: 'View' });
@@ -37,6 +37,16 @@ try {
   await page.keyboard.press('Enter');
   await expect(page).toHaveURL(`${base}/services/hello/automation`);
   await expect(page.getByText('formatter.Format').first()).toBeVisible();
+  // Automation links into Wiring: the binding as a graph and as YAML, checked live.
+  await page.getByRole('button', { name: /hello\.Greet/ }).first().click();
+  await expect(page).toHaveURL(/\/wiring\?binding=hello\.Greet/);
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'formatter.Format' })).toBeVisible();
+  await expect(page.locator('.react-flow__edge').first()).toBeAttached();
+  await expect(page.getByText('No problems', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'YAML', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Definition', exact: true })).toContainText('activity: formatter.Format');
+  assert.deepEqual((await new AxeBuilder({ page }).include('.console-shell').withTags(['wcag2a', 'wcag2aa']).analyze()).violations, []);
+  await page.goBack();
 
   // Width can be changed by keyboard or pointer, and survives reload.
   const resize = sidebar.getByRole('separator', { name: 'Navigation width' });
@@ -108,5 +118,5 @@ try {
   await logout();
   await expect(page.getByLabel('Operator token')).toBeVisible();
   assert.deepEqual(errors, []);
-  console.log('Console acceptance passed: live registry, service views and map, palette, service tabs, module pages, resize, collapse, persistence, themes and accessibility');
+  console.log('Console acceptance passed: live registry, service views and map, palette, wiring graph and YAML, service tabs, module pages, resize, collapse, persistence, themes and accessibility');
 } finally { await browser.close(); }

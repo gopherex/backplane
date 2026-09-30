@@ -3,8 +3,8 @@
 /* eslint-disable */
 
 import { applyUnaryCallbacks, iterateStream, MethodInfo, WsTransport } from "@gopherex/ws-proto-transport";
-import type { CancelRuleRunRequest, CancelRuleRunResponse, DeleteRuleRequest, DeleteRuleResponse, FormatRuleRequest, FormatRuleResponse, GetRuleRequest, GetRuleResponse, GetRuleRunRequest, GetRuleRunResponse, ListRuleRunsRequest, ListRuleRunsResponse, ListRulesRequest, ListRulesResponse, ListRuleVersionsRequest, ListRuleVersionsResponse, ParseRuleRequest, ParseRuleResponse, PauseRuleRequest, PauseRuleResponse, ResumeRuleRequest, ResumeRuleResponse, RollbackRuleRequest, RollbackRuleResponse, SaveRuleRequest, SaveRuleResponse, TestRuleRequest, TestRuleResponse, ValidateRuleRequest, ValidateRuleResponse, WatchRulesRequest, WatchRulesResponse } from "./rules_pb.js";
-import { CancelRuleRunRequestSchema, CancelRuleRunResponseSchema, DeleteRuleRequestSchema, DeleteRuleResponseSchema, FormatRuleRequestSchema, FormatRuleResponseSchema, GetRuleRequestSchema, GetRuleResponseSchema, GetRuleRunRequestSchema, GetRuleRunResponseSchema, ListRuleRunsRequestSchema, ListRuleRunsResponseSchema, ListRulesRequestSchema, ListRulesResponseSchema, ListRuleVersionsRequestSchema, ListRuleVersionsResponseSchema, ParseRuleRequestSchema, ParseRuleResponseSchema, PauseRuleRequestSchema, PauseRuleResponseSchema, ResumeRuleRequestSchema, ResumeRuleResponseSchema, RollbackRuleRequestSchema, RollbackRuleResponseSchema, SaveRuleRequestSchema, SaveRuleResponseSchema, TestRuleRequestSchema, TestRuleResponseSchema, ValidateRuleRequestSchema, ValidateRuleResponseSchema, WatchRulesRequestSchema, WatchRulesResponseSchema } from "./rules_pb.js";
+import type { CancelRuleRunRequest, CancelRuleRunResponse, DeleteRuleRequest, DeleteRuleResponse, GetRuleRequest, GetRuleResponse, GetRuleRunRequest, GetRuleRunResponse, ListRuleRunsRequest, ListRuleRunsResponse, ListRulesRequest, ListRulesResponse, ListRuleVersionsRequest, ListRuleVersionsResponse, PauseRuleRequest, PauseRuleResponse, ResumeRuleRequest, ResumeRuleResponse, RollbackRuleRequest, RollbackRuleResponse, SaveRuleRequest, SaveRuleResponse, TestRuleRequest, TestRuleResponse, ValidateRuleRequest, ValidateRuleResponse, WatchRulesRequest, WatchRulesResponse } from "./rules_pb.js";
+import { CancelRuleRunRequestSchema, CancelRuleRunResponseSchema, DeleteRuleRequestSchema, DeleteRuleResponseSchema, GetRuleRequestSchema, GetRuleResponseSchema, GetRuleRunRequestSchema, GetRuleRunResponseSchema, ListRuleRunsRequestSchema, ListRuleRunsResponseSchema, ListRulesRequestSchema, ListRulesResponseSchema, ListRuleVersionsRequestSchema, ListRuleVersionsResponseSchema, PauseRuleRequestSchema, PauseRuleResponseSchema, ResumeRuleRequestSchema, ResumeRuleResponseSchema, RollbackRuleRequestSchema, RollbackRuleResponseSchema, SaveRuleRequestSchema, SaveRuleResponseSchema, TestRuleRequestSchema, TestRuleResponseSchema, ValidateRuleRequestSchema, ValidateRuleResponseSchema, WatchRulesRequestSchema, WatchRulesResponseSchema } from "./rules_pb.js";
 
 export interface CallOptions {
   /** Request metadata sent as headers on the opening frame. */
@@ -89,22 +89,6 @@ const RuleService_ResumeRule: MethodInfo<ResumeRuleRequest, ResumeRuleResponse> 
   kind: "unary",
   input: ResumeRuleRequestSchema,
   output: ResumeRuleResponseSchema,
-};
-
-const RuleService_ParseRule: MethodInfo<ParseRuleRequest, ParseRuleResponse> = {
-  typeName: "backplane.console.v1.RuleService",
-  name: "ParseRule",
-  kind: "unary",
-  input: ParseRuleRequestSchema,
-  output: ParseRuleResponseSchema,
-};
-
-const RuleService_FormatRule: MethodInfo<FormatRuleRequest, FormatRuleResponse> = {
-  typeName: "backplane.console.v1.RuleService",
-  name: "FormatRule",
-  kind: "unary",
-  input: FormatRuleRequestSchema,
-  output: FormatRuleResponseSchema,
 };
 
 const RuleService_WatchRules: MethodInfo<WatchRulesRequest, WatchRulesResponse> = {
@@ -260,27 +244,6 @@ export class RuleServiceClient {
   }
 
   /**
-   * ParseRule reads the text form of a rule (§8.1).
-   *
-   * @generated from rpc backplane.console.v1.RuleService.ParseRule
-   */
-  async parseRule(req: ParseRuleRequest, options?: CallOptions): Promise<ParseRuleResponse> {
-    const res = await this.transport.unary(RuleService_ParseRule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
-    return applyUnaryCallbacks(res, options);
-  }
-
-  /**
-   * FormatRule writes the text form of a definition; ParseRule reads it
-   * back into the same definition.
-   *
-   * @generated from rpc backplane.console.v1.RuleService.FormatRule
-   */
-  async formatRule(req: FormatRuleRequest, options?: CallOptions): Promise<FormatRuleResponse> {
-    const res = await this.transport.unary(RuleService_FormatRule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
-    return applyUnaryCallbacks(res, options);
-  }
-
-  /**
    * WatchRules streams ListRules: now, then again whenever it changes.
    *
    * @generated from rpc backplane.console.v1.RuleService.WatchRules
@@ -317,7 +280,7 @@ export class RuleServiceClient {
 
   /**
    * GetRuleRun is one run of the rule: status, input, result or failure,
-   * pending activities and history.
+   * pending activities, history and the steps' timeline.
    *
    * @generated from rpc backplane.console.v1.RuleService.GetRuleRun
    */

@@ -8,10 +8,10 @@ fixture at `/backplane/dev` is a technical acceptance page outside navigation.
 ## Shell
 
 - Header: brand, breadcrumbs (`Services / hello / Configuration`), a search and
-  jump command palette (⌘K / Ctrl+K: services, every service tab, module pages,
-  theme), connection state, theme switch and the session menu (current session,
+  jump command palette (⌘K / Ctrl+K: platform sections, services, every service
+  tab, module pages, theme), connection state, theme switch and the session menu (current session,
   managing and revoking sessions, log out).
-- Navigation: Services, Explore and Audit, then one branch per service from the
+- Navigation: Services, Wiring, Explore and Audit, then one branch per service from the
   live catalog with a health dot, its module pages as leaves and a manage link.
   Only the current destination is highlighted. The rail collapses to icons,
   expands temporarily on hover or focus, can be pinned and resized (keyboard and
@@ -28,12 +28,13 @@ fixture at `/backplane/dev` is a technical acceptance page outside navigation.
 | `/services/:service` | Entity header (health, version, instances, SDK, uptime) with tabs |
 | `…/` (Overview) | Instances and instance drawer, contract panels, component tree, metadata |
 | `…/configuration` | Live settings editor, rollout, revisions with diff and rollback |
-| `…/automation` | Bindings of the service's hooks and rules on its events |
+| `…/automation` | Summary of the service's hooks with their bindings and the rules on its events; each opens in Wiring |
 | `…/operations` | Call hooks, run activities, publish test events, start workflows |
 | `…/events` | Streams, published/consumed events, subscribers, messages, dead letters |
 | `…/workflows` | Declared workflows, runs, schedules |
 | `…/telemetry` | Explore scoped to the service's telemetry selectors |
 | `…/audit` | Audit entries attributed to the service |
+| `/wiring` | Bindings and rules of the installation as YAML or a graph (`?binding=<hook>`, `?rule=<id>`, `?event=<event>` for a new rule, `&view=graph\|yaml\|versions\|test\|runs`) |
 | `/explore` | Logs, metrics and traces workspace; query state in the URL |
 | `/audit` | Installation audit with value pickers, live tail and entry drawer |
 | `/s/:service/*` | Module-owned pages |

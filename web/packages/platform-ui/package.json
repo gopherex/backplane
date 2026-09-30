@@ -44,6 +44,7 @@
     "@gopherex/schemapb": "1.7.0",
     "@xyflow/react": "12.10.2",
     "lossless-json": "4.3.1",
-    "lucide-react": "1.48.0"
+    "lucide-react": "1.48.0",
+    "yaml": "2.9.1"
   }
 }

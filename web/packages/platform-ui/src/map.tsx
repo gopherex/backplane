@@ -7,10 +7,11 @@ import { Badge, EmptyState, Panel, Skeleton, StatusDot, type StatusTone } from '
 import { Box, Cable, Radio, Zap } from 'lucide-react';
 import { usePlatformQuery } from './runtime.js';
 import { usePlatformText } from './locales.js';
+import type { WiringTarget } from './wiring/editor.js';
 
 export type WireKind = 'binding' | 'rule' | 'subscription';
 /** One connection between two services, as declared by bindings, rules and manifests. */
-export interface Wire { kind: WireKind; from: string; to: string; label: string; detail: string }
+export interface Wire { kind: WireKind; from: string; to: string; label: string; detail: string; target?: WiringTarget }
 
 const healthTone: Record<api.ServiceHealth, StatusTone> = {
   [api.ServiceHealth.UNSPECIFIED]: 'neutral', [api.ServiceHealth.HEALTHY]: 'success', [api.ServiceHealth.DEGRADED]: 'warning', [api.ServiceHealth.DOWN]: 'danger',
@@ -21,12 +22,12 @@ const wireColor: Record<WireKind, string> = { binding: 'var(--chart-1)', rule: '
 /** Every service-to-service connection of the installation. */
 export function collectWires(manifests: api.GetServiceResponse[], bindings: api.HookBinding[], rules: api.Rule[]): Wire[] {
   const wires: Wire[] = [];
-  for (const binding of bindings) for (const step of binding.current?.definition?.steps ?? []) {
-    wires.push({ kind: 'binding', from: binding.service || owner(binding.hook), to: owner(step.activity), label: binding.hook, detail: `${step.name} → ${step.activity}` });
+  for (const binding of bindings) if (!binding.current?.deleted) for (const [name, step] of Object.entries(binding.current?.definition?.steps ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+    wires.push({ kind: 'binding', from: binding.service || owner(binding.hook), to: owner(step.activity), label: binding.hook, detail: `${name} → ${step.activity}`, target: { kind: 'binding', hook: binding.hook } });
   }
   for (const rule of rules) {
-    const definition = rule.current?.definition; if (!definition) continue;
-    for (const step of definition.steps) wires.push({ kind: 'rule', from: owner(definition.event), to: owner(step.activity), label: rule.current?.name || rule.id, detail: `${definition.event} → ${step.activity}${rule.paused ? ' (paused)' : ''}` });
+    const definition = rule.current?.definition; if (!definition || rule.current?.deleted) continue;
+    for (const step of Object.values(definition.steps)) wires.push({ kind: 'rule', from: owner(definition.event), to: owner(step.activity), label: rule.current?.name || rule.id, detail: `${definition.event} → ${step.activity}${rule.paused ? ' (paused)' : ''}`, target: { kind: 'rule', id: rule.id } });
   }
   for (const service of manifests) for (const subscription of service.latest?.subscriptions ?? []) {
     wires.push({ kind: 'subscription', from: owner(subscription.event), to: service.latest!.service, label: subscription.event, detail: `${subscription.event} → ${subscription.consumer}` });
@@ -70,7 +71,7 @@ const ServiceNode = memo(function ServiceNode({ data }: NodeProps<Node<ServiceNo
 const nodeTypes = { service: ServiceNode };
 
 /** Services and how they are wired: bindings, rules and event subscriptions. */
-export function SystemMap({ services, mode, onOpenService, height }: { services: api.ServiceSummary[]; mode: 'dark' | 'light'; onOpenService?: (service: string) => void; height?: number }) {
+export function SystemMap({ services, mode, onOpenService, onOpenWiring, height }: { services: api.ServiceSummary[]; mode: 'dark' | 'light'; onOpenService?: (service: string) => void; onOpenWiring?: (target: WiringTarget) => void; height?: number }) {
   const catalog = useClient(api.CatalogServiceClient), bindings = useClient(api.BindingServiceClient), rules = useClient(api.RuleServiceClient), text = usePlatformText();
   const names = services.map((service) => service.name).join(',');
   const state = usePlatformQuery(`map:${names}`, async (signal) => {
@@ -125,12 +126,13 @@ export function SystemMap({ services, mode, onOpenService, height }: { services:
       footer={selected && onOpenService ? <button type="button" className="text-link hover:underline" onClick={() => onOpenService(selected)}>{text('openService')}</button> : undefined}>
       <div>
         {!focus.length && <EmptyState className="py-8" title={text('noConnections')} />}
-        {focus.map((wire, index) => <div key={index} className="grid gap-0.5 border-b border-border px-3 py-2 last:border-b-0">
+        {focus.map((wire, index) => { const open = wire.target && onOpenWiring ? () => onOpenWiring(wire.target!) : undefined; return <button key={index} type="button" disabled={!open} onClick={open} title={open ? text('openInWiring') : undefined}
+          className="grid w-full gap-0.5 border-b border-border px-3 py-2 text-left last:border-b-0 enabled:hover:bg-raised">
           <div className="flex items-center gap-2 text-xs"><span className="h-0.5 w-3 shrink-0 rounded-full" style={{ background: wireColor[wire.kind] }} />
             <span className="font-mono">{wire.from}</span><span className="text-muted-foreground">→</span><span className="font-mono">{wire.to}</span>
             <Badge variant="outline" className="ml-auto">{text(`wire_${wire.kind}`)}</Badge></div>
           <div className="truncate pl-5 font-mono text-2xs text-muted-foreground" title={wire.detail}>{wire.label} · {wire.detail}</div>
-        </div>)}
+        </button>; })}
       </div>
     </Panel>
   </div>;

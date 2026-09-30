@@ -22,6 +22,7 @@ without module-owned styles. English only; dark and light themes.
 | `web/packages/ui/src/theme.css`, `style.css` | Tailwind theme preset; the kit family stylesheet |
 | `web/packages/ui/src/components/layout.tsx`, `status.tsx`, `time.tsx`, `entity-card.tsx`, `filter.tsx` | Page compositions |
 | `web/packages/platform-ui/src/` | API-aware screens: services, config, automation, runs, events, operations, explore (`explore*.ts[x]`), audit, map |
+| `web/packages/platform-ui/src/wiring/` | Wiring: YAML model and positions (`document.ts`), completion, catalog and shapes, draft and analysis, graph, inspector, history, workspace |
 | `web/apps/embedding/src/main.tsx` | Runtime, session, theme and i18n bootstrap; live console vs SDK compatibility fixture |
 | `web/apps/embedding/src/console/Console.tsx` | Routes and page frames |
 | `web/apps/embedding/src/console/shell/` | Header, breadcrumbs, command palette, session menu |

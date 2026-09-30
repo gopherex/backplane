@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { BackplaneProvider } from '@gopherex/backplane-react';
-import { AuditFeed, AutomationPanel, BindingEditor, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, RuleEditor, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, SystemMap, WorkflowRuns, WorkflowsPanel } from '@gopherex/backplane-platform-ui';
+import { AuditFeed, AutomationPanel, ConfigurationPanel, DeadLettersPanel, EventStreams, ExplorePanel, SchedulesPanel, ServiceCatalog, ServiceInspector, ServiceOperations, SystemMap, WiringWorkspace, WorkflowRuns, WorkflowsPanel, type WiringState } from '@gopherex/backplane-platform-ui';
 import { ServiceHealth } from '@gopherex/backplane-api';
 import '@xyflow/react/dist/base.css';
 import { Button, Checkbox, Stack } from '@gopherex/backplane-ui';
@@ -30,8 +30,13 @@ export const Configuration: Story = { render: (_, context) => <ConfigurationPane
 export const Audit: Story = { render: (_, context) => <AuditFeed mode={mode(context)} /> };
 export const Explore: Story = { render: (_, context) => <ExplorePanel mode={mode(context)} /> };
 export const Operations: Story = { render: (_, context) => <ServiceOperations service="hello" mode={mode(context)} /> };
-export const Bindings: Story = { render: (_, context) => <BindingEditor hook="hello.Greet" mode={mode(context)} /> };
-export const Rules: Story = { render: (_, context) => <RuleEditor event="hello.Greeted" mode={mode(context)} /> };
+function Wiring({ mode, initial }: { mode: 'dark' | 'light'; initial: WiringState }) {
+  const [state, setState] = useState<WiringState>(initial);
+  return <div style={{ height: 760 }}><WiringWorkspace mode={mode} state={state} onStateChange={setState} /></div>;
+}
+export const WiringYaml: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ target: { kind: 'binding', hook: 'hello.Greet' }, view: 'yaml' }} /> };
+export const WiringGraph: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ target: { kind: 'binding', hook: 'hello.Greet' }, view: 'graph' }} /> };
+export const WiringRule: Story = { render: (_, context) => <Wiring mode={mode(context)} initial={{ view: 'yaml' }} /> };
 export const Workflows: Story = { render: (_, context) => <WorkflowRuns service="hello" mode={mode(context)} /> };
 export const Schedules: Story = { render: (_, context) => <SchedulesPanel service="hello" mode={mode(context)} /> };
 export const EventsAndDeadLetters: Story = { render: (_, context) => <><EventStreams service="hello" mode={mode(context)} /><DeadLettersPanel subscriber="hello" consumer="audit" mode={mode(context)} /></> };

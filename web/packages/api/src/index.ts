@@ -18,5 +18,8 @@ export * from './gen/backplanepb/console/v1/rules_pb.js';
 export { RuleServiceClient } from './gen/backplanepb/console/v1/rules_ws_pb.js';
 export * from './gen/backplanepb/console/v1/session_pb.js';
 export { SessionServiceClient } from './gen/backplanepb/console/v1/session_ws_pb.js';
+export * from './gen/backplanepb/console/v1/step_pb.js';
+export * from './gen/backplanepb/console/v1/wiring_pb.js';
+export { WiringServiceClient } from './gen/backplanepb/console/v1/wiring_ws_pb.js';
 export * from './gen/backplanepb/console/v1/workflows_pb.js';
 export { WorkflowServiceClient, ScheduleServiceClient } from './gen/backplanepb/console/v1/workflows_ws_pb.js';

@@ -6,6 +6,7 @@ import { Button, EmptyState, ErrorBoundary, PageHeader, Skeleton, TooltipProvide
 import { PluginProvider } from '@gopherex/backplane-plugin-sdk';
 import { AuditFeed } from '@gopherex/backplane-platform-ui';
 import { ExploreRoute } from './ExploreRoute';
+import { WiringRoute } from './WiringRoute';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import Sidebar from './Sidebar';
 import type { useRegistry, ModuleEntry } from './registry';
@@ -60,6 +61,7 @@ export default function Console({ mode, onThemeChange, onLogout, registry }: { m
           <Route path="/" element={<Navigate to="/services" replace />} />
           <Route path="/services" element={<ServicesPage services={services} index={index} loading={registry.catalog.status === 'loading'} mode={mode} />} />
           <Route path="/services/:service/:tab?" element={<ServicePage mode={mode} services={services} index={index} />} />
+          <Route path="/wiring" element={<><PageHeader title={t('wiring')} description={t('wiringDescription')} /><div className="console-fill"><WiringRoute mode={mode} /></div></>} />
           <Route path="/explore" element={<><PageHeader title={t('explore')} description={t('exploreDescription')} /><div className="console-fill"><ExploreRoute mode={mode} /></div></>} />
           <Route path="/audit" element={<><PageHeader title={t('audit')} description={t('auditDescription')} /><div className="console-fill"><AuditFeed mode={mode} /></div></>} />
           <Route path="/s/:service/*" element={<div className="console-scroll"><ModulePage modules={registry.modules} mode={mode} retry={registry.retry} loading={registry.descriptors.loading} /></div>} />

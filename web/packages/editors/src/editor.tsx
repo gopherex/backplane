@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Compartment, EditorState, Transaction } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, hoverTooltip } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { history, historyKeymap, defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { syntaxHighlighting, HighlightStyle, bracketMatching } from '@codemirror/language';
@@ -21,10 +21,10 @@ export function editorHighlight(mode: 'dark' | 'light') {
     { tag: tags.invalid, color: c.destructive },
   ]));
 }
-export function editorTheme(mode: 'dark' | 'light', height = 160) {
+export function editorTheme(mode: 'dark' | 'light', height: number | 'fill' = 160) {
   const c = tokens[mode];
   return EditorView.theme({
-    '&': { backgroundColor: c.background, color: c.foreground, height: `${height}px`, fontFamily: typography.fontFamilyMonospace },
+    '&': { backgroundColor: c.background, color: c.foreground, height: height === 'fill' ? '100%' : `${height}px`, fontFamily: typography.fontFamilyMonospace },
     '.cm-scroller': { overflow: 'auto', fontFamily: 'inherit' }, '.cm-content': { padding: '8px', caretColor: c.foreground },
     '.cm-gutters': { backgroundColor: c.muted, color: c['muted-foreground'], borderColor: c.border },
     '&.cm-focused': { outline: `2px solid ${c.ring}`, outlineOffset: '2px' },
@@ -32,6 +32,8 @@ export function editorTheme(mode: 'dark' | 'light', height = 160) {
     '.cm-activeLine': { backgroundColor: c.muted }, '.cm-cursor': { borderLeftColor: c.foreground },
     '.cm-tooltip': { backgroundColor: c.popover, color: c.foreground, border: `1px solid ${c.border}`, zIndex: '60' },
     '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: c.accent, color: c.foreground },
+    '.cm-tooltip-hover': { padding: '4px 8px', fontSize: '12px' },
+    '.cm-completionDetail': { color: c['muted-foreground'], fontStyle: 'normal', marginLeft: '8px' },
   }, { dark: mode === 'dark' });
 }
 
@@ -45,16 +47,17 @@ export default function Editor(props: CodeEditorProps) {
     if (!host.current) return;
     const requests = new Set<AbortController>(); let disposed = false;
     const complete = async (context: CompletionContext) => {
-      const word = context.matchBefore(/[\w.$:]+/); if (!context.explicit && !word) return null;
+      const language = latest.current.language ?? 'text';
+      const word = context.matchBefore(/[\w.$:]+/); if (!context.explicit && !word && !(language === 'yaml' && latest.current.complete)) return null;
       const controller = new AbortController(); requests.add(controller);
       context.addEventListener('abort', () => controller.abort(), { onDocChange: true });
-      const language = latest.current.language ?? 'text';
       try {
-        const options = latest.current.complete
-          ? await latest.current.complete({ value: context.state.doc.toString(), position: context.pos, language, signal: controller.signal })
-          : language === 'json' || language === 'text' ? [] : queryKeywords[language].map((label) => ({ label, type: 'keyword' }));
-        if (disposed || controller.signal.aborted || context.aborted) return null;
-        setFailure(null); return { from: word?.from ?? context.pos, options: [...options].slice(0, 500) };
+        const answer = latest.current.complete
+          ? await latest.current.complete({ value: context.state.doc.toString(), position: context.pos, language, signal: controller.signal, explicit: context.explicit })
+          : language === 'json' || language === 'yaml' || language === 'text' ? [] : queryKeywords[language].map((label) => ({ label, type: 'keyword' as const }));
+        if (disposed || controller.signal.aborted || context.aborted || !answer) return null;
+        const result = 'from' in answer ? answer : { from: word?.from ?? context.pos, options: answer };
+        setFailure(null); return { from: result.from, options: [...result.options].slice(0, 500), validFor: /^[\w]*$/ };
       } catch { if (!disposed && !controller.signal.aborted) setFailure('completionFailed'); return null; }
       finally { requests.delete(controller); }
     };
@@ -64,7 +67,8 @@ export default function Editor(props: CodeEditorProps) {
       const doc = view.state.doc.toString();
       try {
         const local = latest.current.language === 'json' ? jsonParseLinter()(view) : [];
-        const remote = latest.current.validate ? await latest.current.validate(doc, controller.signal) : [];
+        // Without a validator the host's diagnostics are the lint result, so a lint pass never clears them.
+        const remote = latest.current.validate ? await latest.current.validate(doc, controller.signal) : latest.current.diagnostics ?? [];
         if (disposed || controller.signal.aborted || view.state.doc.toString() !== doc) return [];
         const result = [...await local, ...boundDiagnostics(remote, doc.length)];
         setMessages(result); latest.current.onDiagnostics?.(result); setFailure(null); return result;
@@ -76,11 +80,18 @@ export default function Editor(props: CodeEditorProps) {
       settings.current.of([]), externalDiagnostics.current.of([]),
       keymap.of([{ key: 'Mod-Enter', run: () => { if (!latest.current.disabled) latest.current.onSubmit?.(); return true; } }, ...completionKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
       autocompletion({ override: [complete] }), linter(validate, { delay: 300 }),
+      hoverTooltip((view, pos) => {
+        const content = latest.current.hover?.(pos, view.state.doc.toString()); if (!content) return null;
+        return { pos, create: () => { const dom = document.createElement('div'); dom.textContent = content; return { dom }; } };
+      }),
       EditorState.changeFilter.of((transaction) => !latest.current.inline || !transaction.docChanged || !transaction.newDoc.toString().includes('\n')),
-      EditorView.updateListener.of((update) => { if (update.docChanged) {
-        validation?.abort();
-        if (!update.transactions.some((transaction) => transaction.annotation(Transaction.remote))) latest.current.onChange?.(update.state.doc.toString());
-      } }),
+      EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          validation?.abort();
+          if (!update.transactions.some((transaction) => transaction.annotation(Transaction.remote))) latest.current.onChange?.(update.state.doc.toString());
+        }
+        if (update.selectionSet || update.docChanged) latest.current.onCursor?.(update.state.selection.main.head);
+      }),
     ] }) });
     viewRef.current = view;
     return () => { disposed = true; requests.forEach((controller) => controller.abort()); view.destroy(); viewRef.current = null; };
@@ -98,9 +109,16 @@ export default function Editor(props: CodeEditorProps) {
     const view = viewRef.current; if (view && view.state.doc.toString() !== props.value) view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: props.value }, annotations: Transaction.remote.of(true) });
   }, [props.value]);
   useEffect(() => { const view = viewRef.current; if (view && props.diagnostics) view.dispatch(setDiagnostics(view.state, boundDiagnostics(props.diagnostics, view.state.doc.length))); }, [props.diagnostics, props.value]);
-  return <div><div ref={host} style={{ border: '1px solid var(--border)', borderRadius: 4 }} />
-    <small style={{ color: 'var(--muted-foreground)' }}>{text('escapeTab')}</small>
+  useEffect(() => {
+    const view = viewRef.current, reveal = props.reveal; if (!view || !reveal) return;
+    const length = view.state.doc.length, from = Math.max(0, Math.min(length, reveal.from)), to = Math.max(from, Math.min(length, reveal.to));
+    view.dispatch({ selection: { anchor: from, head: to }, effects: EditorView.scrollIntoView(from, { y: 'center' }) }); view.focus();
+  }, [props.reveal?.key]); // eslint-disable-line react-hooks/exhaustive-deps -- a reveal is keyed, not compared.
+  const fill = props.height === 'fill';
+  return <div style={fill ? { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } : undefined}>
+    <div ref={host} style={{ border: '1px solid var(--border)', borderRadius: 4, ...(fill ? { flex: '1 1 auto', minHeight: 0 } : {}) }} />
+    {!props.hideMessages && <small style={{ color: 'var(--muted-foreground)' }}>{text('escapeTab')}</small>}
     {failure && <p role="status">{text(failure)}</p>}
-    {!!messages.length && <ul aria-label={text('diagnostics')}>{messages.map((message, index) => <li key={index}>{message.message}</li>)}</ul>}
+    {!props.hideMessages && !!messages.length && <ul aria-label={text('diagnostics')}>{messages.map((message, index) => <li key={index}>{message.message}</li>)}</ul>}
   </div>;
 }

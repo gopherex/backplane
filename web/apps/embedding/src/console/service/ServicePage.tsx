@@ -1,4 +1,4 @@
-import { NavLink, Link, useParams } from 'react-router-dom';
+import { NavLink, Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { create } from '@bufbuild/protobuf';
 import { timestampDate } from '@bufbuild/protobuf/wkt';
@@ -12,9 +12,10 @@ import { healthLabel, healthTone } from '../services/model';
 import { isServiceTab, serviceTabs } from './tabs';
 import { NotFound } from '../shell/NotFound';
 import { ExploreRoute } from '../ExploreRoute';
+import { wiringLink } from '../WiringRoute';
 
 export function ServicePage({ mode, services, index }: { mode: ThemeMode; services: ServiceSummary[]; index?: bigint }) {
-  const { t } = useTranslation('console'), { service = '', tab = 'overview' } = useParams();
+  const { t } = useTranslation('console'), { service = '', tab = 'overview' } = useParams(), navigate = useNavigate();
   const client = useClient(CatalogServiceClient), summary = services.find((entry) => entry.name === service);
   const detail = usePlatformQuery(`header:${service}:${index}`, (signal) => client.getService(create(GetServiceRequestSchema, { name: service }), { signal }));
   const started = detail.value?.instances.flatMap((instance) => instance.state?.startedAt ? [timestampDate(instance.state.startedAt)] : []).sort((a, b) => a.getTime() - b.getTime())[0];
@@ -39,7 +40,7 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
     <div className="console-detail" key={`${service}/${tab}`}>
       {tab === 'overview' && <ServiceInspector service={service} mode={mode} />}
       {tab === 'configuration' && <ConfigurationPanel service={service} mode={mode} />}
-      {tab === 'automation' && <AutomationPanel service={service} mode={mode} />}
+      {tab === 'automation' && <AutomationPanel service={service} mode={mode} onOpenWiring={(target) => navigate(wiringLink(target))} />}
       {tab === 'operations' && <ServiceOperations service={service} mode={mode} />}
       {tab === 'events' && <EventStreams service={service} mode={mode} />}
       {tab === 'workflows' && <WorkflowsPanel service={service} mode={mode} />}

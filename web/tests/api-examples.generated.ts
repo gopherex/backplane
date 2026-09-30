@@ -27,12 +27,6 @@ export function BindingService_RollbackBinding(client: API.BindingServiceClient,
 export function BindingService_DeleteBinding(client: API.BindingServiceClient, request: API.DeleteBindingRequest, signal: AbortSignal) {
   return client.deleteBinding(request, { signal });
 }
-export function BindingService_ParseBinding(client: API.BindingServiceClient, request: API.ParseBindingRequest, signal: AbortSignal) {
-  return client.parseBinding(request, { signal });
-}
-export function BindingService_FormatBinding(client: API.BindingServiceClient, request: API.FormatBindingRequest, signal: AbortSignal) {
-  return client.formatBinding(request, { signal });
-}
 export function BindingService_WatchBindings(client: API.BindingServiceClient, request: API.WatchBindingsRequest, signal: AbortSignal) {
   return client.watchBindings(request, { signal });
 }
@@ -153,12 +147,6 @@ export function RuleService_PauseRule(client: API.RuleServiceClient, request: AP
 export function RuleService_ResumeRule(client: API.RuleServiceClient, request: API.ResumeRuleRequest, signal: AbortSignal) {
   return client.resumeRule(request, { signal });
 }
-export function RuleService_ParseRule(client: API.RuleServiceClient, request: API.ParseRuleRequest, signal: AbortSignal) {
-  return client.parseRule(request, { signal });
-}
-export function RuleService_FormatRule(client: API.RuleServiceClient, request: API.FormatRuleRequest, signal: AbortSignal) {
-  return client.formatRule(request, { signal });
-}
 export function RuleService_WatchRules(client: API.RuleServiceClient, request: API.WatchRulesRequest, signal: AbortSignal) {
   return client.watchRules(request, { signal });
 }
@@ -182,6 +170,18 @@ export function SessionService_RevokeSession(client: API.SessionServiceClient, r
 }
 export function SessionService_RevokeOtherSessions(client: API.SessionServiceClient, request: API.RevokeOtherSessionsRequest, signal: AbortSignal) {
   return client.revokeOtherSessions(request, { signal });
+}
+export function WiringService_GetWiringCatalog(client: API.WiringServiceClient, request: API.GetWiringCatalogRequest, signal: AbortSignal) {
+  return client.getWiringCatalog(request, { signal });
+}
+export function WiringService_AnalyzeBinding(client: API.WiringServiceClient, request: API.AnalyzeBindingRequest, signal: AbortSignal) {
+  return client.analyzeBinding(request, { signal });
+}
+export function WiringService_AnalyzeRule(client: API.WiringServiceClient, request: API.AnalyzeRuleRequest, signal: AbortSignal) {
+  return client.analyzeRule(request, { signal });
+}
+export function WiringService_RenameStep(client: API.WiringServiceClient, request: API.RenameStepRequest, signal: AbortSignal) {
+  return client.renameStep(request, { signal });
 }
 export function WorkflowService_ListWorkflows(client: API.WorkflowServiceClient, request: API.ListWorkflowsRequest, signal: AbortSignal) {
   return client.listWorkflows(request, { signal });
