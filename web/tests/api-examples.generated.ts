@@ -141,6 +141,12 @@ export function ObsService_ListObsFieldValues(client: API.ObsServiceClient, requ
 export function ObsService_GetObsSelectors(client: API.ObsServiceClient, request: API.GetObsSelectorsRequest, signal: AbortSignal) {
   return client.getObsSelectors(request, { signal });
 }
+export function PlatformService_GetCapabilities(client: API.PlatformServiceClient, request: API.GetCapabilitiesRequest, signal: AbortSignal) {
+  return client.getCapabilities(request, { signal });
+}
+export function PlatformService_GetInfrastructure(client: API.PlatformServiceClient, request: API.GetInfrastructureRequest, signal: AbortSignal) {
+  return client.getInfrastructure(request, { signal });
+}
 export function RuleService_ListRules(client: API.RuleServiceClient, request: API.ListRulesRequest, signal: AbortSignal) {
   return client.listRules(request, { signal });
 }
@@ -224,6 +230,18 @@ export function WorkflowService_TerminateRun(client: API.WorkflowServiceClient, 
 }
 export function WorkflowService_SignalRun(client: API.WorkflowServiceClient, request: API.SignalRunRequest, signal: AbortSignal) {
   return client.signalRun(request, { signal });
+}
+export function ScheduleService_GetSchedule(client: API.ScheduleServiceClient, request: API.GetScheduleRequest, signal: AbortSignal) {
+  return client.getSchedule(request, { signal });
+}
+export function ScheduleService_CreateSchedule(client: API.ScheduleServiceClient, request: API.CreateScheduleRequest, signal: AbortSignal) {
+  return client.createSchedule(request, { signal });
+}
+export function ScheduleService_UpdateSchedule(client: API.ScheduleServiceClient, request: API.UpdateScheduleRequest, signal: AbortSignal) {
+  return client.updateSchedule(request, { signal });
+}
+export function ScheduleService_DeleteSchedule(client: API.ScheduleServiceClient, request: API.DeleteScheduleRequest, signal: AbortSignal) {
+  return client.deleteSchedule(request, { signal });
 }
 export function ScheduleService_ListSchedules(client: API.ScheduleServiceClient, request: API.ListSchedulesRequest, signal: AbortSignal) {
   return client.listSchedules(request, { signal });

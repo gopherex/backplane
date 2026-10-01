@@ -106,7 +106,8 @@ save/rollback responses; a nil revision with violations is not success.
 
 ## Binding
 
-`Unavailable`: catalog/executor not synchronized or execution dependency absent.
+`Unavailable`: catalog/executor not synchronized or configured dependency unavailable.
+`FailedPrecondition`: execution is disabled by deployment.
 `NotFound`: binding/version absent. `FailedPrecondition`: tombstoned binding.
 `Aborted`: `base_version` is set and the current version is another one (an
 edit raced another editor; reload and reapply). Malformed run/request
@@ -118,7 +119,7 @@ fields. Test calls return `CallResult`.
 
 Binding-family statuses also apply to rules. Run commands additionally map
 invalid UUID/request to `InvalidArgument`, missing/wrong run to `NotFound`, and
-unconfigured Temporal to `Unavailable`. Temporal statuses propagate. A test can
+disabled execution to `FailedPrecondition`, configured-but-unavailable Temporal to `Unavailable`. Temporal statuses propagate. A test can
 return validation violations, an evaluation error, matched=false, or a call
 result; matched=false alone is a successful test with no run.
 
@@ -131,7 +132,8 @@ fields; nothing is saved.
 ## Operations
 
 Event, workflow, schedule and call services map bad input to `InvalidArgument`,
-unsettled/missing backend to `Unavailable`, undeclared/missing subject to
+disabled execution to `FailedPrecondition`, an unsettled or unavailable configured backend
+to `Unavailable`, undeclared/missing subject to
 `NotFound`, and invalid operation state to `FailedPrecondition`. Unexpected
 failures become `Internal`. Temporal's recognized status codes propagate, so
 `AlreadyExists`, `PermissionDenied`, `ResourceExhausted` and other backend codes
@@ -211,3 +213,39 @@ for all methods. `yarn typecheck` checks those examples. Unit tests cover cookie
 failures, logout, late responses, no unary replay, 64-bit round trips, stream
 retry/cancellation/backoff and terminal statuses. `make web-check` adds browser
 acceptance against the real Go console and service-owned bundle delivery.
+
+## Platform
+
+`PlatformService.GetCapabilities` returns configuration, independent of health.
+Feature names: `events`, `workflows`, `schedules`, `bindings`, `rules`, `metrics`,
+`logs`, `traces`, `telemetry`, `gateway`, `audit`, `audit_export`.
+`GetInfrastructure` reads cached per-replica probes with `ok`, `checked_at`,
+`reason` and `required`. Disabled dependencies are absent. Empty `checked_at`
+means the initial check is pending, not an observed outage. Reasons are safe
+codes (`checking`, `unavailable`, `timeout`); connection strings never leave the
+server. Common authentication/transport errors apply. Health is available while
+the control plane and its session store can serve requests.
+
+Disabled runtime RPCs return `FailedPrecondition`; configured but unavailable
+backends return `Unavailable` (or a request deadline). Binding/rule definitions
+remain editable when their execution engine is disabled.
+
+### Administrative schedules
+
+Temporal stores schedules; the SDK only declares and executes workflows.
+`CreateSchedule` validates the workflow and its JSON input against the manifest,
+and accepts cron or a positive interval with a time zone. New schedules skip
+overlapping executions. `GetSchedule` returns an opaque revision and normalized
+Temporal timing. `UpdateSchedule` requires that revision, keeps pause/note,
+policies and advanced action settings, and only replaces timing when explicitly
+supplied. A stale or concurrently rejected update returns `Aborted`. Reopen the
+schedule before retrying. The server serializes schedule commands across
+replicas with a PostgreSQL advisory lock and waits for update confirmation.
+`DeleteSchedule` leaves existing workflow runs intact. Listing, reading and
+deleting work even after the module disappears from the registry. SDK declarations
+never resurrect deleted schedules or reset an operator's pause.
+
+Mutations have durable audit intent/result. Never automatically retry them after
+an ambiguous transport failure; inspect the current schedule and audit first.
+The generated Go/TS clients call the same administrative API and need no Temporal
+SDK. CLI clients may use the existing authenticated console WebSocket transport.

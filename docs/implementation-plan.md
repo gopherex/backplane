@@ -43,7 +43,7 @@ Step 1 evidence: [ObsService contract](obs-api.md), generated Go/TS clients,
 `make test-otlp` with ObsService queries. No application module was implemented.
 
 Step 2 evidence: [AuditService contract](audit-api.md), `make test-audit`,
-`make test-replicas` including real AuditEntry delivery, M1/M2 conformance,
+`make test-replicas` including real OTLP audit delivery, M1/M2 conformance,
 full Go race tests, clean Go lint and generated Go/TypeScript clients.
 
 Step 3 evidence: [72-method reference](api-reference.md) and [client contract](api-client.md),

@@ -494,3 +494,56 @@ func TestRetentionKeepsUndeliveredPrefix(t *testing.T) {
 		}
 	}
 }
+
+func TestDisabledExportRetainsHistoryAndPendingWork(t *testing.T) {
+	t.Parallel()
+	dsn := isolatedDatabase(t)
+	_, first := replica(t, dsn, nil)
+
+	pending, err := first.AppendAudit(t.Context(), store.AuditDraft{Actor: "test", Action: "pending", Outcome: "succeeded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h := backplanetest.New(t, backplanetest.Name("backplane"))
+	dep := deps.NewDependency(h.Root(), store.New(postgres.Config{DSN: config.Secret(dsn)}, store.AuditExport(false)))
+	svc := audit.New(h.Root(), dep)
+	h.Start()
+
+	st := dep.Get()
+
+	newest, err := st.AppendAudit(t.Context(), store.AuditDraft{Actor: "test", Action: "local-only", Outcome: "succeeded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var count int
+	if err = st.Pool.QueryRow(t.Context(), "SELECT count(*) FROM backplane.audit_outbox").Scan(&count); err != nil || count != 1 {
+		t.Fatalf("disabled export: %d %v", count, err)
+	}
+
+	if err = svc.Expire(t.Context(), time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = st.Q.GetAuditEntry(t.Context(), pending.Sequence); err != nil {
+		t.Fatal("old pending entry lost", err)
+	}
+
+	if _, err = st.Q.GetAuditEntry(t.Context(), newest.Sequence); err != nil {
+		t.Fatal("cursor prefix crossed pending entry", err)
+	}
+
+	if _, err = st.Pool.Exec(t.Context(), "UPDATE backplane.audit_outbox SET published_at=now()"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err = svc.Expire(t.Context(), time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	clock, err := st.Q.GetAuditClock(t.Context())
+	if err != nil || clock.RetainedAfter != newest.Sequence {
+		t.Fatalf("no-export entries block retention: %v %v", clock, err)
+	}
+}

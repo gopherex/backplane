@@ -20,9 +20,11 @@ import (
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/protobuf/proto"
 
+	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/internal/console"
 	"github.com/gopherex/backplane/internal/otlp"
+	platformapi "github.com/gopherex/backplane/internal/platform"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/config"
@@ -127,8 +129,12 @@ func TestBrowserConsole(t *testing.T) {
 	}
 
 	t.Cleanup(admission.Close)
+
+	platformAPI := platformapi.New(h.Root(), "browser-fixture", []*consolev1.Capability{{Name: "audit", Enabled: true}, {Name: "workflows", Enabled: false}}, []platformapi.Probe{
+		{Name: "postgres", Required: true, Run: func(context.Context) error { return nil }},
+	})
 	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken, InternalSecret: "relay-secret", InsecureCookie: true}, newMemSessions(), newAttempts(), hub,
-		console.WithShell(shell), console.WithTelemetry(admission), console.WithSessionTelemetry(admission.SessionLogs()))
+		console.WithServices(platformAPI.Register), console.WithShell(shell), console.WithTelemetry(admission), console.WithSessionTelemetry(admission.SessionLogs()))
 	h.Start()
 
 	srv := httptest.NewServer(c.Handler())

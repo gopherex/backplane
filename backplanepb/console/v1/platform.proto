@@ -1,0 +1,37 @@
+syntax = "proto3";
+package backplane.console.v1;
+option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consolev1";
+
+import "google/protobuf/timestamp.proto";
+
+// PlatformService exposes deployment capabilities and cached infrastructure
+// health to authenticated administrators. It never returns connection secrets.
+service PlatformService {
+  // Deployment configuration, independent of transient backend availability.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+  // Last completed probes of configured dependencies, local to this replica.
+  // Requests read a cache; they never perform infrastructure network calls.
+  rpc GetInfrastructure(GetInfrastructureRequest) returns (GetInfrastructureResponse);
+}
+message GetCapabilitiesRequest {}
+message Capability {
+  // Stable feature key: events, workflows, schedules, bindings, rules,
+  // metrics, logs, traces, telemetry, gateway, audit, audit_export.
+  string name = 1;
+  bool enabled = 2;
+}
+message GetCapabilitiesResponse { repeated Capability capabilities = 1; }
+message GetInfrastructureRequest {}
+message InfrastructureStatus {
+  string name = 1;
+  // False before the first completed probe or after a failed probe.
+  bool ok = 2;
+  google.protobuf.Timestamp checked_at = 3;
+  // Safe reason code: checking, unavailable, timeout. Empty when OK.
+  string reason = 4;
+  bool required = 5;
+}
+message GetInfrastructureResponse {
+  string instance_id = 1;
+  repeated InfrastructureStatus dependencies = 2;
+}

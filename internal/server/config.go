@@ -39,7 +39,8 @@ type Config struct {
 	// Valkey keeps what every replica shares briefly: login attempts.
 	Valkey valkey.Config `json:"valkey"`
 	// xDS (ADS) for Envoy.
-	XDS XDS `json:"xds"`
+	XDS            XDS            `json:"xds"`
+	Infrastructure Infrastructure `json:"infrastructure"`
 	// Console HTTP: `/`, `/ws`, `/auth`, `/plugins`, served behind Envoy.
 	Console Console `json:"console"`
 	// Admin token of the console (§11.3): the secret /auth/login accepts,
@@ -61,7 +62,8 @@ type Config struct {
 
 // XDS is the control plane Envoy connects to: BACKPLANE_XDS_*.
 type XDS struct {
-	Listen string `json:"listen" schemapb:"default=:18000"`
+	Enabled bool   `json:"enabled" schemapb:"default=true"`
+	Listen  string `json:"listen"  schemapb:"default=:18000"`
 	// HTTPPort is the port of Envoy's public HTTP listener the snapshot
 	// describes (Envoy binds it, not backplane).
 	HTTPPort int64 `json:"http_port" schemapb:"default=10000;gte=1;lte=65535"`
@@ -140,7 +142,7 @@ func (c Config) Validate() error {
 
 	errs = append(errs, c.ports()...)
 	errs = append(errs, c.Console.validate()...)
-	errs = append(errs, c.OTLP.Validate(), c.Obs.Validate(), c.Audit.Validate())
+	errs = append(errs, c.OTLP.Validate(), c.Obs.Validate(), c.Audit.Validate(), c.Infrastructure.Validate())
 
 	return errors.Join(errs...)
 }
@@ -170,6 +172,10 @@ func (c Config) ports() []error {
 	for _, l := range []struct{ name, addr string }{
 		{"xds.listen", c.XDS.Listen}, {"console.listen", c.Console.Listen}, {"audit.listen", c.Audit.Listen},
 	} {
+		if l.name == "xds.listen" && !c.XDS.Enabled {
+			continue
+		}
+
 		port, err := listenPort(l.addr)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s %q: %w", l.name, l.addr, err))

@@ -11,6 +11,7 @@ import { ErrorsRoute } from './ErrorsRoute';
 import { consoleErrorReporter } from './errors';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import Sidebar from './Sidebar';
+import { PlatformProvider, InfrastructurePage, FeatureGate } from './Platform';
 import type { useRegistry, ModuleEntry } from './registry';
 import { Header } from './shell/Header';
 import { NotFound } from './shell/NotFound';
@@ -47,7 +48,7 @@ export default function Console({ mode, onThemeChange, onLogout, registry }: { m
   const [logoutPending, setLogoutPending] = useState(false), [logoutFailed, setLogoutFailed] = useState(false);
   const logout = () => { setLogoutPending(true); setLogoutFailed(false); void onLogout().catch(() => setLogoutFailed(true)).finally(() => setLogoutPending(false)); };
   const toggleNavigation = () => { if (matchMedia('(max-width: 760px)').matches) setMobile((value) => !value); else document.querySelector<HTMLElement>('#console-navigation a')?.focus(); };
-  return <TooltipProvider delayDuration={300}><div className="console-shell">
+  return <PlatformProvider><TooltipProvider delayDuration={300}><div className="console-shell">
     <a className="console-skip" href="#console-content">{t('skip')}</a>
     <Header services={services} modules={registry.modules} mode={mode} onThemeChange={onThemeChange} onLogout={logout} logoutPending={logoutPending} navigationOpen={mobile} onNavigationToggle={toggleNavigation} />
     <div className="console-body">
@@ -65,7 +66,8 @@ export default function Console({ mode, onThemeChange, onLogout, registry }: { m
           <Route path="/services/:service/:tab?" element={<ServicePage mode={mode} services={services} index={index} />} />
           <Route path="/wiring" element={<><PageHeader title={t('wiring')} description={t('wiringDescription')} /><div className="console-fill"><WiringRoute mode={mode} /></div></>} />
           <Route path="/explore" element={<><PageHeader title={t('explore')} description={t('exploreDescription')} /><div className="console-fill"><ExploreRoute mode={mode} /></div></>} />
-          <Route path="/errors" element={<><PageHeader title={t('errors')} description={t('errorsDescription')} /><div className="console-fill"><ErrorsRoute mode={mode} /></div></>} />
+          <Route path="/errors" element={<><PageHeader title={t('errors')} description={t('errorsDescription')} /><div className="console-fill"><FeatureGate feature="logs"><ErrorsRoute mode={mode} /></FeatureGate></div></>} />
+          <Route path="/infrastructure" element={<InfrastructurePage />} />
           <Route path="/audit" element={<><PageHeader title={t('audit')} description={t('auditDescription')} /><div className="console-fill"><AuditRoute mode={mode} /></div></>} />
           <Route path="/s/:service/*" element={<div className="console-scroll"><ModulePage modules={registry.modules} mode={mode} retry={registry.retry} loading={registry.descriptors.loading} /></div>} />
           <Route path="/dev" element={<div className="console-scroll"><Suspense fallback={<p role="status"><LoaderCircle size={16} className="animate-spin" /></p>}><Development mode={mode} /></Suspense></div>} />
@@ -73,5 +75,5 @@ export default function Console({ mode, onThemeChange, onLogout, registry }: { m
         </Routes></div>
       </main>
     </div>
-  </div></TooltipProvider>;
+  </div></TooltipProvider></PlatformProvider>;
 }

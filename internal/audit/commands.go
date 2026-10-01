@@ -76,6 +76,9 @@ func (r commandRegistrar) RegisterService(desc *grpc.ServiceDesc, impl any) {
 
 func commandAction(method string) string {
 	actions := map[string]string{
+		consolev1.ScheduleService_CreateSchedule_FullMethodName:  "schedule.create",
+		consolev1.ScheduleService_UpdateSchedule_FullMethodName:  "schedule.update",
+		consolev1.ScheduleService_DeleteSchedule_FullMethodName:  "schedule.delete",
 		consolev1.EventService_PublishTestEvent_FullMethodName:   "event.publish_test",
 		consolev1.EventService_RedriveDeadLetters_FullMethodName: "event.redrive",
 		consolev1.EventService_PurgeDeadLetters_FullMethodName:   "event.purge",

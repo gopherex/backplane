@@ -18,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/console/v1/workflows.proto.
  */
 export const file_backplanepb_console_v1_workflows: GenFile = /*@__PURE__*/
-  fileDesc("CiZiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3dvcmtmbG93cy5wcm90bxIUYmFja3BsYW5lLmNvbnNvbGUudjEi7AEKC1dvcmtmbG93RGVmEg8KB3NlcnZpY2UYASABKAkSDAoEbmFtZRgCIAEoCRIwCgRraW5kGAMgASgOMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuV29ya2Zsb3dLaW5kEhMKC2Rlc2NyaXB0aW9uGAQgASgJEh8KBWlucHV0GAUgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgGIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRISCgp0YXNrX3F1ZXVlGAcgASgJEhQKB3BvbGxlcnMYCCABKAVIAIgBAUIKCghfcG9sbGVycyInChRMaXN0V29ya2Zsb3dzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk0KFUxpc3RXb3JrZmxvd3NSZXNwb25zZRI0Cgl3b3JrZmxvd3MYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5Xb3JrZmxvd0RlZiKJAQoUU3RhcnRXb3JrZmxvd1JlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIQCgh3b3JrZmxvdxgCIAEoCRINCgVpbnB1dBgDIAEoCRITCgt3b3JrZmxvd19pZBgEIAEoCRIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIjwKFVN0YXJ0V29ya2Zsb3dSZXNwb25zZRITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkikQMKA1J1bhITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSFQoNd29ya2Zsb3dfdHlwZRgDIAEoCRIvCgZzdGF0dXMYBCABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW5TdGF0dXMSEgoKdGFza19xdWV1ZRgFIAEoCRIuCgpzdGFydF90aW1lGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjbG9zZV90aW1lGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5oaXN0b3J5X2xlbmd0aBgIIAEoAxIxCgRtZW1vGAkgAygLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuLk1lbW9FbnRyeRIaChJwYXJlbnRfd29ya2Zsb3dfaWQYCiABKAkSFQoNcGFyZW50X3J1bl9pZBgLIAEoCRorCglNZW1vRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASK3AQoPTGlzdFJ1bnNSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkSEAoId29ya2Zsb3cYAiABKAkSLwoGc3RhdHVzGAMgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEhoKEndvcmtmbG93X2lkX3ByZWZpeBgEIAEoCRIRCglwYWdlX3NpemUYBSABKA0SEgoKcGFnZV90b2tlbhgGIAEoDBINCgVob29rcxgHIAEoCCJjChBMaXN0UnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIjQKDUdldFJ1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIskCCg9QZW5kaW5nQWN0aXZpdHkSEwoLYWN0aXZpdHlfaWQYASABKAkSFQoNYWN0aXZpdHlfdHlwZRgCIAEoCRINCgVzdGF0ZRgDIAEoCRIPCgdhdHRlbXB0GAQgASgFEhgKEG1heGltdW1fYXR0ZW1wdHMYBSABKAUSNQoRbGFzdF9zdGFydGVkX3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKE2xhc3RfaGVhcnRiZWF0X3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKEW5leHRfYXR0ZW1wdF90aW1lGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxsYXN0X2ZhaWx1cmUYCSABKAkSEwoLbGFzdF93b3JrZXIYCiABKAkiqgEKDEhpc3RvcnlFdmVudBIKCgJpZBgBIAEoAxIoCgR0aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgR0eXBlGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSDwoHcGF5bG9hZBgFIAEoCRIPCgdmYWlsdXJlGAYgASgJEhMKC3dvcmtmbG93X2lkGAcgASgJEg4KBnJ1bl9pZBgIIAEoCSKjAgoOR2V0UnVuUmVzcG9uc2USJgoDcnVuGAEgASgLMhkuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuEg0KBWlucHV0GAIgASgJEg4KBnJlc3VsdBgDIAEoCRIPCgdmYWlsdXJlGAQgASgJEhQKDGZhaWx1cmVfdHlwZRgFIAEoCRJBChJwZW5kaW5nX2FjdGl2aXRpZXMYBiADKAsyJS5iYWNrcGxhbmUuY29uc29sZS52MS5QZW5kaW5nQWN0aXZpdHkSMwoHaGlzdG9yeRgHIAMoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkhpc3RvcnlFdmVudBIRCgl0cnVuY2F0ZWQYCCABKAgSGAoQY29udGludWVkX3J1bl9pZBgJIAEoCSI3ChBDYW5jZWxSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSITChFDYW5jZWxSdW5SZXNwb25zZSJKChNUZXJtaW5hdGVSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIOCgZyZWFzb24YAyABKAkiFgoUVGVybWluYXRlUnVuUmVzcG9uc2UiVgoQU2lnbmFsUnVuUmVxdWVzdBITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSDgoGc2lnbmFsGAMgASgJEg0KBWlucHV0GAQgASgJIhMKEVNpZ25hbFJ1blJlc3BvbnNlIpkBCg5TY2hlZHVsZUFjdGlvbhIxCg1zY2hlZHVsZV90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY3R1YWxfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLd29ya2Zsb3dfaWQYAyABKAkSDgoGcnVuX2lkGAQgASgJIokDCg1TY2hlZHVsZVN0YXRlEg4KBnBhdXNlZBgBIAEoCBIMCgRub3RlGAIgASgJEjAKDG5leHRfYWN0aW9ucxgDIAMoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPAoOcmVjZW50X2FjdGlvbnMYBCADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUFjdGlvbhIcChRydW5uaW5nX3dvcmtmbG93X2lkcxgFIAMoCRIUCgxhY3Rpb25fY291bnQYBiABKAMSHQoVbWlzc2VkX2NhdGNodXBfd2luZG93GAcgASgDEhcKD292ZXJsYXBfc2tpcHBlZBgIIAEoAxIrCgdjcmVhdGVkGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgd1cGRhdGVkGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg13b3JrZmxvd190eXBlGAsgASgJEg0KBW93bmVyGAwgASgJIpcBCgxTY2hlZHVsZUluZm8SDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgoKAmlkGAMgASgJEigKCGRlY2xhcmVkGAQgASgLMhYuYmFja3BsYW5lLnYxLlNjaGVkdWxlEjIKBXN0YXRlGAUgASgLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuU2NoZWR1bGVTdGF0ZSInChRMaXN0U2NoZWR1bGVzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk4KFUxpc3RTY2hlZHVsZXNSZXNwb25zZRI1CglzY2hlZHVsZXMYASADKAsyIi5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUluZm8iQwoUUGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiFwoVUGF1c2VTY2hlZHVsZVJlc3BvbnNlIkUKFlVucGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiGQoXVW5wYXVzZVNjaGVkdWxlUmVzcG9uc2UiNwoWVHJpZ2dlclNjaGVkdWxlUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEgwKBG5hbWUYAiABKAkiGQoXVHJpZ2dlclNjaGVkdWxlUmVzcG9uc2UqZQoMV29ya2Zsb3dLaW5kEh0KGVdPUktGTE9XX0tJTkRfVU5TUEVDSUZJRUQQABIaChZXT1JLRkxPV19LSU5EX1dPUktGTE9XEAESGgoWV09SS0ZMT1dfS0lORF9BQ1RJVklUWRACKt8BCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElJVTl9TVEFUVVNfUlVOTklORxABEhgKFFJVTl9TVEFUVVNfQ09NUExFVEVEEAISFQoRUlVOX1NUQVRVU19GQUlMRUQQAxIXChNSVU5fU1RBVFVTX0NBTkNFTEVEEAQSGQoVUlVOX1NUQVRVU19URVJNSU5BVEVEEAUSHwobUlVOX1NUQVRVU19DT05USU5VRURfQVNfTkVXEAYSGAoUUlVOX1NUQVRVU19USU1FRF9PVVQQBzK4BQoPV29ya2Zsb3dTZXJ2aWNlEmgKDUxpc3RXb3JrZmxvd3MSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0V29ya2Zsb3dzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RXb3JrZmxvd3NSZXNwb25zZRJoCg1TdGFydFdvcmtmbG93EiouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RhcnRXb3JrZmxvd1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5TdGFydFdvcmtmbG93UmVzcG9uc2USWQoITGlzdFJ1bnMSJS5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1JlcXVlc3QaJi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1Jlc3BvbnNlElMKBkdldFJ1bhIjLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1blJlcXVlc3QaJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdW5SZXNwb25zZRJcCglDYW5jZWxSdW4SJi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxSdW5SZXF1ZXN0GicuYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVuUmVzcG9uc2USZQoMVGVybWluYXRlUnVuEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVGVybWluYXRlUnVuUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlcm1pbmF0ZVJ1blJlc3BvbnNlElwKCVNpZ25hbFJ1bhImLmJhY2twbGFuZS5jb25zb2xlLnYxLlNpZ25hbFJ1blJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5TaWduYWxSdW5SZXNwb25zZTLFAwoPU2NoZWR1bGVTZXJ2aWNlEmgKDUxpc3RTY2hlZHVsZXMSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0U2NoZWR1bGVzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RTY2hlZHVsZXNSZXNwb25zZRJoCg1QYXVzZVNjaGVkdWxlEiouYmFja3BsYW5lLmNvbnNvbGUudjEuUGF1c2VTY2hlZHVsZVJlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5QYXVzZVNjaGVkdWxlUmVzcG9uc2USbgoPVW5wYXVzZVNjaGVkdWxlEiwuYmFja3BsYW5lLmNvbnNvbGUudjEuVW5wYXVzZVNjaGVkdWxlUmVxdWVzdBotLmJhY2twbGFuZS5jb25zb2xlLnYxLlVucGF1c2VTY2hlZHVsZVJlc3BvbnNlEm4KD1RyaWdnZXJTY2hlZHVsZRIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlRyaWdnZXJTY2hlZHVsZVJlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5UcmlnZ2VyU2NoZWR1bGVSZXNwb25zZUJAWj5naXRodWIuY29tL2dvcGhlcmV4L2JhY2twbGFuZS9iYWNrcGxhbmVwYi9jb25zb2xlL3YxO2NvbnNvbGV2MWIGcHJvdG8z", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_schemapb_schema, file_backplanepb_v1_manifest]);
+  fileDesc("CiZiYWNrcGxhbmVwYi9jb25zb2xlL3YxL3dvcmtmbG93cy5wcm90bxIUYmFja3BsYW5lLmNvbnNvbGUudjEi7AEKC1dvcmtmbG93RGVmEg8KB3NlcnZpY2UYASABKAkSDAoEbmFtZRgCIAEoCRIwCgRraW5kGAMgASgOMiIuYmFja3BsYW5lLmNvbnNvbGUudjEuV29ya2Zsb3dLaW5kEhMKC2Rlc2NyaXB0aW9uGAQgASgJEh8KBWlucHV0GAUgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgGIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRISCgp0YXNrX3F1ZXVlGAcgASgJEhQKB3BvbGxlcnMYCCABKAVIAIgBAUIKCghfcG9sbGVycyInChRMaXN0V29ya2Zsb3dzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk0KFUxpc3RXb3JrZmxvd3NSZXNwb25zZRI0Cgl3b3JrZmxvd3MYASADKAsyIS5iYWNrcGxhbmUuY29uc29sZS52MS5Xb3JrZmxvd0RlZiKJAQoUU3RhcnRXb3JrZmxvd1JlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIQCgh3b3JrZmxvdxgCIAEoCRINCgVpbnB1dBgDIAEoCRITCgt3b3JrZmxvd19pZBgEIAEoCRIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIjwKFVN0YXJ0V29ya2Zsb3dSZXNwb25zZRITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkikQMKA1J1bhITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSFQoNd29ya2Zsb3dfdHlwZRgDIAEoCRIvCgZzdGF0dXMYBCABKA4yHy5iYWNrcGxhbmUuY29uc29sZS52MS5SdW5TdGF0dXMSEgoKdGFza19xdWV1ZRgFIAEoCRIuCgpzdGFydF90aW1lGAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpjbG9zZV90aW1lGAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIWCg5oaXN0b3J5X2xlbmd0aBgIIAEoAxIxCgRtZW1vGAkgAygLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuLk1lbW9FbnRyeRIaChJwYXJlbnRfd29ya2Zsb3dfaWQYCiABKAkSFQoNcGFyZW50X3J1bl9pZBgLIAEoCRorCglNZW1vRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASK3AQoPTGlzdFJ1bnNSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkSEAoId29ya2Zsb3cYAiABKAkSLwoGc3RhdHVzGAMgASgOMh8uYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuU3RhdHVzEhoKEndvcmtmbG93X2lkX3ByZWZpeBgEIAEoCRIRCglwYWdlX3NpemUYBSABKA0SEgoKcGFnZV90b2tlbhgGIAEoDBINCgVob29rcxgHIAEoCCJjChBMaXN0UnVuc1Jlc3BvbnNlEicKBHJ1bnMYASADKAsyGS5iYWNrcGxhbmUuY29uc29sZS52MS5SdW4SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgMEg0KBXF1ZXJ5GAMgASgJIjQKDUdldFJ1blJlcXVlc3QSEwoLd29ya2Zsb3dfaWQYASABKAkSDgoGcnVuX2lkGAIgASgJIskCCg9QZW5kaW5nQWN0aXZpdHkSEwoLYWN0aXZpdHlfaWQYASABKAkSFQoNYWN0aXZpdHlfdHlwZRgCIAEoCRINCgVzdGF0ZRgDIAEoCRIPCgdhdHRlbXB0GAQgASgFEhgKEG1heGltdW1fYXR0ZW1wdHMYBSABKAUSNQoRbGFzdF9zdGFydGVkX3RpbWUYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKE2xhc3RfaGVhcnRiZWF0X3RpbWUYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjUKEW5leHRfYXR0ZW1wdF90aW1lGAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIUCgxsYXN0X2ZhaWx1cmUYCSABKAkSEwoLbGFzdF93b3JrZXIYCiABKAkiqgEKDEhpc3RvcnlFdmVudBIKCgJpZBgBIAEoAxIoCgR0aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIMCgR0eXBlGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSDwoHcGF5bG9hZBgFIAEoCRIPCgdmYWlsdXJlGAYgASgJEhMKC3dvcmtmbG93X2lkGAcgASgJEg4KBnJ1bl9pZBgIIAEoCSKjAgoOR2V0UnVuUmVzcG9uc2USJgoDcnVuGAEgASgLMhkuYmFja3BsYW5lLmNvbnNvbGUudjEuUnVuEg0KBWlucHV0GAIgASgJEg4KBnJlc3VsdBgDIAEoCRIPCgdmYWlsdXJlGAQgASgJEhQKDGZhaWx1cmVfdHlwZRgFIAEoCRJBChJwZW5kaW5nX2FjdGl2aXRpZXMYBiADKAsyJS5iYWNrcGxhbmUuY29uc29sZS52MS5QZW5kaW5nQWN0aXZpdHkSMwoHaGlzdG9yeRgHIAMoCzIiLmJhY2twbGFuZS5jb25zb2xlLnYxLkhpc3RvcnlFdmVudBIRCgl0cnVuY2F0ZWQYCCABKAgSGAoQY29udGludWVkX3J1bl9pZBgJIAEoCSI3ChBDYW5jZWxSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCSITChFDYW5jZWxSdW5SZXNwb25zZSJKChNUZXJtaW5hdGVSdW5SZXF1ZXN0EhMKC3dvcmtmbG93X2lkGAEgASgJEg4KBnJ1bl9pZBgCIAEoCRIOCgZyZWFzb24YAyABKAkiFgoUVGVybWluYXRlUnVuUmVzcG9uc2UiVgoQU2lnbmFsUnVuUmVxdWVzdBITCgt3b3JrZmxvd19pZBgBIAEoCRIOCgZydW5faWQYAiABKAkSDgoGc2lnbmFsGAMgASgJEg0KBWlucHV0GAQgASgJIhMKEVNpZ25hbFJ1blJlc3BvbnNlIpkBCg5TY2hlZHVsZUFjdGlvbhIxCg1zY2hlZHVsZV90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY3R1YWxfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLd29ya2Zsb3dfaWQYAyABKAkSDgoGcnVuX2lkGAQgASgJIokDCg1TY2hlZHVsZVN0YXRlEg4KBnBhdXNlZBgBIAEoCBIMCgRub3RlGAIgASgJEjAKDG5leHRfYWN0aW9ucxgDIAMoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPAoOcmVjZW50X2FjdGlvbnMYBCADKAsyJC5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUFjdGlvbhIcChRydW5uaW5nX3dvcmtmbG93X2lkcxgFIAMoCRIUCgxhY3Rpb25fY291bnQYBiABKAMSHQoVbWlzc2VkX2NhdGNodXBfd2luZG93GAcgASgDEhcKD292ZXJsYXBfc2tpcHBlZBgIIAEoAxIrCgdjcmVhdGVkGAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIrCgd1cGRhdGVkGAogASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIVCg13b3JrZmxvd190eXBlGAsgASgJEg0KBW93bmVyGAwgASgJIpcBCgxTY2hlZHVsZUluZm8SDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgoKAmlkGAMgASgJEigKCGRlY2xhcmVkGAQgASgLMhYuYmFja3BsYW5lLnYxLlNjaGVkdWxlEjIKBXN0YXRlGAUgASgLMiMuYmFja3BsYW5lLmNvbnNvbGUudjEuU2NoZWR1bGVTdGF0ZSInChRMaXN0U2NoZWR1bGVzUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJIk4KFUxpc3RTY2hlZHVsZXNSZXNwb25zZRI1CglzY2hlZHVsZXMYASADKAsyIi5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUluZm8iQwoUUGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiFwoVUGF1c2VTY2hlZHVsZVJlc3BvbnNlIkUKFlVucGF1c2VTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEgwKBG5vdGUYAyABKAkiGQoXVW5wYXVzZVNjaGVkdWxlUmVzcG9uc2UiNwoWVHJpZ2dlclNjaGVkdWxlUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEgwKBG5hbWUYAiABKAkiGQoXVHJpZ2dlclNjaGVkdWxlUmVzcG9uc2UiXQoOU2NoZWR1bGVUaW1pbmcSDAoEY3JvbhgBIAMoCRIrCghpbnRlcnZhbBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIQCgh0aW1lem9uZRgDIAEoCSKhAQoSU2NoZWR1bGVEZWZpbml0aW9uEhAKCHdvcmtmbG93GAEgASgJEg0KBWlucHV0GAIgASgJEjQKBnRpbWluZxgDIAEoCzIkLmJhY2twbGFuZS5jb25zb2xlLnYxLlNjaGVkdWxlVGltaW5nEjQKEWV4ZWN1dGlvbl90aW1lb3V0GAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIjMKEkdldFNjaGVkdWxlUmVxdWVzdBIPCgdzZXJ2aWNlGAEgASgJEgwKBG5hbWUYAiABKAkisAEKE0dldFNjaGVkdWxlUmVzcG9uc2USNAoIc2NoZWR1bGUYASABKAsyIi5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZUluZm8SPAoKZGVmaW5pdGlvbhgCIAEoCzIoLmJhY2twbGFuZS5jb25zb2xlLnYxLlNjaGVkdWxlRGVmaW5pdGlvbhIQCghyZXZpc2lvbhgDIAEoDBITCgt0aW1pbmdfanNvbhgEIAEoCSKEAQoVQ3JlYXRlU2NoZWR1bGVSZXF1ZXN0Eg8KB3NlcnZpY2UYASABKAkSDAoEbmFtZRgCIAEoCRI8CgpkZWZpbml0aW9uGAMgASgLMiguYmFja3BsYW5lLmNvbnNvbGUudjEuU2NoZWR1bGVEZWZpbml0aW9uEg4KBnBhdXNlZBgEIAEoCCIYChZDcmVhdGVTY2hlZHVsZVJlc3BvbnNlIoYBChVVcGRhdGVTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJEjwKCmRlZmluaXRpb24YAyABKAsyKC5iYWNrcGxhbmUuY29uc29sZS52MS5TY2hlZHVsZURlZmluaXRpb24SEAoIcmV2aXNpb24YBCABKAwiGAoWVXBkYXRlU2NoZWR1bGVSZXNwb25zZSI2ChVEZWxldGVTY2hlZHVsZVJlcXVlc3QSDwoHc2VydmljZRgBIAEoCRIMCgRuYW1lGAIgASgJIhgKFkRlbGV0ZVNjaGVkdWxlUmVzcG9uc2UqZQoMV29ya2Zsb3dLaW5kEh0KGVdPUktGTE9XX0tJTkRfVU5TUEVDSUZJRUQQABIaChZXT1JLRkxPV19LSU5EX1dPUktGTE9XEAESGgoWV09SS0ZMT1dfS0lORF9BQ1RJVklUWRACKt8BCglSdW5TdGF0dXMSGgoWUlVOX1NUQVRVU19VTlNQRUNJRklFRBAAEhYKElJVTl9TVEFUVVNfUlVOTklORxABEhgKFFJVTl9TVEFUVVNfQ09NUExFVEVEEAISFQoRUlVOX1NUQVRVU19GQUlMRUQQAxIXChNSVU5fU1RBVFVTX0NBTkNFTEVEEAQSGQoVUlVOX1NUQVRVU19URVJNSU5BVEVEEAUSHwobUlVOX1NUQVRVU19DT05USU5VRURfQVNfTkVXEAYSGAoUUlVOX1NUQVRVU19USU1FRF9PVVQQBzK4BQoPV29ya2Zsb3dTZXJ2aWNlEmgKDUxpc3RXb3JrZmxvd3MSKi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0V29ya2Zsb3dzUmVxdWVzdBorLmJhY2twbGFuZS5jb25zb2xlLnYxLkxpc3RXb3JrZmxvd3NSZXNwb25zZRJoCg1TdGFydFdvcmtmbG93EiouYmFja3BsYW5lLmNvbnNvbGUudjEuU3RhcnRXb3JrZmxvd1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5TdGFydFdvcmtmbG93UmVzcG9uc2USWQoITGlzdFJ1bnMSJS5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1JlcXVlc3QaJi5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0UnVuc1Jlc3BvbnNlElMKBkdldFJ1bhIjLmJhY2twbGFuZS5jb25zb2xlLnYxLkdldFJ1blJlcXVlc3QaJC5iYWNrcGxhbmUuY29uc29sZS52MS5HZXRSdW5SZXNwb25zZRJcCglDYW5jZWxSdW4SJi5iYWNrcGxhbmUuY29uc29sZS52MS5DYW5jZWxSdW5SZXF1ZXN0GicuYmFja3BsYW5lLmNvbnNvbGUudjEuQ2FuY2VsUnVuUmVzcG9uc2USZQoMVGVybWluYXRlUnVuEikuYmFja3BsYW5lLmNvbnNvbGUudjEuVGVybWluYXRlUnVuUmVxdWVzdBoqLmJhY2twbGFuZS5jb25zb2xlLnYxLlRlcm1pbmF0ZVJ1blJlc3BvbnNlElwKCVNpZ25hbFJ1bhImLmJhY2twbGFuZS5jb25zb2xlLnYxLlNpZ25hbFJ1blJlcXVlc3QaJy5iYWNrcGxhbmUuY29uc29sZS52MS5TaWduYWxSdW5SZXNwb25zZTLwBgoPU2NoZWR1bGVTZXJ2aWNlEmIKC0dldFNjaGVkdWxlEiguYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0U2NoZWR1bGVSZXF1ZXN0GikuYmFja3BsYW5lLmNvbnNvbGUudjEuR2V0U2NoZWR1bGVSZXNwb25zZRJrCg5DcmVhdGVTY2hlZHVsZRIrLmJhY2twbGFuZS5jb25zb2xlLnYxLkNyZWF0ZVNjaGVkdWxlUmVxdWVzdBosLmJhY2twbGFuZS5jb25zb2xlLnYxLkNyZWF0ZVNjaGVkdWxlUmVzcG9uc2USawoOVXBkYXRlU2NoZWR1bGUSKy5iYWNrcGxhbmUuY29uc29sZS52MS5VcGRhdGVTY2hlZHVsZVJlcXVlc3QaLC5iYWNrcGxhbmUuY29uc29sZS52MS5VcGRhdGVTY2hlZHVsZVJlc3BvbnNlEmsKDkRlbGV0ZVNjaGVkdWxlEisuYmFja3BsYW5lLmNvbnNvbGUudjEuRGVsZXRlU2NoZWR1bGVSZXF1ZXN0GiwuYmFja3BsYW5lLmNvbnNvbGUudjEuRGVsZXRlU2NoZWR1bGVSZXNwb25zZRJoCg1MaXN0U2NoZWR1bGVzEiouYmFja3BsYW5lLmNvbnNvbGUudjEuTGlzdFNjaGVkdWxlc1JlcXVlc3QaKy5iYWNrcGxhbmUuY29uc29sZS52MS5MaXN0U2NoZWR1bGVzUmVzcG9uc2USaAoNUGF1c2VTY2hlZHVsZRIqLmJhY2twbGFuZS5jb25zb2xlLnYxLlBhdXNlU2NoZWR1bGVSZXF1ZXN0GisuYmFja3BsYW5lLmNvbnNvbGUudjEuUGF1c2VTY2hlZHVsZVJlc3BvbnNlEm4KD1VucGF1c2VTY2hlZHVsZRIsLmJhY2twbGFuZS5jb25zb2xlLnYxLlVucGF1c2VTY2hlZHVsZVJlcXVlc3QaLS5iYWNrcGxhbmUuY29uc29sZS52MS5VbnBhdXNlU2NoZWR1bGVSZXNwb25zZRJuCg9UcmlnZ2VyU2NoZWR1bGUSLC5iYWNrcGxhbmUuY29uc29sZS52MS5UcmlnZ2VyU2NoZWR1bGVSZXF1ZXN0Gi0uYmFja3BsYW5lLmNvbnNvbGUudjEuVHJpZ2dlclNjaGVkdWxlUmVzcG9uc2VCQFo+Z2l0aHViLmNvbS9nb3BoZXJleC9iYWNrcGxhbmUvYmFja3BsYW5lcGIvY29uc29sZS92MTtjb25zb2xldjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp, file_schemapb_schema, file_backplanepb_v1_manifest]);
 
 /**
  * @generated from message backplane.console.v1.WorkflowDef
@@ -1016,6 +1016,253 @@ export const TriggerScheduleResponseSchema: GenMessage<TriggerScheduleResponse> 
   messageDesc(file_backplanepb_console_v1_workflows, 28);
 
 /**
+ * ScheduleTiming replaces timing when supplied on update. Omit it to
+ * preserve timing, including advanced external settings.
+ *
+ * @generated from message backplane.console.v1.ScheduleTiming
+ */
+export type ScheduleTiming = Message<"backplane.console.v1.ScheduleTiming"> & {
+  /**
+   * @generated from field: repeated string cron = 1;
+   */
+  cron: string[];
+
+  /**
+   * @generated from field: google.protobuf.Duration interval = 2;
+   */
+  interval?: Duration | undefined;
+
+  /**
+   * @generated from field: string timezone = 3;
+   */
+  timezone: string;
+};
+
+/**
+ * Describes the message backplane.console.v1.ScheduleTiming.
+ * Use `create(ScheduleTimingSchema)` to create a new message.
+ */
+export const ScheduleTimingSchema: GenMessage<ScheduleTiming> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 29);
+
+/**
+ * @generated from message backplane.console.v1.ScheduleDefinition
+ */
+export type ScheduleDefinition = Message<"backplane.console.v1.ScheduleDefinition"> & {
+  /**
+   * @generated from field: string workflow = 1;
+   */
+  workflow: string;
+
+  /**
+   * JSON input validated against the latest declared workflow schema.
+   *
+   * @generated from field: string input = 2;
+   */
+  input: string;
+
+  /**
+   * @generated from field: backplane.console.v1.ScheduleTiming timing = 3;
+   */
+  timing?: ScheduleTiming | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Duration execution_timeout = 4;
+   */
+  executionTimeout?: Duration | undefined;
+};
+
+/**
+ * Describes the message backplane.console.v1.ScheduleDefinition.
+ * Use `create(ScheduleDefinitionSchema)` to create a new message.
+ */
+export const ScheduleDefinitionSchema: GenMessage<ScheduleDefinition> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 30);
+
+/**
+ * @generated from message backplane.console.v1.GetScheduleRequest
+ */
+export type GetScheduleRequest = Message<"backplane.console.v1.GetScheduleRequest"> & {
+  /**
+   * @generated from field: string service = 1;
+   */
+  service: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message backplane.console.v1.GetScheduleRequest.
+ * Use `create(GetScheduleRequestSchema)` to create a new message.
+ */
+export const GetScheduleRequestSchema: GenMessage<GetScheduleRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 31);
+
+/**
+ * @generated from message backplane.console.v1.GetScheduleResponse
+ */
+export type GetScheduleResponse = Message<"backplane.console.v1.GetScheduleResponse"> & {
+  /**
+   * @generated from field: backplane.console.v1.ScheduleInfo schedule = 1;
+   */
+  schedule?: ScheduleInfo | undefined;
+
+  /**
+   * @generated from field: backplane.console.v1.ScheduleDefinition definition = 2;
+   */
+  definition?: ScheduleDefinition | undefined;
+
+  /**
+   * Opaque Temporal conflict token, required for UpdateSchedule.
+   *
+   * @generated from field: bytes revision = 3;
+   */
+  revision: Uint8Array;
+
+  /**
+   * Normalized timing as JSON. Absent update timing keeps all these settings.
+   *
+   * @generated from field: string timing_json = 4;
+   */
+  timingJson: string;
+};
+
+/**
+ * Describes the message backplane.console.v1.GetScheduleResponse.
+ * Use `create(GetScheduleResponseSchema)` to create a new message.
+ */
+export const GetScheduleResponseSchema: GenMessage<GetScheduleResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 32);
+
+/**
+ * @generated from message backplane.console.v1.CreateScheduleRequest
+ */
+export type CreateScheduleRequest = Message<"backplane.console.v1.CreateScheduleRequest"> & {
+  /**
+   * @generated from field: string service = 1;
+   */
+  service: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: backplane.console.v1.ScheduleDefinition definition = 3;
+   */
+  definition?: ScheduleDefinition | undefined;
+
+  /**
+   * @generated from field: bool paused = 4;
+   */
+  paused: boolean;
+};
+
+/**
+ * Describes the message backplane.console.v1.CreateScheduleRequest.
+ * Use `create(CreateScheduleRequestSchema)` to create a new message.
+ */
+export const CreateScheduleRequestSchema: GenMessage<CreateScheduleRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 33);
+
+/**
+ * @generated from message backplane.console.v1.CreateScheduleResponse
+ */
+export type CreateScheduleResponse = Message<"backplane.console.v1.CreateScheduleResponse"> & {
+};
+
+/**
+ * Describes the message backplane.console.v1.CreateScheduleResponse.
+ * Use `create(CreateScheduleResponseSchema)` to create a new message.
+ */
+export const CreateScheduleResponseSchema: GenMessage<CreateScheduleResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 34);
+
+/**
+ * @generated from message backplane.console.v1.UpdateScheduleRequest
+ */
+export type UpdateScheduleRequest = Message<"backplane.console.v1.UpdateScheduleRequest"> & {
+  /**
+   * @generated from field: string service = 1;
+   */
+  service: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: backplane.console.v1.ScheduleDefinition definition = 3;
+   */
+  definition?: ScheduleDefinition | undefined;
+
+  /**
+   * @generated from field: bytes revision = 4;
+   */
+  revision: Uint8Array;
+};
+
+/**
+ * Describes the message backplane.console.v1.UpdateScheduleRequest.
+ * Use `create(UpdateScheduleRequestSchema)` to create a new message.
+ */
+export const UpdateScheduleRequestSchema: GenMessage<UpdateScheduleRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 35);
+
+/**
+ * @generated from message backplane.console.v1.UpdateScheduleResponse
+ */
+export type UpdateScheduleResponse = Message<"backplane.console.v1.UpdateScheduleResponse"> & {
+};
+
+/**
+ * Describes the message backplane.console.v1.UpdateScheduleResponse.
+ * Use `create(UpdateScheduleResponseSchema)` to create a new message.
+ */
+export const UpdateScheduleResponseSchema: GenMessage<UpdateScheduleResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 36);
+
+/**
+ * @generated from message backplane.console.v1.DeleteScheduleRequest
+ */
+export type DeleteScheduleRequest = Message<"backplane.console.v1.DeleteScheduleRequest"> & {
+  /**
+   * @generated from field: string service = 1;
+   */
+  service: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message backplane.console.v1.DeleteScheduleRequest.
+ * Use `create(DeleteScheduleRequestSchema)` to create a new message.
+ */
+export const DeleteScheduleRequestSchema: GenMessage<DeleteScheduleRequest> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 37);
+
+/**
+ * @generated from message backplane.console.v1.DeleteScheduleResponse
+ */
+export type DeleteScheduleResponse = Message<"backplane.console.v1.DeleteScheduleResponse"> & {
+};
+
+/**
+ * Describes the message backplane.console.v1.DeleteScheduleResponse.
+ * Use `create(DeleteScheduleResponseSchema)` to create a new message.
+ */
+export const DeleteScheduleResponseSchema: GenMessage<DeleteScheduleResponse> = /*@__PURE__*/
+  messageDesc(file_backplanepb_console_v1_workflows, 38);
+
+/**
  * What a startable workflow is.
  *
  * @generated from enum backplane.console.v1.WorkflowKind
@@ -1106,7 +1353,7 @@ export const RunStatusSchema: GenEnum<RunStatus> = /*@__PURE__*/
  * workflows (§9): what they declare, starting one with a form, the runs
  * through Temporal visibility and the actions on a run. backplane reaches
  * Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
- * the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
+ * runtime calls fail with FAILED_PRECONDITION. Backend outages return UNAVAILABLE. Runs the console starts
  * carry memo source = console:<session> (§14).
  *
  * GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
@@ -1198,17 +1445,58 @@ export const WorkflowService: GenService<{
   serviceDesc(file_backplanepb_console_v1_workflows, 0);
 
 /**
- * ScheduleService is the services' Temporal Schedules (§9): the
- * declarations with what Temporal says about them, and the operator's
- * actions. A pause or unpause lasts until the declaration changes (the
- * SDK's reconciliation leaves a matching schedule alone).
+ * ScheduleService administrates Temporal schedules. Temporal is the source
+ * of truth; modules only declare and execute workflows. SDK reconciliation
+ * never creates, changes or deletes schedules. Disabled: FAILED_PRECONDITION;
+ * configured but unavailable: UNAVAILABLE. Mutations are audited.
  *
  * @generated from service backplane.console.v1.ScheduleService
  */
 export const ScheduleService: GenService<{
   /**
-   * Schedules declared by the latest manifests, plus schedules in
-   * Temporal under a service's prefix that no manifest declares.
+   * Reads a schedule even if its service has no running instances.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.GetSchedule
+   */
+  getSchedule: {
+    methodKind: "unary";
+    input: typeof GetScheduleRequestSchema;
+    output: typeof GetScheduleResponseSchema;
+  },
+  /**
+   * Creates for a declared workflow; duplicate id: ALREADY_EXISTS.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.CreateSchedule
+   */
+  createSchedule: {
+    methodKind: "unary";
+    input: typeof CreateScheduleRequestSchema;
+    output: typeof CreateScheduleResponseSchema;
+  },
+  /**
+   * Optimistic update using GetSchedule revision; conflict: ABORTED.
+   * Operator pause, note and execution counters are always preserved.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.UpdateSchedule
+   */
+  updateSchedule: {
+    methodKind: "unary";
+    input: typeof UpdateScheduleRequestSchema;
+    output: typeof UpdateScheduleResponseSchema;
+  },
+  /**
+   * Deletes the schedule, leaving existing workflow runs intact.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.DeleteSchedule
+   */
+  deleteSchedule: {
+    methodKind: "unary";
+    input: typeof DeleteScheduleRequestSchema;
+    output: typeof DeleteScheduleResponseSchema;
+  },
+  /**
+   * Schedules stored in Temporal under a service prefix, including services
+   * no longer present in the registry. Legacy declarations are annotations.
    *
    * @generated from rpc backplane.console.v1.ScheduleService.ListSchedules
    */

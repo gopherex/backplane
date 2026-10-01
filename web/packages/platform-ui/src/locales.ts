@@ -18,7 +18,7 @@ export const platformEnglish = {
   logs: 'Logs', metrics: 'Metrics', traces: 'Traces', traceId: 'Trace ID', lookup: 'Open trace', raw: 'Raw response', partial: 'Results are incomplete.',
   noCapability: 'This telemetry signal is unavailable.', warnings: 'Query warnings',
   hook: 'Hook', activity: 'Activity', event: 'Event', definition: 'Definition', name: 'Name', when: 'Condition (CEL)',
-  bindings: 'Bindings', rules: 'Rules', runs: 'Runs', schedules: 'Schedules', deadLetters: 'Dead letters',
+  bindings: 'Bindings', rules: 'Rules', runs: 'Runs', schedules: 'Schedules', createSchedule: 'Create schedule', editSchedule: 'Edit schedule', deleteSchedule: 'Delete schedule', deleteScheduleHelp: 'Delete this schedule? Existing workflow runs will continue.', scheduleName: 'Schedule name', selectWorkflow: 'Select a workflow', scheduleTiming: 'Timing', keepTiming: 'Keep current timing', cronExpression: 'Cron expression', intervalSeconds: 'Interval in seconds', timezone: 'Time zone', currentTiming: 'Current timing', createPaused: 'Create paused', preserveSchedulePause: 'The current pause state will be preserved.', saveSchedule: 'Save schedule', scheduleConflictHelp: 'If another operator changed the schedule, reopen it before editing. After a connection failure, check the current state before retrying.', deadLetters: 'Dead letters',
   input: 'Input', output: 'Output', execute: 'Execute', cancel: 'Cancel run', terminate: 'Terminate run', signalRun: 'Send signal',
   pause: 'Pause', resume: 'Resume', trigger: 'Trigger', redrive: 'Redrive selected', purge: 'Purge selected',
   confirmTitle: 'Confirm action', confirmDescription: 'This changes the installation state.', status: 'Status', workflow: 'Workflow', runId: 'Run ID',

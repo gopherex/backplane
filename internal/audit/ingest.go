@@ -38,6 +38,7 @@ import (
 // Attributes of an application audit record (backplane.AuditLabel and the
 // rest in the SDK name the same keys).
 const (
+	LabelOrigin  = "backplane.audit.origin"
 	LabelAudit   = "backplane.audit"
 	LabelID      = "backplane.audit.id"
 	LabelActor   = "backplane.audit.actor"
@@ -281,6 +282,12 @@ func Records(req *collogspb.ExportLogsServiceRequest, now time.Time) ([]db.Inser
 
 		for _, sl := range logs.GetScopeLogs() {
 			for _, record := range sl.GetLogRecords() {
+				// Platform records are already committed in control history.
+				// Acknowledge Collector echoes without duplicating them.
+				if stringAttr(record.GetAttributes(), LabelOrigin) == "platform" {
+					continue
+				}
+
 				if resourceErr != nil || !marked(record) || proto.Size(record) > maxRecordBytes {
 					rejected++
 

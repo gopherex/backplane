@@ -3,12 +3,12 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 const root = new URL('../../', import.meta.url);
 const directory = new URL('backplanepb/console/v1/', root);
 const profiles = {
-  CatalogService: 'catalog', SessionService: 'session', ConfigService: 'config',
+  PlatformService: 'platform', CatalogService: 'catalog', SessionService: 'session', ConfigService: 'config',
   BindingService: 'binding', RuleService: 'rule', EventService: 'operations',
   WorkflowService: 'operations', ScheduleService: 'operations', CallService: 'operations',
   AuditService: 'audit', ObsService: 'observability', ErrorService: 'errors', WiringService: 'wiring',
 };
-const commands = new Set(('PublishTestEvent RedriveDeadLetters PurgeDeadLetters StartWorkflow CancelRun TerminateRun SignalRun PauseSchedule UnpauseSchedule TriggerSchedule CallHook RunActivity TestBinding CancelBindingRun TestRule CancelRuleRun').split(' '));
+const commands = new Set(('CreateSchedule UpdateSchedule DeleteSchedule PublishTestEvent RedriveDeadLetters PurgeDeadLetters StartWorkflow CancelRun TerminateRun SignalRun PauseSchedule UnpauseSchedule TriggerSchedule CallHook RunActivity TestBinding CancelBindingRun TestRule CancelRuleRun').split(' '));
 const mutations = new Set(('SaveRevision Rollback SaveBinding RollbackBinding DeleteBinding SaveRule RollbackRule DeleteRule PauseRule ResumeRule RevokeSession RevokeOtherSessions').split(' '));
 const markdown = [
   '# Console API method reference', '',

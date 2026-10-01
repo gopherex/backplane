@@ -8,7 +8,9 @@ import (
 	"os"
 
 	"github.com/hashicorp/consul/api"
+	"google.golang.org/grpc"
 
+	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
 	"github.com/gopherex/backplane/internal/audit"
 	"github.com/gopherex/backplane/internal/bindings"
 	"github.com/gopherex/backplane/internal/config"
@@ -17,6 +19,7 @@ import (
 	"github.com/gopherex/backplane/internal/obs"
 	"github.com/gopherex/backplane/internal/ops"
 	"github.com/gopherex/backplane/internal/otlp"
+	"github.com/gopherex/backplane/internal/platform"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/internal/rules"
 	"github.com/gopherex/backplane/internal/store"
@@ -72,8 +75,9 @@ type State struct {
 	// Obs reads deployment-owned stores; no dependency on their readiness.
 	Obs         *obs.Service
 	internalObs bool
-	// Audit delivers durable control events and serves AuditService.
-	Audit *audit.Service
+	// Audit serves durable control history and optionally exports OTel Logs.
+	Audit    *audit.Service
+	Platform *platform.Service
 	// AuditIngest is the OTLP audit listener: application audit the
 	// Collector forwards, stored for AuditService.
 	AuditIngest *audit.Ingest
@@ -121,11 +125,17 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 
 	st := &State{Consul: client, internalObs: cfg.InternalSecret.Reveal() != ""}
 
-	st.Store = deps.NewDependency(root, store.New(cfg.PG))
+	st.Store = deps.NewDependency(root, store.New(cfg.PG, store.AuditExport(cfg.Audit.ExportURL != "")))
 	st.Valkey = deps.NewDependency(root, valkey.New(cfg.Valkey))
 	st.Registry = registry.New(root, client)
 	st.Ops = ops.New(root, st.Registry, ops.Author(sessionAuthor), ops.Namespace(cfg.Temporal.Namespace))
-	st.Audit = audit.New(root, st.Store, audit.WithRetention(cfg.Audit.Retention), audit.WithRunQueue(st.Ops.RunQueue))
+
+	auditOptions := []audit.Option{audit.WithRetention(cfg.Audit.Retention), audit.WithRunQueue(st.Ops.RunQueue)}
+	if cfg.Audit.ExportURL != "" {
+		auditOptions = append(auditOptions, audit.WithPublisher(audit.Exporter(cfg.Audit)))
+	}
+
+	st.Audit = audit.New(root, st.Store, auditOptions...)
 	st.AuditIngest = audit.NewIngest(root, st.Store, cfg.Audit)
 
 	st.Obs, err = obs.New(cfg.Obs, obs.WithRegistry(st.Registry))
@@ -141,20 +151,9 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 	}
 
 	st.Config = config.New(root, cfg.LiveConfig, client, st.Store, st.Registry, config.Author(sessionAuthor))
+
 	st.Bindings = bindings.New(root, st.Store, st.Registry, bindings.Author(sessionAuthor))
-	st.XDS = xds.New(root, xdsConfig(cfg, root.Identity().Advertise), st.Registry)
-	workflows.Register(root, ops.RegisterWorkflows)
-	st.Executor = executor.New(root, st.Bindings, st.Registry, executor.Author(sessionAuthor),
-		executor.Namespace(cfg.Temporal.Namespace), executor.Runs(st.Ops.Workflows()),
-		executor.AbsenceGrace(cfg.Nexus.AbsenceGrace), executor.Resync(cfg.Nexus.ReconcileInterval))
-	workflows.Register(root, st.Executor.RegisterWorkflows)
-	st.Rules = rules.New(root, st.Bindings, st.Registry, rules.WithRuns(st.Ops.Workflows()))
-	consoleOptions = append(consoleOptions,
-		console.WithServices(st.Config.Register), console.WithServices(st.Audit.Commands(st.Ops.Register, sessionAuthor)),
-		console.WithServices(st.Audit.Commands(st.Executor.Register(st.Bindings.BindingAPI()), sessionAuthor)),
-		console.WithServices(st.Audit.Commands(st.Rules.Register, sessionAuthor)), console.WithServices(st.Bindings.Register),
-		console.WithServices(st.Obs.Register), console.WithServices(errorReader.Register),
-		console.WithServices(st.Audit.Register))
+	consoleOptions = append(consoleOptions, st.runtime(root, cfg, errorReader.Register)...)
 	st.Console = console.New(root, cfg.consoleSettings(), console.NewPG(st.Store),
 		console.NewValkey(st.Valkey, console.DefaultLoginLimits()), st.Registry, consoleOptions...)
 
@@ -171,8 +170,10 @@ func (st *State) Ready(context.Context) error {
 		errs = append(errs, fmt.Errorf("registry: %w", err))
 	}
 
-	if err := st.XDS.Ready(); err != nil {
-		errs = append(errs, err)
+	if st.XDS != nil {
+		if err := st.XDS.Ready(); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	return errors.Join(errs...)
@@ -186,4 +187,48 @@ func sessionAuthor(ctx context.Context) string {
 	}
 
 	return "admin"
+}
+
+func (st *State) runtime(root backplane.Root[Config],
+	cfg Config,
+	registerErrors func(grpc.ServiceRegistrar),
+) []console.Option {
+	if cfg.XDS.Enabled {
+		st.XDS = xds.New(root, xdsConfig(cfg, root.Identity().Advertise), st.Registry)
+	}
+
+	registerBindings := func(r grpc.ServiceRegistrar) {
+		consolev1.RegisterBindingServiceServer(r,
+			st.Bindings.BindingAPI())
+	}
+	registerRules := func(r grpc.ServiceRegistrar) { consolev1.RegisterRuleServiceServer(r, st.Bindings.RuleAPI()) }
+
+	if cfg.Temporal.Enabled() {
+		workflows.Register(root, ops.RegisterWorkflows)
+		st.Executor = executor.New(root, st.Bindings, st.Registry, executor.Author(sessionAuthor),
+			executor.Namespace(cfg.Temporal.Namespace), executor.Runs(st.Ops.Workflows()),
+			executor.AbsenceGrace(cfg.Nexus.AbsenceGrace), executor.Resync(cfg.Nexus.ReconcileInterval))
+		workflows.Register(root, st.Executor.RegisterWorkflows)
+
+		registerBindings = st.Executor.Register(st.Bindings.BindingAPI())
+		if cfg.NATS.Enabled() {
+			st.Rules = rules.New(root, st.Bindings, st.Registry, rules.WithRuns(st.Ops.Workflows()))
+			registerRules = st.Rules.Register
+		}
+	}
+
+	st.Platform = platform.New(root, root.Identity().Instance, capabilities(cfg), st.probes(root, cfg))
+	registrations := []func(grpc.ServiceRegistrar){
+		st.Config.Register,
+		st.Audit.Commands(st.scheduleCommands(st.Ops.Register), sessionAuthor),
+		st.Audit.Commands(registerBindings, sessionAuthor), st.Audit.Commands(registerRules, sessionAuthor),
+		st.Bindings.Register, st.Obs.Register, registerErrors, st.Audit.Register, st.Platform.Register,
+	}
+
+	consoleOptions := make([]console.Option, 0, len(registrations))
+	for _, register := range registrations {
+		consoleOptions = append(consoleOptions, console.WithServices(platform.Gate(register, disabledMethods(cfg))))
+	}
+
+	return consoleOptions
 }

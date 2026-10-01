@@ -104,3 +104,10 @@ the backend capabilities; TraceQL is not advertised unless enabled by deployment
 The contract/reference and package guides are linked from
 [implementation scope](implementation-plan.md). Application modules (Kratos
 wrappers, mail services) are outside this work.
+
+For the console without optional infrastructure, use `make dev-minimal`.
+PostgreSQL, Consul and Valkey remain required. The **Infrastructure** page shows
+configured dependencies as OK/NO and separately lists deployment capabilities.
+See [deployment modes](../deployments/README.md#server-deployment-modes) for
+Compose profiles and endpoints. Service **Workflows** includes administrative
+schedule creation, editing and deletion; module SDKs never reconcile schedules.

@@ -587,10 +587,9 @@ func TestRunsLive(t *testing.T) {
 		t.Fatalf("parent history: %v", parentRun.GetHistory())
 	}
 
-	// A declared schedule Temporal does not have: no state.
+	// Legacy declarations do not create phantom administrative schedules.
 	schedules, err := srv.schedules.ListSchedules(ctx, &consolev1.ListSchedulesRequest{Service: svc})
-	if err != nil || len(schedules.GetSchedules()) != 1 || schedules.GetSchedules()[0].GetState() != nil ||
-		schedules.GetSchedules()[0].GetDeclared().GetName() != "Ghost" {
+	if err != nil || len(schedules.GetSchedules()) != 0 {
 		t.Fatalf("missing schedule: %v %v", schedules, err)
 	}
 

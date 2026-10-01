@@ -33,11 +33,19 @@ type Settings struct {
 	// Keys the Collector presents as a bearer token; empty: none required
 	// (the listener is internal): BACKPLANE_AUDIT_KEYS, a JSON array.
 	Keys []config.Secret `json:"keys,omitempty"`
+	// ExportURL is the optional complete OTLP/HTTP logs endpoint. Empty disables
+	// export, without changing the durable PostgreSQL history or ingest API.
+	ExportURL           string        `json:"export_url,omitempty"`
+	ExportAuthorization config.Secret `json:"export_authorization,omitempty"`
 }
 
 // Validate rejects negative retention without imposing a deletion policy,
 // and short keys.
 func (s Settings) Validate() error {
+	if err := validateExport(s); err != nil {
+		return err
+	}
+
 	if s.Retention < 0 {
 		return errRetention
 	}

@@ -16,6 +16,8 @@ export * from './gen/backplanepb/console/v1/events_pb.js';
 export { EventServiceClient } from './gen/backplanepb/console/v1/events_ws_pb.js';
 export * from './gen/backplanepb/console/v1/obs_pb.js';
 export { ObsServiceClient } from './gen/backplanepb/console/v1/obs_ws_pb.js';
+export * from './gen/backplanepb/console/v1/platform_pb.js';
+export { PlatformServiceClient } from './gen/backplanepb/console/v1/platform_ws_pb.js';
 export * from './gen/backplanepb/console/v1/rules_pb.js';
 export { RuleServiceClient } from './gen/backplanepb/console/v1/rules_ws_pb.js';
 export * from './gen/backplanepb/console/v1/session_pb.js';

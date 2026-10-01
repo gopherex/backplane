@@ -1,4 +1,4 @@
-// Package audit exposes durable control history and delivers its event outbox.
+// Package audit exposes durable control history and optionally exports its outbox over OTLP.
 package audit
 
 import (
@@ -18,7 +18,6 @@ import (
 	"github.com/gopherex/backplane/internal/store"
 	"github.com/gopherex/backplane/internal/store/db"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
-	"github.com/gopherex/backplane/pkg/backplane/event"
 )
 
 const (
@@ -29,7 +28,7 @@ const (
 	batchSize      = 16
 )
 
-// Entry is the backplane.AuditEntry event. Numeric identities are strings to
+// Entry is a durable platform control audit record. Numeric identities are strings to
 // preserve their values across consumers; id is the deduplication identity.
 type Entry struct {
 	ID          string            `json:"id"`
@@ -67,7 +66,7 @@ func WithRunQueue(fn RunQueueFunc) Option {
 	return func(s *Service) { s.runQueue = fn }
 }
 
-// WithPublisher replaces event delivery; persistence and claiming stay real.
+// WithPublisher configures acknowledged export; persistence and claiming stay real.
 func WithPublisher(publish func(context.Context, Entry) error) Option {
 	return func(s *Service) { s.publish = publish }
 }
@@ -75,15 +74,17 @@ func WithPublisher(publish func(context.Context, Entry) error) Option {
 // New starts outbox delivery after the store dependency is ready.
 func New(parent deps.Scope, st deps.Dependency[*store.Store], options ...Option) *Service {
 	s := &Service{Component: deps.NewComponent(parent, "audit"), store: st}
-	ref := event.Declare[Entry](s, "AuditEntry", event.Describe("Durable platform control audit; deduplicate by entry id"))
-
-	s.publish = func(ctx context.Context, entry Entry) error { return ref.Publish(ctx, entry, event.ID(entry.ID)) }
 	for _, option := range options {
 		option(s)
 	}
 
-	s.Go(s.run)
-	s.Go(s.cleanupLoop)
+	if s.publish != nil {
+		s.Go(s.run)
+	}
+
+	if s.retention > 0 {
+		s.Go(s.cleanupLoop)
+	}
 
 	return s
 }
@@ -113,6 +114,10 @@ func (s *Service) run(ctx context.Context) error {
 // Deliver claims a bounded batch. Leases protect acknowledgments from stale
 // replicas. A crash after publish and before acknowledgment may redeliver.
 func (s *Service) Deliver(ctx context.Context) error {
+	if s.publish == nil {
+		return nil
+	}
+
 	st := s.store.Get()
 	lease := uuid.New()
 

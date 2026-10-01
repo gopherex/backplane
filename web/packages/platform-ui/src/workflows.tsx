@@ -14,6 +14,7 @@ import { MutationState, usePlatformAction, usePlatformQuery } from './runtime.js
 import { usePlatformText } from './locales.js';
 import { date, durationText, enumLabel } from './format.js';
 import { nativeJSON } from './serialization.js';
+import { ScheduleEditor } from './schedule-admin.js';
 import { RunDrawer, RunPager, RunStatusFilter, RunTable, useRunPages, type RunRef } from './runs.js';
 
 /** Generic protobuf-JSON command with confirmation (technical fallback surfaces). */
@@ -141,23 +142,28 @@ function ServiceSchedules({ service, mode, onShowRuns, onTriggered }: { service:
   const client = useClient(api.ScheduleServiceClient), text = usePlatformText();
   const state = usePlatformQuery(`schedules:${service}`, (signal) => client.listSchedules(create(api.ListSchedulesRequestSchema, { service }), { signal }));
   const [opened, setOpened] = useState<RunRef>();
+  const [editing, setEditing] = useState<string | null>(null);
   const schedules = state.value?.schedules ?? [];
   return <Panel title={<><CalendarClock className="size-4 text-muted-foreground" />{text('schedules')}</>} count={schedules.length} flush
-    actions={<Button size="icon-sm" variant="ghost" aria-label={text('refresh')} title={text('refresh')} onClick={state.refresh} disabled={state.loading}><RefreshCw className={state.loading ? 'animate-spin' : ''} /></Button>}>
+    actions={<><Button size="xs" variant="outline" onClick={() => setEditing('')}>{text('createSchedule')}</Button><Button size="icon-sm" variant="ghost" aria-label={text('refresh')} title={text('refresh')} onClick={state.refresh} disabled={state.loading}><RefreshCw className={state.loading ? 'animate-spin' : ''} /></Button></>}>
     {!schedules.length && !state.loading && <EmptyState className="py-6" title={text('noSchedules')} />}
-    {schedules.map((schedule) => <ScheduleRow key={schedule.id} schedule={schedule} onOpenRun={setOpened} onShowRuns={onShowRuns} onChanged={(trigger) => { state.refresh(); if (trigger) onTriggered?.(); }} />)}
+    {schedules.map((schedule) => <ScheduleRow key={schedule.id} onEdit={() => setEditing(schedule.name)} schedule={schedule} onOpenRun={setOpened} onShowRuns={onShowRuns} onChanged={(trigger) => { state.refresh(); if (trigger) onTriggered?.(); }} />)}
     <RunDrawer run={opened} onClose={() => setOpened(undefined)} mode={mode} />
+    <DetailDrawer open={editing !== null} onOpenChange={(open) => { if (!open) setEditing(null); }} title={text(editing ? 'editSchedule' : 'createSchedule')}>
+      {editing !== null && <ScheduleEditor service={service} name={editing || undefined} mode={mode} onSaved={() => { setEditing(null); state.refresh(); }} />}
+    </DetailDrawer>
   </Panel>;
 }
 
-function ScheduleRow({ schedule, onOpenRun, onShowRuns, onChanged }: { schedule: api.ScheduleInfo; onOpenRun: (run: RunRef) => void; onShowRuns?: (prefix: string) => void; onChanged: (trigger: boolean) => void }) {
+function ScheduleRow({ schedule, onOpenRun, onShowRuns, onChanged, onEdit }: { onEdit: () => void; schedule: api.ScheduleInfo; onOpenRun: (run: RunRef) => void; onShowRuns?: (prefix: string) => void; onChanged: (trigger: boolean) => void }) {
   const client = useClient(api.ScheduleServiceClient), text = usePlatformText(), action = usePlatformAction<unknown>();
   const [note, setNote] = useState(''), [expanded, setExpanded] = useState(false);
   const live = schedule.state, paused = live?.paused, spec = schedule.declared?.spec, recent = live?.recentActions.at(-1), next = live?.nextActions[0];
   const drift = live && schedule.declared && schedule.declared.paused !== live.paused;
-  const control = (operation: 'pause' | 'resume' | 'trigger') => async (signal: AbortSignal) => {
+  const control = (operation: 'pause' | 'resume' | 'trigger' | 'delete') => async (signal: AbortSignal) => {
     const response = await action.run(async (abort) => {
       const options = { signal: AbortSignal.any([signal, abort]) }, request = { service: schedule.service, name: schedule.name };
+      if (operation === 'delete') return client.deleteSchedule(create(api.DeleteScheduleRequestSchema, request), options);
       if (operation === 'pause') return client.pauseSchedule(create(api.PauseScheduleRequestSchema, { ...request, note: note.trim() }), options);
       if (operation === 'resume') return client.unpauseSchedule(create(api.UnpauseScheduleRequestSchema, { ...request, note: note.trim() }), options);
       return client.triggerSchedule(create(api.TriggerScheduleRequestSchema, request), options);
@@ -172,7 +178,6 @@ function ScheduleRow({ schedule, onOpenRun, onShowRuns, onChanged }: { schedule:
     <div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs">{schedule.name}</span>
       {!live ? <StatusBadge tone="neutral" title={text('notInTemporalHelp')}>{text('notInTemporal')}</StatusBadge> : <StatusBadge tone={paused ? 'warning' : 'success'}>{text(paused ? 'paused' : 'active')}</StatusBadge>}
       {drift && <Badge variant="outline" className="text-warning" title={text('driftHelp', { declared: text(schedule.declared!.paused ? 'paused' : 'active'), actual: text(paused ? 'paused' : 'active') })}>{text('drift')}</Badge>}
-      {!schedule.declared && <Badge variant="outline">{text('undeclared')}</Badge>}
       <span className="ml-auto text-2xs text-muted-foreground">{text('runsCount', { count: Number(live?.actionCount ?? 0n) })}</span></div>
     <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
       <Badge variant="outline" className="font-mono">{spec?.case === 'cron' ? spec.value : spec?.case === 'every' ? `every ${durationText(spec.value)}` : '—'}</Badge>
@@ -186,6 +191,8 @@ function ScheduleRow({ schedule, onOpenRun, onShowRuns, onChanged }: { schedule:
       {live?.note && <span className="italic">{live.note}</span>}
     </div>
     <div className="flex flex-wrap items-center gap-1.5">
+      <Button size="sm" variant="ghost" disabled={blocked} onClick={onEdit}>{text('editSchedule')}</Button>
+      <ConfirmAction trigger={text('deleteSchedule')} title={text('deleteSchedule')} description={text('deleteScheduleHelp')} disabled={blocked} onConfirm={control('delete')} />
       {paused ? <ConfirmAction trigger={<><Play className="size-3.5" />{text('resume')}</>} title={text('resumeConfirm', { name: schedule.name })} description={text('resumeHelp')} disabled={blocked} onConfirm={control('resume')}>{noteField}</ConfirmAction>
         : <ConfirmAction trigger={<><Pause className="size-3.5" />{text('pause')}</>} title={text('pauseConfirm', { name: schedule.name })} description={text('pauseHelp')} disabled={blocked} onConfirm={control('pause')}>{noteField}</ConfirmAction>}
       <ConfirmAction trigger={<><Zap className="size-3.5" />{text('trigger')}</>} title={text('triggerConfirm', { name: schedule.name })} description={text('triggerHelp')} disabled={blocked} onConfirm={control('trigger')} />

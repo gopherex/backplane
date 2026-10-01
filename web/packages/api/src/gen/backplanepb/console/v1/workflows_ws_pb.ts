@@ -3,8 +3,8 @@
 /* eslint-disable */
 
 import { applyUnaryCallbacks, MethodInfo, WsTransport } from "@gopherex/ws-proto-transport";
-import type { CancelRunRequest, CancelRunResponse, GetRunRequest, GetRunResponse, ListRunsRequest, ListRunsResponse, ListSchedulesRequest, ListSchedulesResponse, ListWorkflowsRequest, ListWorkflowsResponse, PauseScheduleRequest, PauseScheduleResponse, SignalRunRequest, SignalRunResponse, StartWorkflowRequest, StartWorkflowResponse, TerminateRunRequest, TerminateRunResponse, TriggerScheduleRequest, TriggerScheduleResponse, UnpauseScheduleRequest, UnpauseScheduleResponse } from "./workflows_pb.js";
-import { CancelRunRequestSchema, CancelRunResponseSchema, GetRunRequestSchema, GetRunResponseSchema, ListRunsRequestSchema, ListRunsResponseSchema, ListSchedulesRequestSchema, ListSchedulesResponseSchema, ListWorkflowsRequestSchema, ListWorkflowsResponseSchema, PauseScheduleRequestSchema, PauseScheduleResponseSchema, SignalRunRequestSchema, SignalRunResponseSchema, StartWorkflowRequestSchema, StartWorkflowResponseSchema, TerminateRunRequestSchema, TerminateRunResponseSchema, TriggerScheduleRequestSchema, TriggerScheduleResponseSchema, UnpauseScheduleRequestSchema, UnpauseScheduleResponseSchema } from "./workflows_pb.js";
+import type { CancelRunRequest, CancelRunResponse, CreateScheduleRequest, CreateScheduleResponse, DeleteScheduleRequest, DeleteScheduleResponse, GetRunRequest, GetRunResponse, GetScheduleRequest, GetScheduleResponse, ListRunsRequest, ListRunsResponse, ListSchedulesRequest, ListSchedulesResponse, ListWorkflowsRequest, ListWorkflowsResponse, PauseScheduleRequest, PauseScheduleResponse, SignalRunRequest, SignalRunResponse, StartWorkflowRequest, StartWorkflowResponse, TerminateRunRequest, TerminateRunResponse, TriggerScheduleRequest, TriggerScheduleResponse, UnpauseScheduleRequest, UnpauseScheduleResponse, UpdateScheduleRequest, UpdateScheduleResponse } from "./workflows_pb.js";
+import { CancelRunRequestSchema, CancelRunResponseSchema, CreateScheduleRequestSchema, CreateScheduleResponseSchema, DeleteScheduleRequestSchema, DeleteScheduleResponseSchema, GetRunRequestSchema, GetRunResponseSchema, GetScheduleRequestSchema, GetScheduleResponseSchema, ListRunsRequestSchema, ListRunsResponseSchema, ListSchedulesRequestSchema, ListSchedulesResponseSchema, ListWorkflowsRequestSchema, ListWorkflowsResponseSchema, PauseScheduleRequestSchema, PauseScheduleResponseSchema, SignalRunRequestSchema, SignalRunResponseSchema, StartWorkflowRequestSchema, StartWorkflowResponseSchema, TerminateRunRequestSchema, TerminateRunResponseSchema, TriggerScheduleRequestSchema, TriggerScheduleResponseSchema, UnpauseScheduleRequestSchema, UnpauseScheduleResponseSchema, UpdateScheduleRequestSchema, UpdateScheduleResponseSchema } from "./workflows_pb.js";
 
 export interface CallOptions {
   /** Request metadata sent as headers on the opening frame. */
@@ -80,7 +80,7 @@ const WorkflowService_SignalRun: MethodInfo<SignalRunRequest, SignalRunResponse>
  * workflows (§9): what they declare, starting one with a form, the runs
  * through Temporal visibility and the actions on a run. backplane reaches
  * Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
- * the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
+ * runtime calls fail with FAILED_PRECONDITION. Backend outages return UNAVAILABLE. Runs the console starts
  * carry memo source = console:<session> (§14).
  *
  * GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
@@ -172,6 +172,38 @@ export class WorkflowServiceClient {
 
 }
 
+const ScheduleService_GetSchedule: MethodInfo<GetScheduleRequest, GetScheduleResponse> = {
+  typeName: "backplane.console.v1.ScheduleService",
+  name: "GetSchedule",
+  kind: "unary",
+  input: GetScheduleRequestSchema,
+  output: GetScheduleResponseSchema,
+};
+
+const ScheduleService_CreateSchedule: MethodInfo<CreateScheduleRequest, CreateScheduleResponse> = {
+  typeName: "backplane.console.v1.ScheduleService",
+  name: "CreateSchedule",
+  kind: "unary",
+  input: CreateScheduleRequestSchema,
+  output: CreateScheduleResponseSchema,
+};
+
+const ScheduleService_UpdateSchedule: MethodInfo<UpdateScheduleRequest, UpdateScheduleResponse> = {
+  typeName: "backplane.console.v1.ScheduleService",
+  name: "UpdateSchedule",
+  kind: "unary",
+  input: UpdateScheduleRequestSchema,
+  output: UpdateScheduleResponseSchema,
+};
+
+const ScheduleService_DeleteSchedule: MethodInfo<DeleteScheduleRequest, DeleteScheduleResponse> = {
+  typeName: "backplane.console.v1.ScheduleService",
+  name: "DeleteSchedule",
+  kind: "unary",
+  input: DeleteScheduleRequestSchema,
+  output: DeleteScheduleResponseSchema,
+};
+
 const ScheduleService_ListSchedules: MethodInfo<ListSchedulesRequest, ListSchedulesResponse> = {
   typeName: "backplane.console.v1.ScheduleService",
   name: "ListSchedules",
@@ -205,10 +237,10 @@ const ScheduleService_TriggerSchedule: MethodInfo<TriggerScheduleRequest, Trigge
 };
 
 /**
- * ScheduleService is the services' Temporal Schedules (§9): the
- * declarations with what Temporal says about them, and the operator's
- * actions. A pause or unpause lasts until the declaration changes (the
- * SDK's reconciliation leaves a matching schedule alone).
+ * ScheduleService administrates Temporal schedules. Temporal is the source
+ * of truth; modules only declare and execute workflows. SDK reconciliation
+ * never creates, changes or deletes schedules. Disabled: FAILED_PRECONDITION;
+ * configured but unavailable: UNAVAILABLE. Mutations are audited.
  *
  * @generated from service backplane.console.v1.ScheduleService
  */
@@ -216,8 +248,49 @@ export class ScheduleServiceClient {
   constructor(private readonly transport: WsTransport) {}
 
   /**
-   * Schedules declared by the latest manifests, plus schedules in
-   * Temporal under a service's prefix that no manifest declares.
+   * Reads a schedule even if its service has no running instances.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.GetSchedule
+   */
+  async getSchedule(req: GetScheduleRequest, options?: CallOptions): Promise<GetScheduleResponse> {
+    const res = await this.transport.unary(ScheduleService_GetSchedule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * Creates for a declared workflow; duplicate id: ALREADY_EXISTS.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.CreateSchedule
+   */
+  async createSchedule(req: CreateScheduleRequest, options?: CallOptions): Promise<CreateScheduleResponse> {
+    const res = await this.transport.unary(ScheduleService_CreateSchedule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * Optimistic update using GetSchedule revision; conflict: ABORTED.
+   * Operator pause, note and execution counters are always preserved.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.UpdateSchedule
+   */
+  async updateSchedule(req: UpdateScheduleRequest, options?: CallOptions): Promise<UpdateScheduleResponse> {
+    const res = await this.transport.unary(ScheduleService_UpdateSchedule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * Deletes the schedule, leaving existing workflow runs intact.
+   *
+   * @generated from rpc backplane.console.v1.ScheduleService.DeleteSchedule
+   */
+  async deleteSchedule(req: DeleteScheduleRequest, options?: CallOptions): Promise<DeleteScheduleResponse> {
+    const res = await this.transport.unary(ScheduleService_DeleteSchedule, req, { headers: options?.headers, signal: options?.signal, timeoutMs: options?.timeoutMs });
+    return applyUnaryCallbacks(res, options);
+  }
+
+  /**
+   * Schedules stored in Temporal under a service prefix, including services
+   * no longer present in the registry. Legacy declarations are annotations.
    *
    * @generated from rpc backplane.console.v1.ScheduleService.ListSchedules
    */

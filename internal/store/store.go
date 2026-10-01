@@ -58,7 +58,8 @@ type Store struct {
 	// Q are the generated queries over DB.
 	Q *db.Queries
 	// Installation identifies the installation this database belongs to.
-	Installation uuid.UUID
+	Installation    uuid.UUID
+	skipAuditExport bool
 }
 
 // InTx runs fn in one serializable transaction, retried from scratch on
@@ -72,9 +73,25 @@ func (s *Store) InTx(ctx context.Context, fn func(ctx context.Context) error) er
 // New is the provider of the store: a required dependency whose start
 // connects, creates the schema and applies pending migrations (retried
 // with backoff while PostgreSQL is down); its probe pings.
-func New(cfg postgres.Config) deps.Provider[*Store] { return provider{cfg: cfg} }
+func New(cfg postgres.Config, options ...Option) deps.Provider[*Store] {
+	p := provider{cfg: cfg}
+	for _, option := range options {
+		option(&p)
+	}
+	return p
+}
 
-type provider struct{ cfg postgres.Config }
+// Option configures persistence behavior at construction time.
+type Option func(*provider)
+
+// AuditExport controls whether new history entries enqueue an export. Existing
+// pending exports remain durable and resume when export is enabled again.
+func AuditExport(enabled bool) Option { return func(p *provider) { p.skipAuditExport = !enabled } }
+
+type provider struct {
+	cfg             postgres.Config
+	skipAuditExport bool
+}
 
 func (provider) Name() string { return "postgres" }
 
@@ -92,6 +109,7 @@ func (p provider) Provide(ctx context.Context, s deps.Scope) (*Store, error) {
 		return nil, err
 	}
 
+	st.skipAuditExport = p.skipAuditExport
 	conn := pg.Pool.Config().ConnConfig
 	s.Log().Info("postgres ready", xlog.String("host", conn.Host),
 		xlog.String("database", conn.Database), xlog.String("installation", st.Installation.String()))

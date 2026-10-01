@@ -387,3 +387,54 @@ Consul catalog/KV recheck must confirm absence; Consul failure prevents cleanup.
 Only endpoints targeting the installation's namespace/task queue are deleted,
 using Temporal versions for concurrent-replica safety. Manifests remain in KV;
 a returning service gets its endpoint recreated automatically.
+
+## Server deployment modes
+
+Backplane requires PostgreSQL, Consul and Valkey. All processes belong to the
+deployment; Backplane does not start infrastructure on the host.
+
+| Optional subsystem | Enabled by | Disabled behavior |
+| --- | --- | --- |
+| Events | `BACKPLANE_NATS_URL` | No event runtime |
+| Workflows, schedules, binding execution | `BACKPLANE_TEMPORAL_ADDR` | No Temporal workers or Nexus reconciliation |
+| Rule execution | Both endpoints above | Saved rule definitions remain available |
+| Gateway | `BACKPLANE_XDS_ENABLED` (default `true`) | Set `false` to omit xDS listener and readiness |
+| Telemetry ingest | `BACKPLANE_OTLP_URL` | No OTLP proxy |
+| Telemetry queries | Respective `BACKPLANE_OBS_*_URL` | Other stores work independently |
+| Control audit export | `BACKPLANE_AUDIT_EXPORT_URL` | PostgreSQL audit stays available; no new outbox work |
+
+The base Compose file starts only PostgreSQL, Consul and Valkey. Profiles
+`events`, `workflows`, `gateway`, `observability` (with the observability overlay)
+and `full` start optional dependencies. Starting a container and configuring its
+endpoint in Backplane are explicit deployment choices.
+
+- `make up`: full infrastructure for existing integration tests.
+- `make dev`: complete seeded hello/formatter installation, including audit export.
+- `make dev-minimal`: console and required dependencies, direct access at
+  `http://127.0.0.1:8081/`; no gateway, events, workflows or observability.
+- Minimal plus Temporal:
+  `BACKPLANE_TEMPORAL_ADDR=temporal:7233 docker compose --profile workflows -f docker-compose.yaml -f docker-compose.minimal.yaml up -d --wait`.
+- Minimal plus NATS: use `--profile events` with
+  `BACKPLANE_NATS_URL=nats://nats:4222` and the same files.
+
+Stop an existing installation before changing presets; profiles do not remove
+containers from an earlier preset. Volumes retain history. The dev Temporal is
+containerized and ephemeral; production schedules require durable Temporal storage.
+
+The Infrastructure page reads cached checks, at most one probe per dependency
+per replica every 5 seconds, bounded to 3 seconds. PostgreSQL, Consul, Valkey,
+configured Temporal/JetStream and Victoria stores are checked. Optional outages
+are distinct from disabled capabilities and do not take down the console.
+Victoria checks use the origin's `/health`; deployments can override with
+`BACKPLANE_INFRASTRUCTURE_METRICS_URL`, `_LOGS_URL`, `_TRACES_URL`.
+Supply `BACKPLANE_INFRASTRUCTURE_COLLECTOR_URL` and `_GATEWAY_URL` for those
+processes' health endpoints. These endpoints are deployment-only, never editable
+in the console. An OK health endpoint proves that endpoint answered; it is not
+an end-to-end delivery or storage durability check.
+
+`TestPlatformModes` exercises minimal, NATS-only, Temporal-only, full and
+configured-but-down cases through the real console, plus probe failure/recovery
+and durable audit with no export queue. `TestScheduleAdministrationLive` tests
+concurrent revisions against Temporal. `TestReplicas` verifies two server
+processes and audit export over OTLP. See [API behavior](../docs/api-client.md#platform)
+and [audit delivery](../docs/audit-api.md).

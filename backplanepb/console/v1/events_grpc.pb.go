@@ -36,8 +36,8 @@ const (
 // declares, the JetStream streams behind them, the consumers that read
 // them with their lag, and the dead letters of reactors. backplane reads
 // NATS through its own connection (BACKPLANE_NATS_URL); without one the
-// NATS-backed calls fail with UNAVAILABLE and ListEvents returns the
-// declarations alone.
+// calls fail with FAILED_PRECONDITION. A configured but unavailable
+// backend returns UNAVAILABLE; ListEvents can still return declarations.
 type EventServiceClient interface {
 	// Every event declared by the latest manifest of a service, with the
 	// stream's counts and every subscriber (reactors of services, rules and
@@ -146,8 +146,8 @@ func (c *eventServiceClient) PurgeDeadLetters(ctx context.Context, in *PurgeDead
 // declares, the JetStream streams behind them, the consumers that read
 // them with their lag, and the dead letters of reactors. backplane reads
 // NATS through its own connection (BACKPLANE_NATS_URL); without one the
-// NATS-backed calls fail with UNAVAILABLE and ListEvents returns the
-// declarations alone.
+// calls fail with FAILED_PRECONDITION. A configured but unavailable
+// backend returns UNAVAILABLE; ListEvents can still return declarations.
 type EventServiceServer interface {
 	// Every event declared by the latest manifest of a service, with the
 	// stream's counts and every subscriber (reactors of services, rules and

@@ -43,8 +43,8 @@ WHERE sequence = @sequence AND lease = @lease AND published_at IS NULL;
 SELECT COALESCE(min(e.sequence) - 1,
   (SELECT sequence FROM backplane.audit_clock WHERE singleton = true))::bigint AS through_sequence
 FROM backplane.audit_entry e
-JOIN backplane.audit_outbox o ON o.sequence = e.sequence
-WHERE e.created_at >= @cutoff OR o.published_at IS NULL;
+LEFT JOIN backplane.audit_outbox o ON o.sequence = e.sequence
+WHERE e.created_at >= @cutoff OR (o.sequence IS NOT NULL AND o.published_at IS NULL);
 
 -- name: DeleteExpiredAuditOutbox :exec
 DELETE FROM backplane.audit_outbox WHERE sequence <= @through_sequence AND published_at IS NOT NULL;

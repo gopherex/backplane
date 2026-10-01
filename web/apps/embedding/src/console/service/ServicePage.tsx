@@ -14,6 +14,7 @@ import { ErrorsRoute } from '../ErrorsRoute';
 import { isServiceTab, serviceTabs } from './tabs';
 import { NotFound } from '../shell/NotFound';
 import { ExploreRoute } from '../ExploreRoute';
+import { FeatureGate } from '../Platform';
 import { wiringLink } from '../WiringRoute';
 
 export function ServicePage({ mode, services, index }: { mode: ThemeMode; services: ServiceSummary[]; index?: bigint }) {
@@ -43,11 +44,11 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
       {tab === 'overview' && <ServiceInspector service={service} mode={mode} />}
       {tab === 'configuration' && <ConfigurationPanel service={service} mode={mode} />}
       {tab === 'automation' && <AutomationPanel service={service} mode={mode} onOpenWiring={(target) => navigate(wiringLink(target))} />}
-      {tab === 'operations' && <ServiceOperations service={service} mode={mode} />}
-      {tab === 'events' && <EventStreams service={service} mode={mode} />}
-      {tab === 'workflows' && <WorkflowsPanel service={service} mode={mode} />}
+      {tab === 'operations' && <FeatureGate feature="workflows"><ServiceOperations service={service} mode={mode} /></FeatureGate>}
+      {tab === 'events' && <FeatureGate feature="events"><EventStreams service={service} mode={mode} /></FeatureGate>}
+      {tab === 'workflows' && <FeatureGate feature="workflows"><WorkflowsPanel service={service} mode={mode} /></FeatureGate>}
       {tab === 'telemetry' && <ExploreRoute service={service} mode={mode} defaultSignal="metrics" />}
-      {tab === 'errors' && <ErrorsRoute service={service} mode={mode} />}
+      {tab === 'errors' && <FeatureGate feature="logs"><ErrorsRoute service={service} mode={mode} /></FeatureGate>}
       {tab === 'audit' && <AuditRoute service={service} mode={mode} />}
     </div>
   </>;

@@ -36,7 +36,7 @@ const (
 // workflows (§9): what they declare, starting one with a form, the runs
 // through Temporal visibility and the actions on a run. backplane reaches
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
-// the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
+// runtime calls fail with FAILED_PRECONDITION. Backend outages return UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
 //
 // GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
@@ -153,7 +153,7 @@ func (c *workflowServiceClient) SignalRun(ctx context.Context, in *SignalRunRequ
 // workflows (§9): what they declare, starting one with a form, the runs
 // through Temporal visibility and the actions on a run. backplane reaches
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
-// the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
+// runtime calls fail with FAILED_PRECONDITION. Backend outages return UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
 //
 // GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
@@ -401,6 +401,10 @@ var WorkflowService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	ScheduleService_GetSchedule_FullMethodName     = "/backplane.console.v1.ScheduleService/GetSchedule"
+	ScheduleService_CreateSchedule_FullMethodName  = "/backplane.console.v1.ScheduleService/CreateSchedule"
+	ScheduleService_UpdateSchedule_FullMethodName  = "/backplane.console.v1.ScheduleService/UpdateSchedule"
+	ScheduleService_DeleteSchedule_FullMethodName  = "/backplane.console.v1.ScheduleService/DeleteSchedule"
 	ScheduleService_ListSchedules_FullMethodName   = "/backplane.console.v1.ScheduleService/ListSchedules"
 	ScheduleService_PauseSchedule_FullMethodName   = "/backplane.console.v1.ScheduleService/PauseSchedule"
 	ScheduleService_UnpauseSchedule_FullMethodName = "/backplane.console.v1.ScheduleService/UnpauseSchedule"
@@ -411,13 +415,22 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// ScheduleService is the services' Temporal Schedules (§9): the
-// declarations with what Temporal says about them, and the operator's
-// actions. A pause or unpause lasts until the declaration changes (the
-// SDK's reconciliation leaves a matching schedule alone).
+// ScheduleService administrates Temporal schedules. Temporal is the source
+// of truth; modules only declare and execute workflows. SDK reconciliation
+// never creates, changes or deletes schedules. Disabled: FAILED_PRECONDITION;
+// configured but unavailable: UNAVAILABLE. Mutations are audited.
 type ScheduleServiceClient interface {
-	// Schedules declared by the latest manifests, plus schedules in
-	// Temporal under a service's prefix that no manifest declares.
+	// Reads a schedule even if its service has no running instances.
+	GetSchedule(ctx context.Context, in *GetScheduleRequest, opts ...grpc.CallOption) (*GetScheduleResponse, error)
+	// Creates for a declared workflow; duplicate id: ALREADY_EXISTS.
+	CreateSchedule(ctx context.Context, in *CreateScheduleRequest, opts ...grpc.CallOption) (*CreateScheduleResponse, error)
+	// Optimistic update using GetSchedule revision; conflict: ABORTED.
+	// Operator pause, note and execution counters are always preserved.
+	UpdateSchedule(ctx context.Context, in *UpdateScheduleRequest, opts ...grpc.CallOption) (*UpdateScheduleResponse, error)
+	// Deletes the schedule, leaving existing workflow runs intact.
+	DeleteSchedule(ctx context.Context, in *DeleteScheduleRequest, opts ...grpc.CallOption) (*DeleteScheduleResponse, error)
+	// Schedules stored in Temporal under a service prefix, including services
+	// no longer present in the registry. Legacy declarations are annotations.
 	ListSchedules(ctx context.Context, in *ListSchedulesRequest, opts ...grpc.CallOption) (*ListSchedulesResponse, error)
 	PauseSchedule(ctx context.Context, in *PauseScheduleRequest, opts ...grpc.CallOption) (*PauseScheduleResponse, error)
 	UnpauseSchedule(ctx context.Context, in *UnpauseScheduleRequest, opts ...grpc.CallOption) (*UnpauseScheduleResponse, error)
@@ -433,6 +446,46 @@ type scheduleServiceClient struct {
 
 func NewScheduleServiceClient(cc grpc.ClientConnInterface) ScheduleServiceClient {
 	return &scheduleServiceClient{cc}
+}
+
+func (c *scheduleServiceClient) GetSchedule(ctx context.Context, in *GetScheduleRequest, opts ...grpc.CallOption) (*GetScheduleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetScheduleResponse)
+	err := c.cc.Invoke(ctx, ScheduleService_GetSchedule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *scheduleServiceClient) CreateSchedule(ctx context.Context, in *CreateScheduleRequest, opts ...grpc.CallOption) (*CreateScheduleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateScheduleResponse)
+	err := c.cc.Invoke(ctx, ScheduleService_CreateSchedule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *scheduleServiceClient) UpdateSchedule(ctx context.Context, in *UpdateScheduleRequest, opts ...grpc.CallOption) (*UpdateScheduleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateScheduleResponse)
+	err := c.cc.Invoke(ctx, ScheduleService_UpdateSchedule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *scheduleServiceClient) DeleteSchedule(ctx context.Context, in *DeleteScheduleRequest, opts ...grpc.CallOption) (*DeleteScheduleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DeleteScheduleResponse)
+	err := c.cc.Invoke(ctx, ScheduleService_DeleteSchedule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *scheduleServiceClient) ListSchedules(ctx context.Context, in *ListSchedulesRequest, opts ...grpc.CallOption) (*ListSchedulesResponse, error) {
@@ -479,13 +532,22 @@ func (c *scheduleServiceClient) TriggerSchedule(ctx context.Context, in *Trigger
 // All implementations must embed UnimplementedScheduleServiceServer
 // for forward compatibility.
 //
-// ScheduleService is the services' Temporal Schedules (§9): the
-// declarations with what Temporal says about them, and the operator's
-// actions. A pause or unpause lasts until the declaration changes (the
-// SDK's reconciliation leaves a matching schedule alone).
+// ScheduleService administrates Temporal schedules. Temporal is the source
+// of truth; modules only declare and execute workflows. SDK reconciliation
+// never creates, changes or deletes schedules. Disabled: FAILED_PRECONDITION;
+// configured but unavailable: UNAVAILABLE. Mutations are audited.
 type ScheduleServiceServer interface {
-	// Schedules declared by the latest manifests, plus schedules in
-	// Temporal under a service's prefix that no manifest declares.
+	// Reads a schedule even if its service has no running instances.
+	GetSchedule(context.Context, *GetScheduleRequest) (*GetScheduleResponse, error)
+	// Creates for a declared workflow; duplicate id: ALREADY_EXISTS.
+	CreateSchedule(context.Context, *CreateScheduleRequest) (*CreateScheduleResponse, error)
+	// Optimistic update using GetSchedule revision; conflict: ABORTED.
+	// Operator pause, note and execution counters are always preserved.
+	UpdateSchedule(context.Context, *UpdateScheduleRequest) (*UpdateScheduleResponse, error)
+	// Deletes the schedule, leaving existing workflow runs intact.
+	DeleteSchedule(context.Context, *DeleteScheduleRequest) (*DeleteScheduleResponse, error)
+	// Schedules stored in Temporal under a service prefix, including services
+	// no longer present in the registry. Legacy declarations are annotations.
 	ListSchedules(context.Context, *ListSchedulesRequest) (*ListSchedulesResponse, error)
 	PauseSchedule(context.Context, *PauseScheduleRequest) (*PauseScheduleResponse, error)
 	UnpauseSchedule(context.Context, *UnpauseScheduleRequest) (*UnpauseScheduleResponse, error)
@@ -503,6 +565,18 @@ type ScheduleServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedScheduleServiceServer struct{}
 
+func (UnimplementedScheduleServiceServer) GetSchedule(context.Context, *GetScheduleRequest) (*GetScheduleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSchedule not implemented")
+}
+func (UnimplementedScheduleServiceServer) CreateSchedule(context.Context, *CreateScheduleRequest) (*CreateScheduleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateSchedule not implemented")
+}
+func (UnimplementedScheduleServiceServer) UpdateSchedule(context.Context, *UpdateScheduleRequest) (*UpdateScheduleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method UpdateSchedule not implemented")
+}
+func (UnimplementedScheduleServiceServer) DeleteSchedule(context.Context, *DeleteScheduleRequest) (*DeleteScheduleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DeleteSchedule not implemented")
+}
 func (UnimplementedScheduleServiceServer) ListSchedules(context.Context, *ListSchedulesRequest) (*ListSchedulesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSchedules not implemented")
 }
@@ -534,6 +608,78 @@ func RegisterScheduleServiceServer(s grpc.ServiceRegistrar, srv ScheduleServiceS
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&ScheduleService_ServiceDesc, srv)
+}
+
+func _ScheduleService_GetSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).GetSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_GetSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).GetSchedule(ctx, req.(*GetScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ScheduleService_CreateSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).CreateSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_CreateSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).CreateSchedule(ctx, req.(*CreateScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ScheduleService_UpdateSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).UpdateSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_UpdateSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).UpdateSchedule(ctx, req.(*UpdateScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ScheduleService_DeleteSchedule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteScheduleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ScheduleServiceServer).DeleteSchedule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ScheduleService_DeleteSchedule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ScheduleServiceServer).DeleteSchedule(ctx, req.(*DeleteScheduleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _ScheduleService_ListSchedules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -615,6 +761,22 @@ var ScheduleService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "backplane.console.v1.ScheduleService",
 	HandlerType: (*ScheduleServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetSchedule",
+			Handler:    _ScheduleService_GetSchedule_Handler,
+		},
+		{
+			MethodName: "CreateSchedule",
+			Handler:    _ScheduleService_CreateSchedule_Handler,
+		},
+		{
+			MethodName: "UpdateSchedule",
+			Handler:    _ScheduleService_UpdateSchedule_Handler,
+		},
+		{
+			MethodName: "DeleteSchedule",
+			Handler:    _ScheduleService_DeleteSchedule_Handler,
+		},
 		{
 			MethodName: "ListSchedules",
 			Handler:    _ScheduleService_ListSchedules_Handler,

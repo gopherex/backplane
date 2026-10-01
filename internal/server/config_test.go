@@ -83,6 +83,7 @@ func TestValidate(t *testing.T) {
 		c.Valkey.Addr = "valkey:6379"
 		c.AdminToken = "admin-token-0123456789"
 		c.InternalPort, c.PublicPort = 9400, 8080
+		c.XDS.Enabled = true
 		c.XDS.Listen, c.Console.Listen, c.Audit.Listen = ":18000", ":8081", ":4317"
 
 		return c

@@ -33,9 +33,8 @@ var _ consolev1.ScheduleServiceServer = ScheduleAPI{}
 func (a ScheduleAPI) ListSchedules(
 	ctx context.Context, req *consolev1.ListSchedulesRequest,
 ) (*consolev1.ListSchedulesResponse, error) {
-	manifests, err := a.o.manifests(req.GetService())
-	if err != nil {
-		return nil, a.o.status(ctx, err)
+	if req.GetService() != "" && !serviceName.MatchString(req.GetService()) {
+		return nil, a.o.status(ctx, ErrInput)
 	}
 
 	c, err := a.o.client()
@@ -44,17 +43,11 @@ func (a ScheduleAPI) ListSchedules(
 	}
 
 	byID := map[string]*consolev1.ScheduleInfo{}
+
 	services := map[string]bool{}
-
-	for _, m := range manifests {
-		services[m.GetService()] = true
-
-		for _, s := range m.GetSchedules() {
-			id := wire.ScheduleID(m.GetService(), s.GetName())
-			byID[id] = &consolev1.ScheduleInfo{Service: m.GetService(), Name: s.GetName(), Id: id, Declared: s}
-		}
+	if req.GetService() != "" {
+		services[req.GetService()] = true
 	}
-
 	// Schedules under a service's prefix that no manifest declares.
 	if err := a.undeclared(ctx, c, services, byID); err != nil {
 		return nil, a.o.status(ctx, err)
@@ -64,6 +57,15 @@ func (a ScheduleAPI) ListSchedules(
 
 	for _, id := range slices.Sorted(maps.Keys(byID)) {
 		info := byID[id]
+		if manifests, err := a.o.manifests(info.GetService()); err == nil {
+			for _, m := range manifests {
+				for _, legacy := range m.GetSchedules() {
+					if legacy.GetName() == info.GetName() {
+						info.Declared = legacy
+					}
+				}
+			}
+		}
 
 		desc, err := c.ScheduleClient().GetHandle(ctx, id).Describe(ctx)
 
@@ -100,7 +102,12 @@ func (a ScheduleAPI) undeclared(
 		}
 
 		service, name, ok := strings.Cut(e.ID, "/")
-		if !ok || !services[service] || byID[e.ID] != nil {
+		if !ok ||
+			!serviceName.MatchString(service) ||
+			name == "" ||
+			(len(services) > 0 &&
+				!services[service]) ||
+			byID[e.ID] != nil {
 			continue
 		}
 

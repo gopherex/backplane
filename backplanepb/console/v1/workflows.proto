@@ -13,7 +13,7 @@ option go_package = "github.com/gopherex/backplane/backplanepb/console/v1;consol
 // workflows (§9): what they declare, starting one with a form, the runs
 // through Temporal visibility and the actions on a run. backplane reaches
 // Temporal through its own client (BACKPLANE_TEMPORAL_ADDR); without one
-// the Temporal-backed calls fail with UNAVAILABLE. Runs the console starts
+// runtime calls fail with FAILED_PRECONDITION. Backend outages return UNAVAILABLE. Runs the console starts
 // carry memo source = console:<session> (§14).
 //
 // GetRun, CancelRun, TerminateRun and SignalRun address any workflow id of
@@ -44,13 +44,22 @@ service WorkflowService {
   rpc SignalRun(SignalRunRequest) returns (SignalRunResponse);
 }
 
-// ScheduleService is the services' Temporal Schedules (§9): the
-// declarations with what Temporal says about them, and the operator's
-// actions. A pause or unpause lasts until the declaration changes (the
-// SDK's reconciliation leaves a matching schedule alone).
+// ScheduleService administrates Temporal schedules. Temporal is the source
+// of truth; modules only declare and execute workflows. SDK reconciliation
+// never creates, changes or deletes schedules. Disabled: FAILED_PRECONDITION;
+// configured but unavailable: UNAVAILABLE. Mutations are audited.
 service ScheduleService {
-  // Schedules declared by the latest manifests, plus schedules in
-  // Temporal under a service's prefix that no manifest declares.
+  // Reads a schedule even if its service has no running instances.
+  rpc GetSchedule(GetScheduleRequest) returns (GetScheduleResponse);
+  // Creates for a declared workflow; duplicate id: ALREADY_EXISTS.
+  rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
+  // Optimistic update using GetSchedule revision; conflict: ABORTED.
+  // Operator pause, note and execution counters are always preserved.
+  rpc UpdateSchedule(UpdateScheduleRequest) returns (UpdateScheduleResponse);
+  // Deletes the schedule, leaving existing workflow runs intact.
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  // Schedules stored in Temporal under a service prefix, including services
+  // no longer present in the registry. Legacy declarations are annotations.
   rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
   rpc PauseSchedule(PauseScheduleRequest) returns (PauseScheduleResponse);
   rpc UnpauseSchedule(UnpauseScheduleRequest) returns (UnpauseScheduleResponse);
@@ -328,3 +337,43 @@ message TriggerScheduleRequest {
 }
 
 message TriggerScheduleResponse {}
+
+// ScheduleTiming replaces timing when supplied on update. Omit it to
+// preserve timing, including advanced external settings.
+message ScheduleTiming {
+  repeated string cron = 1;
+  google.protobuf.Duration interval = 2;
+  string timezone = 3;
+}
+message ScheduleDefinition {
+  string workflow = 1;
+  // JSON input validated against the latest declared workflow schema.
+  string input = 2;
+  ScheduleTiming timing = 3;
+  google.protobuf.Duration execution_timeout = 4;
+}
+message GetScheduleRequest { string service = 1; string name = 2; }
+message GetScheduleResponse {
+  ScheduleInfo schedule = 1;
+  ScheduleDefinition definition = 2;
+  // Opaque Temporal conflict token, required for UpdateSchedule.
+  bytes revision = 3;
+  // Normalized timing as JSON. Absent update timing keeps all these settings.
+  string timing_json = 4;
+}
+message CreateScheduleRequest {
+  string service = 1;
+  string name = 2;
+  ScheduleDefinition definition = 3;
+  bool paused = 4;
+}
+message CreateScheduleResponse {}
+message UpdateScheduleRequest {
+  string service = 1;
+  string name = 2;
+  ScheduleDefinition definition = 3;
+  bytes revision = 4;
+}
+message UpdateScheduleResponse {}
+message DeleteScheduleRequest { string service = 1; string name = 2; }
+message DeleteScheduleResponse {}

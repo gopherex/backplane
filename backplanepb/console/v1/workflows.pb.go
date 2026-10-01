@@ -2102,6 +2102,555 @@ func (*TriggerScheduleResponse) Descriptor() ([]byte, []int) {
 	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{28}
 }
 
+// ScheduleTiming replaces timing when supplied on update. Omit it to
+// preserve timing, including advanced external settings.
+type ScheduleTiming struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cron          []string               `protobuf:"bytes,1,rep,name=cron,proto3" json:"cron,omitempty"`
+	Interval      *durationpb.Duration   `protobuf:"bytes,2,opt,name=interval,proto3" json:"interval,omitempty"`
+	Timezone      string                 `protobuf:"bytes,3,opt,name=timezone,proto3" json:"timezone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScheduleTiming) Reset() {
+	*x = ScheduleTiming{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleTiming) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleTiming) ProtoMessage() {}
+
+func (x *ScheduleTiming) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScheduleTiming.ProtoReflect.Descriptor instead.
+func (*ScheduleTiming) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *ScheduleTiming) GetCron() []string {
+	if x != nil {
+		return x.Cron
+	}
+	return nil
+}
+
+func (x *ScheduleTiming) GetInterval() *durationpb.Duration {
+	if x != nil {
+		return x.Interval
+	}
+	return nil
+}
+
+func (x *ScheduleTiming) GetTimezone() string {
+	if x != nil {
+		return x.Timezone
+	}
+	return ""
+}
+
+type ScheduleDefinition struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Workflow string                 `protobuf:"bytes,1,opt,name=workflow,proto3" json:"workflow,omitempty"`
+	// JSON input validated against the latest declared workflow schema.
+	Input            string               `protobuf:"bytes,2,opt,name=input,proto3" json:"input,omitempty"`
+	Timing           *ScheduleTiming      `protobuf:"bytes,3,opt,name=timing,proto3" json:"timing,omitempty"`
+	ExecutionTimeout *durationpb.Duration `protobuf:"bytes,4,opt,name=execution_timeout,json=executionTimeout,proto3" json:"execution_timeout,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ScheduleDefinition) Reset() {
+	*x = ScheduleDefinition{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleDefinition) ProtoMessage() {}
+
+func (x *ScheduleDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScheduleDefinition.ProtoReflect.Descriptor instead.
+func (*ScheduleDefinition) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *ScheduleDefinition) GetWorkflow() string {
+	if x != nil {
+		return x.Workflow
+	}
+	return ""
+}
+
+func (x *ScheduleDefinition) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *ScheduleDefinition) GetTiming() *ScheduleTiming {
+	if x != nil {
+		return x.Timing
+	}
+	return nil
+}
+
+func (x *ScheduleDefinition) GetExecutionTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ExecutionTimeout
+	}
+	return nil
+}
+
+type GetScheduleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetScheduleRequest) Reset() {
+	*x = GetScheduleRequest{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetScheduleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetScheduleRequest) ProtoMessage() {}
+
+func (x *GetScheduleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetScheduleRequest.ProtoReflect.Descriptor instead.
+func (*GetScheduleRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *GetScheduleRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *GetScheduleRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type GetScheduleResponse struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Schedule   *ScheduleInfo          `protobuf:"bytes,1,opt,name=schedule,proto3" json:"schedule,omitempty"`
+	Definition *ScheduleDefinition    `protobuf:"bytes,2,opt,name=definition,proto3" json:"definition,omitempty"`
+	// Opaque Temporal conflict token, required for UpdateSchedule.
+	Revision []byte `protobuf:"bytes,3,opt,name=revision,proto3" json:"revision,omitempty"`
+	// Normalized timing as JSON. Absent update timing keeps all these settings.
+	TimingJson    string `protobuf:"bytes,4,opt,name=timing_json,json=timingJson,proto3" json:"timing_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetScheduleResponse) Reset() {
+	*x = GetScheduleResponse{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetScheduleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetScheduleResponse) ProtoMessage() {}
+
+func (x *GetScheduleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetScheduleResponse.ProtoReflect.Descriptor instead.
+func (*GetScheduleResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *GetScheduleResponse) GetSchedule() *ScheduleInfo {
+	if x != nil {
+		return x.Schedule
+	}
+	return nil
+}
+
+func (x *GetScheduleResponse) GetDefinition() *ScheduleDefinition {
+	if x != nil {
+		return x.Definition
+	}
+	return nil
+}
+
+func (x *GetScheduleResponse) GetRevision() []byte {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+func (x *GetScheduleResponse) GetTimingJson() string {
+	if x != nil {
+		return x.TimingJson
+	}
+	return ""
+}
+
+type CreateScheduleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Definition    *ScheduleDefinition    `protobuf:"bytes,3,opt,name=definition,proto3" json:"definition,omitempty"`
+	Paused        bool                   `protobuf:"varint,4,opt,name=paused,proto3" json:"paused,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateScheduleRequest) Reset() {
+	*x = CreateScheduleRequest{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateScheduleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateScheduleRequest) ProtoMessage() {}
+
+func (x *CreateScheduleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateScheduleRequest.ProtoReflect.Descriptor instead.
+func (*CreateScheduleRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *CreateScheduleRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *CreateScheduleRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *CreateScheduleRequest) GetDefinition() *ScheduleDefinition {
+	if x != nil {
+		return x.Definition
+	}
+	return nil
+}
+
+func (x *CreateScheduleRequest) GetPaused() bool {
+	if x != nil {
+		return x.Paused
+	}
+	return false
+}
+
+type CreateScheduleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateScheduleResponse) Reset() {
+	*x = CreateScheduleResponse{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateScheduleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateScheduleResponse) ProtoMessage() {}
+
+func (x *CreateScheduleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateScheduleResponse.ProtoReflect.Descriptor instead.
+func (*CreateScheduleResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{34}
+}
+
+type UpdateScheduleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Definition    *ScheduleDefinition    `protobuf:"bytes,3,opt,name=definition,proto3" json:"definition,omitempty"`
+	Revision      []byte                 `protobuf:"bytes,4,opt,name=revision,proto3" json:"revision,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateScheduleRequest) Reset() {
+	*x = UpdateScheduleRequest{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateScheduleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateScheduleRequest) ProtoMessage() {}
+
+func (x *UpdateScheduleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateScheduleRequest.ProtoReflect.Descriptor instead.
+func (*UpdateScheduleRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *UpdateScheduleRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *UpdateScheduleRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *UpdateScheduleRequest) GetDefinition() *ScheduleDefinition {
+	if x != nil {
+		return x.Definition
+	}
+	return nil
+}
+
+func (x *UpdateScheduleRequest) GetRevision() []byte {
+	if x != nil {
+		return x.Revision
+	}
+	return nil
+}
+
+type UpdateScheduleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateScheduleResponse) Reset() {
+	*x = UpdateScheduleResponse{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateScheduleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateScheduleResponse) ProtoMessage() {}
+
+func (x *UpdateScheduleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateScheduleResponse.ProtoReflect.Descriptor instead.
+func (*UpdateScheduleResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{36}
+}
+
+type DeleteScheduleRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteScheduleRequest) Reset() {
+	*x = DeleteScheduleRequest{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteScheduleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteScheduleRequest) ProtoMessage() {}
+
+func (x *DeleteScheduleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteScheduleRequest.ProtoReflect.Descriptor instead.
+func (*DeleteScheduleRequest) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *DeleteScheduleRequest) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *DeleteScheduleRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type DeleteScheduleResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeleteScheduleResponse) Reset() {
+	*x = DeleteScheduleResponse{}
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteScheduleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteScheduleResponse) ProtoMessage() {}
+
+func (x *DeleteScheduleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_backplanepb_console_v1_workflows_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteScheduleResponse.ProtoReflect.Descriptor instead.
+func (*DeleteScheduleResponse) Descriptor() ([]byte, []int) {
+	return file_backplanepb_console_v1_workflows_proto_rawDescGZIP(), []int{38}
+}
+
 var File_backplanepb_console_v1_workflows_proto protoreflect.FileDescriptor
 
 const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
@@ -2267,7 +2816,47 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x16TriggerScheduleRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\"\x19\n" +
-	"\x17TriggerScheduleResponse*e\n" +
+	"\x17TriggerScheduleResponse\"w\n" +
+	"\x0eScheduleTiming\x12\x12\n" +
+	"\x04cron\x18\x01 \x03(\tR\x04cron\x125\n" +
+	"\binterval\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\binterval\x12\x1a\n" +
+	"\btimezone\x18\x03 \x01(\tR\btimezone\"\xcc\x01\n" +
+	"\x12ScheduleDefinition\x12\x1a\n" +
+	"\bworkflow\x18\x01 \x01(\tR\bworkflow\x12\x14\n" +
+	"\x05input\x18\x02 \x01(\tR\x05input\x12<\n" +
+	"\x06timing\x18\x03 \x01(\v2$.backplane.console.v1.ScheduleTimingR\x06timing\x12F\n" +
+	"\x11execution_timeout\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\x10executionTimeout\"B\n" +
+	"\x12GetScheduleRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xdc\x01\n" +
+	"\x13GetScheduleResponse\x12>\n" +
+	"\bschedule\x18\x01 \x01(\v2\".backplane.console.v1.ScheduleInfoR\bschedule\x12H\n" +
+	"\n" +
+	"definition\x18\x02 \x01(\v2(.backplane.console.v1.ScheduleDefinitionR\n" +
+	"definition\x12\x1a\n" +
+	"\brevision\x18\x03 \x01(\fR\brevision\x12\x1f\n" +
+	"\vtiming_json\x18\x04 \x01(\tR\n" +
+	"timingJson\"\xa7\x01\n" +
+	"\x15CreateScheduleRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12H\n" +
+	"\n" +
+	"definition\x18\x03 \x01(\v2(.backplane.console.v1.ScheduleDefinitionR\n" +
+	"definition\x12\x16\n" +
+	"\x06paused\x18\x04 \x01(\bR\x06paused\"\x18\n" +
+	"\x16CreateScheduleResponse\"\xab\x01\n" +
+	"\x15UpdateScheduleRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12H\n" +
+	"\n" +
+	"definition\x18\x03 \x01(\v2(.backplane.console.v1.ScheduleDefinitionR\n" +
+	"definition\x12\x1a\n" +
+	"\brevision\x18\x04 \x01(\fR\brevision\"\x18\n" +
+	"\x16UpdateScheduleResponse\"E\n" +
+	"\x15DeleteScheduleRequest\x12\x18\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\x18\n" +
+	"\x16DeleteScheduleResponse*e\n" +
 	"\fWorkflowKind\x12\x1d\n" +
 	"\x19WORKFLOW_KIND_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16WORKFLOW_KIND_WORKFLOW\x10\x01\x12\x1a\n" +
@@ -2288,8 +2877,12 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x06GetRun\x12#.backplane.console.v1.GetRunRequest\x1a$.backplane.console.v1.GetRunResponse\x12\\\n" +
 	"\tCancelRun\x12&.backplane.console.v1.CancelRunRequest\x1a'.backplane.console.v1.CancelRunResponse\x12e\n" +
 	"\fTerminateRun\x12).backplane.console.v1.TerminateRunRequest\x1a*.backplane.console.v1.TerminateRunResponse\x12\\\n" +
-	"\tSignalRun\x12&.backplane.console.v1.SignalRunRequest\x1a'.backplane.console.v1.SignalRunResponse2\xc5\x03\n" +
-	"\x0fScheduleService\x12h\n" +
+	"\tSignalRun\x12&.backplane.console.v1.SignalRunRequest\x1a'.backplane.console.v1.SignalRunResponse2\xf0\x06\n" +
+	"\x0fScheduleService\x12b\n" +
+	"\vGetSchedule\x12(.backplane.console.v1.GetScheduleRequest\x1a).backplane.console.v1.GetScheduleResponse\x12k\n" +
+	"\x0eCreateSchedule\x12+.backplane.console.v1.CreateScheduleRequest\x1a,.backplane.console.v1.CreateScheduleResponse\x12k\n" +
+	"\x0eUpdateSchedule\x12+.backplane.console.v1.UpdateScheduleRequest\x1a,.backplane.console.v1.UpdateScheduleResponse\x12k\n" +
+	"\x0eDeleteSchedule\x12+.backplane.console.v1.DeleteScheduleRequest\x1a,.backplane.console.v1.DeleteScheduleResponse\x12h\n" +
 	"\rListSchedules\x12*.backplane.console.v1.ListSchedulesRequest\x1a+.backplane.console.v1.ListSchedulesResponse\x12h\n" +
 	"\rPauseSchedule\x12*.backplane.console.v1.PauseScheduleRequest\x1a+.backplane.console.v1.PauseScheduleResponse\x12n\n" +
 	"\x0fUnpauseSchedule\x12,.backplane.console.v1.UnpauseScheduleRequest\x1a-.backplane.console.v1.UnpauseScheduleResponse\x12n\n" +
@@ -2308,7 +2901,7 @@ func file_backplanepb_console_v1_workflows_proto_rawDescGZIP() []byte {
 }
 
 var file_backplanepb_console_v1_workflows_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_backplanepb_console_v1_workflows_proto_msgTypes = make([]protoimpl.MessageInfo, 30)
+var file_backplanepb_console_v1_workflows_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
 var file_backplanepb_console_v1_workflows_proto_goTypes = []any{
 	(WorkflowKind)(0),               // 0: backplane.console.v1.WorkflowKind
 	(RunStatus)(0),                  // 1: backplane.console.v1.RunStatus
@@ -2341,67 +2934,92 @@ var file_backplanepb_console_v1_workflows_proto_goTypes = []any{
 	(*UnpauseScheduleResponse)(nil), // 28: backplane.console.v1.UnpauseScheduleResponse
 	(*TriggerScheduleRequest)(nil),  // 29: backplane.console.v1.TriggerScheduleRequest
 	(*TriggerScheduleResponse)(nil), // 30: backplane.console.v1.TriggerScheduleResponse
-	nil,                             // 31: backplane.console.v1.Run.MemoEntry
-	(*schemapb.Schema)(nil),         // 32: schemapb.Schema
-	(*durationpb.Duration)(nil),     // 33: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),   // 34: google.protobuf.Timestamp
-	(*v1.Schedule)(nil),             // 35: backplane.v1.Schedule
+	(*ScheduleTiming)(nil),          // 31: backplane.console.v1.ScheduleTiming
+	(*ScheduleDefinition)(nil),      // 32: backplane.console.v1.ScheduleDefinition
+	(*GetScheduleRequest)(nil),      // 33: backplane.console.v1.GetScheduleRequest
+	(*GetScheduleResponse)(nil),     // 34: backplane.console.v1.GetScheduleResponse
+	(*CreateScheduleRequest)(nil),   // 35: backplane.console.v1.CreateScheduleRequest
+	(*CreateScheduleResponse)(nil),  // 36: backplane.console.v1.CreateScheduleResponse
+	(*UpdateScheduleRequest)(nil),   // 37: backplane.console.v1.UpdateScheduleRequest
+	(*UpdateScheduleResponse)(nil),  // 38: backplane.console.v1.UpdateScheduleResponse
+	(*DeleteScheduleRequest)(nil),   // 39: backplane.console.v1.DeleteScheduleRequest
+	(*DeleteScheduleResponse)(nil),  // 40: backplane.console.v1.DeleteScheduleResponse
+	nil,                             // 41: backplane.console.v1.Run.MemoEntry
+	(*schemapb.Schema)(nil),         // 42: schemapb.Schema
+	(*durationpb.Duration)(nil),     // 43: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),   // 44: google.protobuf.Timestamp
+	(*v1.Schedule)(nil),             // 45: backplane.v1.Schedule
 }
 var file_backplanepb_console_v1_workflows_proto_depIdxs = []int32{
 	0,  // 0: backplane.console.v1.WorkflowDef.kind:type_name -> backplane.console.v1.WorkflowKind
-	32, // 1: backplane.console.v1.WorkflowDef.input:type_name -> schemapb.Schema
-	32, // 2: backplane.console.v1.WorkflowDef.output:type_name -> schemapb.Schema
+	42, // 1: backplane.console.v1.WorkflowDef.input:type_name -> schemapb.Schema
+	42, // 2: backplane.console.v1.WorkflowDef.output:type_name -> schemapb.Schema
 	2,  // 3: backplane.console.v1.ListWorkflowsResponse.workflows:type_name -> backplane.console.v1.WorkflowDef
-	33, // 4: backplane.console.v1.StartWorkflowRequest.timeout:type_name -> google.protobuf.Duration
+	43, // 4: backplane.console.v1.StartWorkflowRequest.timeout:type_name -> google.protobuf.Duration
 	1,  // 5: backplane.console.v1.Run.status:type_name -> backplane.console.v1.RunStatus
-	34, // 6: backplane.console.v1.Run.start_time:type_name -> google.protobuf.Timestamp
-	34, // 7: backplane.console.v1.Run.close_time:type_name -> google.protobuf.Timestamp
-	31, // 8: backplane.console.v1.Run.memo:type_name -> backplane.console.v1.Run.MemoEntry
+	44, // 6: backplane.console.v1.Run.start_time:type_name -> google.protobuf.Timestamp
+	44, // 7: backplane.console.v1.Run.close_time:type_name -> google.protobuf.Timestamp
+	41, // 8: backplane.console.v1.Run.memo:type_name -> backplane.console.v1.Run.MemoEntry
 	1,  // 9: backplane.console.v1.ListRunsRequest.status:type_name -> backplane.console.v1.RunStatus
 	7,  // 10: backplane.console.v1.ListRunsResponse.runs:type_name -> backplane.console.v1.Run
-	34, // 11: backplane.console.v1.PendingActivity.last_started_time:type_name -> google.protobuf.Timestamp
-	34, // 12: backplane.console.v1.PendingActivity.last_heartbeat_time:type_name -> google.protobuf.Timestamp
-	34, // 13: backplane.console.v1.PendingActivity.next_attempt_time:type_name -> google.protobuf.Timestamp
-	34, // 14: backplane.console.v1.HistoryEvent.time:type_name -> google.protobuf.Timestamp
+	44, // 11: backplane.console.v1.PendingActivity.last_started_time:type_name -> google.protobuf.Timestamp
+	44, // 12: backplane.console.v1.PendingActivity.last_heartbeat_time:type_name -> google.protobuf.Timestamp
+	44, // 13: backplane.console.v1.PendingActivity.next_attempt_time:type_name -> google.protobuf.Timestamp
+	44, // 14: backplane.console.v1.HistoryEvent.time:type_name -> google.protobuf.Timestamp
 	7,  // 15: backplane.console.v1.GetRunResponse.run:type_name -> backplane.console.v1.Run
 	11, // 16: backplane.console.v1.GetRunResponse.pending_activities:type_name -> backplane.console.v1.PendingActivity
 	12, // 17: backplane.console.v1.GetRunResponse.history:type_name -> backplane.console.v1.HistoryEvent
-	34, // 18: backplane.console.v1.ScheduleAction.schedule_time:type_name -> google.protobuf.Timestamp
-	34, // 19: backplane.console.v1.ScheduleAction.actual_time:type_name -> google.protobuf.Timestamp
-	34, // 20: backplane.console.v1.ScheduleState.next_actions:type_name -> google.protobuf.Timestamp
+	44, // 18: backplane.console.v1.ScheduleAction.schedule_time:type_name -> google.protobuf.Timestamp
+	44, // 19: backplane.console.v1.ScheduleAction.actual_time:type_name -> google.protobuf.Timestamp
+	44, // 20: backplane.console.v1.ScheduleState.next_actions:type_name -> google.protobuf.Timestamp
 	20, // 21: backplane.console.v1.ScheduleState.recent_actions:type_name -> backplane.console.v1.ScheduleAction
-	34, // 22: backplane.console.v1.ScheduleState.created:type_name -> google.protobuf.Timestamp
-	34, // 23: backplane.console.v1.ScheduleState.updated:type_name -> google.protobuf.Timestamp
-	35, // 24: backplane.console.v1.ScheduleInfo.declared:type_name -> backplane.v1.Schedule
+	44, // 22: backplane.console.v1.ScheduleState.created:type_name -> google.protobuf.Timestamp
+	44, // 23: backplane.console.v1.ScheduleState.updated:type_name -> google.protobuf.Timestamp
+	45, // 24: backplane.console.v1.ScheduleInfo.declared:type_name -> backplane.v1.Schedule
 	21, // 25: backplane.console.v1.ScheduleInfo.state:type_name -> backplane.console.v1.ScheduleState
 	22, // 26: backplane.console.v1.ListSchedulesResponse.schedules:type_name -> backplane.console.v1.ScheduleInfo
-	3,  // 27: backplane.console.v1.WorkflowService.ListWorkflows:input_type -> backplane.console.v1.ListWorkflowsRequest
-	5,  // 28: backplane.console.v1.WorkflowService.StartWorkflow:input_type -> backplane.console.v1.StartWorkflowRequest
-	8,  // 29: backplane.console.v1.WorkflowService.ListRuns:input_type -> backplane.console.v1.ListRunsRequest
-	10, // 30: backplane.console.v1.WorkflowService.GetRun:input_type -> backplane.console.v1.GetRunRequest
-	14, // 31: backplane.console.v1.WorkflowService.CancelRun:input_type -> backplane.console.v1.CancelRunRequest
-	16, // 32: backplane.console.v1.WorkflowService.TerminateRun:input_type -> backplane.console.v1.TerminateRunRequest
-	18, // 33: backplane.console.v1.WorkflowService.SignalRun:input_type -> backplane.console.v1.SignalRunRequest
-	23, // 34: backplane.console.v1.ScheduleService.ListSchedules:input_type -> backplane.console.v1.ListSchedulesRequest
-	25, // 35: backplane.console.v1.ScheduleService.PauseSchedule:input_type -> backplane.console.v1.PauseScheduleRequest
-	27, // 36: backplane.console.v1.ScheduleService.UnpauseSchedule:input_type -> backplane.console.v1.UnpauseScheduleRequest
-	29, // 37: backplane.console.v1.ScheduleService.TriggerSchedule:input_type -> backplane.console.v1.TriggerScheduleRequest
-	4,  // 38: backplane.console.v1.WorkflowService.ListWorkflows:output_type -> backplane.console.v1.ListWorkflowsResponse
-	6,  // 39: backplane.console.v1.WorkflowService.StartWorkflow:output_type -> backplane.console.v1.StartWorkflowResponse
-	9,  // 40: backplane.console.v1.WorkflowService.ListRuns:output_type -> backplane.console.v1.ListRunsResponse
-	13, // 41: backplane.console.v1.WorkflowService.GetRun:output_type -> backplane.console.v1.GetRunResponse
-	15, // 42: backplane.console.v1.WorkflowService.CancelRun:output_type -> backplane.console.v1.CancelRunResponse
-	17, // 43: backplane.console.v1.WorkflowService.TerminateRun:output_type -> backplane.console.v1.TerminateRunResponse
-	19, // 44: backplane.console.v1.WorkflowService.SignalRun:output_type -> backplane.console.v1.SignalRunResponse
-	24, // 45: backplane.console.v1.ScheduleService.ListSchedules:output_type -> backplane.console.v1.ListSchedulesResponse
-	26, // 46: backplane.console.v1.ScheduleService.PauseSchedule:output_type -> backplane.console.v1.PauseScheduleResponse
-	28, // 47: backplane.console.v1.ScheduleService.UnpauseSchedule:output_type -> backplane.console.v1.UnpauseScheduleResponse
-	30, // 48: backplane.console.v1.ScheduleService.TriggerSchedule:output_type -> backplane.console.v1.TriggerScheduleResponse
-	38, // [38:49] is the sub-list for method output_type
-	27, // [27:38] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	43, // 27: backplane.console.v1.ScheduleTiming.interval:type_name -> google.protobuf.Duration
+	31, // 28: backplane.console.v1.ScheduleDefinition.timing:type_name -> backplane.console.v1.ScheduleTiming
+	43, // 29: backplane.console.v1.ScheduleDefinition.execution_timeout:type_name -> google.protobuf.Duration
+	22, // 30: backplane.console.v1.GetScheduleResponse.schedule:type_name -> backplane.console.v1.ScheduleInfo
+	32, // 31: backplane.console.v1.GetScheduleResponse.definition:type_name -> backplane.console.v1.ScheduleDefinition
+	32, // 32: backplane.console.v1.CreateScheduleRequest.definition:type_name -> backplane.console.v1.ScheduleDefinition
+	32, // 33: backplane.console.v1.UpdateScheduleRequest.definition:type_name -> backplane.console.v1.ScheduleDefinition
+	3,  // 34: backplane.console.v1.WorkflowService.ListWorkflows:input_type -> backplane.console.v1.ListWorkflowsRequest
+	5,  // 35: backplane.console.v1.WorkflowService.StartWorkflow:input_type -> backplane.console.v1.StartWorkflowRequest
+	8,  // 36: backplane.console.v1.WorkflowService.ListRuns:input_type -> backplane.console.v1.ListRunsRequest
+	10, // 37: backplane.console.v1.WorkflowService.GetRun:input_type -> backplane.console.v1.GetRunRequest
+	14, // 38: backplane.console.v1.WorkflowService.CancelRun:input_type -> backplane.console.v1.CancelRunRequest
+	16, // 39: backplane.console.v1.WorkflowService.TerminateRun:input_type -> backplane.console.v1.TerminateRunRequest
+	18, // 40: backplane.console.v1.WorkflowService.SignalRun:input_type -> backplane.console.v1.SignalRunRequest
+	33, // 41: backplane.console.v1.ScheduleService.GetSchedule:input_type -> backplane.console.v1.GetScheduleRequest
+	35, // 42: backplane.console.v1.ScheduleService.CreateSchedule:input_type -> backplane.console.v1.CreateScheduleRequest
+	37, // 43: backplane.console.v1.ScheduleService.UpdateSchedule:input_type -> backplane.console.v1.UpdateScheduleRequest
+	39, // 44: backplane.console.v1.ScheduleService.DeleteSchedule:input_type -> backplane.console.v1.DeleteScheduleRequest
+	23, // 45: backplane.console.v1.ScheduleService.ListSchedules:input_type -> backplane.console.v1.ListSchedulesRequest
+	25, // 46: backplane.console.v1.ScheduleService.PauseSchedule:input_type -> backplane.console.v1.PauseScheduleRequest
+	27, // 47: backplane.console.v1.ScheduleService.UnpauseSchedule:input_type -> backplane.console.v1.UnpauseScheduleRequest
+	29, // 48: backplane.console.v1.ScheduleService.TriggerSchedule:input_type -> backplane.console.v1.TriggerScheduleRequest
+	4,  // 49: backplane.console.v1.WorkflowService.ListWorkflows:output_type -> backplane.console.v1.ListWorkflowsResponse
+	6,  // 50: backplane.console.v1.WorkflowService.StartWorkflow:output_type -> backplane.console.v1.StartWorkflowResponse
+	9,  // 51: backplane.console.v1.WorkflowService.ListRuns:output_type -> backplane.console.v1.ListRunsResponse
+	13, // 52: backplane.console.v1.WorkflowService.GetRun:output_type -> backplane.console.v1.GetRunResponse
+	15, // 53: backplane.console.v1.WorkflowService.CancelRun:output_type -> backplane.console.v1.CancelRunResponse
+	17, // 54: backplane.console.v1.WorkflowService.TerminateRun:output_type -> backplane.console.v1.TerminateRunResponse
+	19, // 55: backplane.console.v1.WorkflowService.SignalRun:output_type -> backplane.console.v1.SignalRunResponse
+	34, // 56: backplane.console.v1.ScheduleService.GetSchedule:output_type -> backplane.console.v1.GetScheduleResponse
+	36, // 57: backplane.console.v1.ScheduleService.CreateSchedule:output_type -> backplane.console.v1.CreateScheduleResponse
+	38, // 58: backplane.console.v1.ScheduleService.UpdateSchedule:output_type -> backplane.console.v1.UpdateScheduleResponse
+	40, // 59: backplane.console.v1.ScheduleService.DeleteSchedule:output_type -> backplane.console.v1.DeleteScheduleResponse
+	24, // 60: backplane.console.v1.ScheduleService.ListSchedules:output_type -> backplane.console.v1.ListSchedulesResponse
+	26, // 61: backplane.console.v1.ScheduleService.PauseSchedule:output_type -> backplane.console.v1.PauseScheduleResponse
+	28, // 62: backplane.console.v1.ScheduleService.UnpauseSchedule:output_type -> backplane.console.v1.UnpauseScheduleResponse
+	30, // 63: backplane.console.v1.ScheduleService.TriggerSchedule:output_type -> backplane.console.v1.TriggerScheduleResponse
+	49, // [49:64] is the sub-list for method output_type
+	34, // [34:49] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_backplanepb_console_v1_workflows_proto_init() }
@@ -2416,7 +3034,7 @@ func file_backplanepb_console_v1_workflows_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_backplanepb_console_v1_workflows_proto_rawDesc), len(file_backplanepb_console_v1_workflows_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   30,
+			NumMessages:   40,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

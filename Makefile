@@ -124,7 +124,7 @@ test-m2: ## M2 end to end: bin backplane + hello with NATS and Temporal behind t
 
 .PHONY: up down
 up: ## Start platform-in-a-box (docker compose)
-	docker compose up -d --wait
+	docker compose --profile full up -d --wait
 
 down: ## Stop platform-in-a-box
 	docker compose down
@@ -294,7 +294,7 @@ test-audit: ## Durable audit: real PostgreSQL transactions, replica leases, outa
 		go test -race -count=1 ./internal/audit ./internal/store
 
 # Development installation; product shell remains a separate design step.
-DEV_COMPOSE = docker compose -f docker-compose.yaml -f docker-compose.observability.yaml -f docker-compose.dev.yaml
+DEV_COMPOSE = docker compose --profile full -f docker-compose.yaml -f docker-compose.observability.yaml -f docker-compose.dev.yaml
 .PHONY: dev dev-down dev-build dev-logs test-dev
 dev-build: ## Build the live module and development host, then static Go binaries
 	cd web
@@ -323,3 +323,8 @@ test-dev: ## Browser acceptance against the installation started by make dev
 	node tests/login-browser.mjs
 	node tests/dev-browser.mjs
 	node tests/console-browser.mjs
+
+.PHONY: dev-minimal
+dev-minimal: dev-build ## Start console with PostgreSQL, Consul and Valkey only
+	docker compose -f docker-compose.yaml -f docker-compose.minimal.yaml up -d --wait
+	echo 'Minimal console: http://127.0.0.1:8081/ (DEV_ADMIN_TOKEN)'

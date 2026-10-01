@@ -1,5 +1,8 @@
 # Deployment-owned pipeline. SDKs batch exports; no asynchronous Collector batch
 # or queue here, so an HTTP acknowledgement follows the storage export attempt.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
 receivers:
   otlp:
     protocols:
@@ -28,6 +31,7 @@ exporters:
     sending_queue: {enabled: false}
     retry_on_failure: {enabled: false}
 service:
+  extensions: [health_check]
   pipelines:
     logs:
       receivers: [otlp]

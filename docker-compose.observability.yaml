@@ -2,25 +2,29 @@
 # Loopback query/Collector ports are for development and acceptance tests only.
 services:
   victorialogs:
+    profiles: [observability, full]
     image: victoriametrics/victoria-logs:v1.52.0
     command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
     mem_limit: 384m
     ports: ["127.0.0.1:19428:9428"]
     volumes: ["logs:/storage"]
   victoriatraces:
+    profiles: [observability, full]
     image: victoriametrics/victoria-traces:v0.12.0
     command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
     mem_limit: 384m
     ports: ["127.0.0.1:20428:10428"]
     volumes: ["traces:/storage"]
   victoriametrics:
+    profiles: [observability, full]
     image: victoriametrics/victoria-metrics:v1.151.0
     command: ["-storageDataPath=/storage", "-retentionPeriod=7d"]
     mem_limit: 384m
     ports: ["127.0.0.1:18428:8428"]
     volumes: ["metrics:/storage"]
   collector:
-    image: otel/opentelemetry-collector:0.147.0
+    profiles: [observability, full]
+    image: otel/opentelemetry-collector-contrib:0.147.0
     command: ["--config=/etc/otelcol/config.yaml"]
     mem_limit: 256m
     environment: {GOMEMLIMIT: 154MiB}

@@ -228,8 +228,8 @@ func (q *Queries) RetryAuditOutbox(ctx context.Context, arg RetryAuditOutboxPara
 const getAuditExpiryBoundarySQL = `SELECT COALESCE(min(e.sequence) - 1,
   (SELECT sequence FROM backplane.audit_clock WHERE singleton = true))::bigint AS through_sequence
 FROM backplane.audit_entry e
-JOIN backplane.audit_outbox o ON o.sequence = e.sequence
-WHERE e.created_at >= $1 OR o.published_at IS NULL;`
+LEFT JOIN backplane.audit_outbox o ON o.sequence = e.sequence
+WHERE e.created_at >= $1 OR (o.sequence IS NOT NULL AND o.published_at IS NULL);`
 
 type GetAuditExpiryBoundaryRow struct {
 	ThroughSequence *int64

@@ -3,9 +3,15 @@ package conformance_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	consolev1 "github.com/gopherex/backplane/backplanepb/console/v1"
@@ -36,36 +42,26 @@ func (w *replicaWorld) auditDelivered(t *testing.T) {
 		t.Fatal("acceptance fixture unexpectedly exceeds one audit page")
 	}
 
-	m1Until(t, m2Wait, "durable audit delivered through real SDK and NATS", func() (bool, string) {
-		var messages consolev1.PeekMessagesResponse
+	m1Until(t, m2Wait, "durable audit delivered over OTLP from both replicas", func() (bool, string) {
+		w.auditSink.mu.Lock()
+		defer w.auditSink.mu.Unlock()
 
-		err := m1Call(t.Context(), w.cc, "/backplane.console.v1.EventService/PeekMessages",
-			&consolev1.PeekMessagesRequest{Service: "backplane", Event: "AuditEntry", Limit: 500}, &messages)
-		if err != nil {
-			return false, err.Error()
-		}
+		for id := range w.auditSink.entries {
+			event := w.auditSink.entries[id]
 
-		for _, message := range messages.GetMessages() {
-			entry, exists := wanted[message.GetCloudEvent().GetId()]
+			entry, exists := wanted[id]
 			if !exists {
 				continue
 			}
 
-			var event audit.Entry
-			if err := json.Unmarshal([]byte(message.GetData()), &event); err != nil {
-				t.Fatal(err)
+			if event.ID != entry.GetId() || event.Sequence != strconv.FormatUint(entry.GetSequence(), 10) || event.Action != entry.GetAction() || event.OperationID != entry.GetOperationId() || event.Outcome != entry.GetOutcome() {
+				t.Fatalf("export differs from committed audit: %+v / %v", event, entry)
 			}
 
-			if event.ID != entry.GetId() || event.Sequence != strconv.FormatUint(entry.GetSequence(), 10) ||
-				event.Action != entry.GetAction() || event.OperationID != entry.GetOperationId() ||
-				event.Outcome != entry.GetOutcome() {
-				t.Fatalf("event differs from committed audit: %+v / %v", event, entry)
-			}
-
-			delete(wanted, event.ID)
+			delete(wanted, id)
 		}
 
-		return len(wanted) == 0, fmt.Sprintf("%d audit events pending", len(wanted))
+		return len(wanted) == 0, fmt.Sprintf("%d audit records pending", len(wanted))
 	})
 }
 
@@ -75,4 +71,59 @@ func platformOnly() *consolev1.AuditFilter {
 		Target: &consolev1.AuditCondition_Field{Field: consolev1.AuditField_AUDIT_FIELD_SOURCE},
 		Op:     consolev1.AuditOperator_AUDIT_OPERATOR_IS, Values: []*structpb.Value{structpb.NewStringValue("platform")},
 	}}}
+}
+
+// auditCollector acknowledges OTLP only after decoding the durable entry.
+type auditCollector struct {
+	mu      sync.Mutex
+	entries map[string]audit.Entry
+	url     string
+}
+
+func newAuditCollector(t *testing.T) *auditCollector {
+	t.Helper()
+
+	sink := &auditCollector{entries: map[string]audit.Entry{}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		var req collogspb.ExportLogsServiceRequest
+		if err = proto.Unmarshal(body, &req); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		sink.mu.Lock()
+		defer sink.mu.Unlock()
+
+		for _, resource := range req.GetResourceLogs() {
+			for _, scope := range resource.GetScopeLogs() {
+				for _, record := range scope.GetLogRecords() {
+					var entry audit.Entry
+					if err = json.Unmarshal([]byte(record.GetBody().GetStringValue()), &entry); err != nil {
+						t.Error(err)
+						w.WriteHeader(http.StatusBadRequest)
+
+						return
+					}
+
+					sink.entries[entry.ID] = entry
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/x-protobuf")
+	}))
+	sink.url = server.URL
+	t.Cleanup(server.Close)
+
+	return sink
 }

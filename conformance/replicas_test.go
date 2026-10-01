@@ -22,6 +22,7 @@ import (
 const replicaVersion = "0.0.0-replicas"
 
 type replicaWorld struct {
+	auditSink *auditCollector
 	*m2
 	peers        [2]*m1Proc
 	peersEnv     [2][]string
@@ -58,6 +59,7 @@ func TestReplicas(t *testing.T) {
 	}
 
 	w.converged(t)
+	w.schedules(t)
 	w.awaitHook(t, "Welcome, probe!")
 	w.greeting(t, "both", "Welcome, both!", 1)
 	first := w.greetedOf(t, "both")
@@ -148,7 +150,7 @@ func newReplicaWorld(t *testing.T) *replicaWorld {
 	}
 	wipe()
 	t.Cleanup(wipe)
-	w := &replicaWorld{m2: &m2{consul: c, jet: m2JetStream(t, natsURL)}}
+	w := &replicaWorld{auditSink: newAuditCollector(t), m2: &m2{consul: c, jet: m2JetStream(t, natsURL)}}
 
 	w.temporal, err = client.DialContext(t.Context(), client.Options{HostPort: temporalAddr})
 	if err != nil {
@@ -196,7 +198,7 @@ func newReplicaWorld(t *testing.T) *replicaWorld {
 			"BACKPLANE_XDS_LISTEN=:"+xdsPort, "BACKPLANE_CONSOLE_LISTEN=:"+consolePort, "BACKPLANE_AUDIT_LISTEN=:"+freePort(t),
 			"BACKPLANE_CONSOLE_PREFIX="+m1Prefix, "BACKPLANE_CONSOLE_INSECURE_COOKIE=true",
 			"BACKPLANE_LIVE_CONFIG_RECONCILE_INTERVAL=200ms", "BACKPLANE_NEXUS_RECONCILE_INTERVAL=200ms",
-			"BACKPLANE_NEXUS_ABSENCE_GRACE=1s")
+			"BACKPLANE_NEXUS_ABSENCE_GRACE=1s", "BACKPLANE_AUDIT_EXPORT_URL="+w.auditSink.url)
 		w.peersEnv[i] = env
 		w.bases[i] = "http://localhost:" + consolePort
 		w.peers[i] = m1Start(t, fmt.Sprintf("backplane-%d", i+1), w.backplaneBin, env...)

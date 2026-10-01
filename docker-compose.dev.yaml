@@ -35,6 +35,9 @@ services:
       BACKPLANE_CONSOLE_INSECURE_COOKIE: "true"
       BACKPLANE_CONSOLE_ASSETS_DIR: /app/web/apps/embedding/dist-live
       BACKPLANE_OTLP_URL: http://collector:4318
+      BACKPLANE_AUDIT_EXPORT_URL: http://collector:4318/v1/logs
+      BACKPLANE_INFRASTRUCTURE_COLLECTOR_URL: http://collector:13133/
+      BACKPLANE_INFRASTRUCTURE_GATEWAY_URL: http://envoy:9901/ready
       BACKPLANE_OBS_LOGS_URL: http://victorialogs:9428
       BACKPLANE_OBS_METRICS_URL: http://victoriametrics:8428
       BACKPLANE_OBS_TRACES_URL: http://victoriatraces:10428

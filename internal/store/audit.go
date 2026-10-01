@@ -75,8 +75,10 @@ func (s *Store) AppendAudit(ctx context.Context, draft AuditDraft) (db.InsertAud
 			return fmt.Errorf("audit entry: %w", insertErr)
 		}
 
-		if outboxErr := s.Q.InsertAuditOutbox(ctx, sequence.Sequence); outboxErr != nil {
-			return fmt.Errorf("audit outbox: %w", outboxErr)
+		if !s.skipAuditExport {
+			if outboxErr := s.Q.InsertAuditOutbox(ctx, sequence.Sequence); outboxErr != nil {
+				return fmt.Errorf("audit outbox: %w", outboxErr)
+			}
 		}
 
 		return nil

@@ -136,7 +136,7 @@ and session changes. Reads and Watch subscriptions are not audit entries.
 Ordinary relay access logs remain distinct from semantic control audit; opaque
 service payloads are never copied into audit records.
 
-For a PostgreSQL mutation, the audit entry and its event-outbox row commit in
+For a PostgreSQL mutation, the audit entry and its optional OTLP outbox row commit in
 the same transaction as the change. For an external command, persist intent
 before dispatch and append its result after the outcome is known. A crash after
 dispatch may leave an unknown outcome: never invent atomicity across PostgreSQL,
@@ -146,7 +146,7 @@ share an operation ID. Failed dispatch is distinguishable from rejected input.
 Audit entries include stable ID, time, actor/session identity, action, subject,
 outcome, operation ID and redacted structured detail. Do not store credentials,
 session tokens or secret configuration values in details/diffs. The durable
-outbox publishes `backplane.AuditEntry` through the usual event path; delivery is
+outbox exports OTel Logs through the configured OTLP endpoint, independently of NATS; delivery is
 at least once, and consumers deduplicate by entry ID. Multiple replicas claim
 outbox work safely and recover after a crash.
 

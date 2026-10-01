@@ -1,3 +1,4 @@
+import { FeatureGate } from './Platform';
 import { useSearchParams } from 'react-router-dom';
 import { ExplorePanel, type ExploreRange, type ExploreSignal, type ExploreState } from '@gopherex/backplane-platform-ui';
 import type { ThemeMode } from '@gopherex/backplane-theme';
@@ -21,6 +22,6 @@ export function ExploreRoute({ mode, service, defaultSignal = 'logs' }: { mode: 
     set('signal', next.signal); set('range', next.range); set('q', next.query); set('lang', next.language); set('trace', next.trace); set('limit', next.limit ? String(next.limit) : undefined);
     return result;
   }, { replace: true });
-  return <ExplorePanel key={service} mode={mode} service={service} state={state} onStateChange={change}
-    onNavigate={(target) => { if (target.signal === 'logs' && target.traceId) change({ ...state, signal: 'logs', language: 'logsql', query: `trace_id:=${JSON.stringify(target.traceId)}`, trace: undefined }); }} />;
+  return <FeatureGate feature={state.signal}><ExplorePanel key={service} mode={mode} service={service} state={state} onStateChange={change}
+    onNavigate={(target) => { if (target.signal === 'logs' && target.traceId) change({ ...state, signal: 'logs', language: 'logsql', query: `trace_id:=${JSON.stringify(target.traceId)}`, trace: undefined }); }} /></FeatureGate>;
 }

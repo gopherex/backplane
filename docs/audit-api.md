@@ -17,12 +17,12 @@ in Temporal and event payloads remain in JetStream.
 
 Configuration save/rollback, binding save/delete/rollback, rule save/delete/
 rollback/pause and session create/revoke/revoke-others/expiry append an entry and
-outbox row in the same PostgreSQL transaction as the mutation. Rejected database
+an outbox row (when export is enabled) in the same PostgreSQL transaction as the mutation. Rejected database
 mutations create no success entry. Session touch is not a control mutation.
 
 External commands persist `intent` before dispatch: test event publication,
 dead-letter redrive/purge, workflow start/cancel/terminate/signal, schedule
-pause/resume/trigger, hook calls, activity runs, binding/rule test and run cancel.
+create/update/delete/pause/resume/trigger, hook calls, activity runs, binding/rule test and run cancel.
 The result has the same `operation_id` and one of these outcomes:
 
 | Outcome | Meaning |
@@ -65,7 +65,7 @@ lease and 60-second lease timeout. Publish is bounded to 3 seconds per record;
 failed records become available after 2 seconds. All claimed records receive an
 attempt even if one fails. A crashed worker's lease expires; a stale worker
 cannot acknowledge a newer claim. Delivery is at least once, can be reordered
-across replicas, and uses entry UUID as the stable CloudEvent/deduplication ID.
+across replicas, and uses entry UUID as the stable OTel `backplane.audit.id` deduplication ID.
 Consumers deduplicate by ID and use sequence when ordering matters.
 
 Every entry names the service it is about in `service`: the service whose
@@ -85,10 +85,22 @@ entries written before the column existed were attributed by the same rules in
 the migration. Filtering by `service` therefore covers entries whose subject
 does not contain the service name, such as rule ids.
 
-`backplane.AuditEntry` is a normal SDK event. Its sequence is a decimal string;
-the RPC uses protobuf `uint64` (`bigint` in TypeScript). The event contains the
-same allowlisted metadata as the stored entry. NATS being unavailable never
-removes pending records or rolls back a committed control mutation.
+Platform audit export uses OTLP Logs, independently of NATS. Set
+`BACKPLANE_AUDIT_EXPORT_URL` to the full OTLP/HTTP logs endpoint (for example
+`http://collector:4318/v1/logs`), and optionally
+`BACKPLANE_AUDIT_EXPORT_AUTHORIZATION`. No export endpoint means no publisher
+or new outbox work; PostgreSQL history and AuditService remain available.
+Already pending records are retained and resume on re-enabling export, including
+records queued by installations that previously used event delivery.
+
+The outbox acknowledges only a successful synchronous OTLP response; partial
+rejection, invalid responses and network failures retry. Records carry the stable
+entry UUID and `backplane.audit.origin=platform`. The Collector's audit pipeline
+filters these records, and ingest acknowledges echoes without inserting them as
+application records. Their authoritative row is already committed in PostgreSQL.
+The optional export's JSON body contains only the same allowlisted metadata;
+sequence is a decimal string. The API uses protobuf `uint64` (`bigint` in TS).
+
 
 ## Methods
 
@@ -226,6 +238,5 @@ recovery, expired lease takeover, stale acknowledgments, consistent pages,
 resume/filter validation and actual retention/cursor expiry against PostgreSQL.
 
 `make test-replicas`: real backplane processes, crash/rejoin, configuration,
-bindings/rules/sessions/calls and matching `AuditEntry` events read from NATS
-through the console event API. `make test-m1` and `make test-m2` cover existing
+bindings/rules/sessions/calls and matching audit records received by an OTLP collector. `make test-m1` and `make test-m2` cover existing
 control workflows with transactional audit enabled.

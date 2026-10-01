@@ -31,6 +31,7 @@ processors:
       log_record:
         - 'attributes["backplane.audit"] != true'
         - 'attributes["backplane.ingest"] == "proxy"'
+        - 'attributes["backplane.audit.origin"] == "platform"'
 exporters:
   otlp_grpc/audit:
     endpoint: backplane:4317
@@ -41,7 +42,7 @@ exporters:
     retry_on_failure: {enabled: true, max_elapsed_time: 0}
     sending_queue: {enabled: true, storage: file_storage/audit}
 service:
-  extensions: [file_storage/audit]
+  extensions: [health_check, file_storage/audit]
   pipelines:
     logs/audit:
       receivers: [otlp]

@@ -1,5 +1,12 @@
 export const consoleEnglish = {
   brand: 'Backplane', platform: 'Platform', services: 'Services', wiring: 'Wiring', explore: 'Explore', errors: 'Errors', audit: 'Audit', dev: 'Development',
+  infrastructure: 'Infrastructure', infrastructureDescription: 'Configured dependencies and their latest health checks.',
+  infrastructureError: 'Health data is unavailable. The displayed checks may be outdated.',
+  capabilitiesError: 'Unable to load platform capabilities', featureDisabled: 'Disabled in this deployment', featureDisabledHint: 'This feature is not configured for this installation.', featureUnavailable: 'The feature is enabled, but its infrastructure is currently unavailable.',
+  checking: 'Checking', requiredDependency: 'Required', optionalDependency: 'Optional', checkedBy: 'Checked by {{instance}}', deploymentFeatures: 'Deployment features', enabledFeature: 'Enabled', disabledFeature: 'Disabled',
+  infraNames: { postgres: 'PostgreSQL', consul: 'Consul', valkey: 'Valkey', temporal: 'Temporal', nats: 'NATS JetStream', collector: 'OTel Collector', gateway: 'Gateway', metrics: 'Metrics storage', logs: 'Logs storage', traces: 'Traces storage' },
+  infraReason: { unavailable: 'Unavailable', timeout: 'Check timed out', checking: 'Checking' },
+  featureNames: { events: 'Events', workflows: 'Workflows', schedules: 'Schedules', bindings: 'Binding execution', rules: 'Rule execution', metrics: 'Metrics', logs: 'Logs', traces: 'Traces', telemetry: 'Telemetry ingestion', gateway: 'Gateway', audit: 'Audit', audit_export: 'Audit export' },
   servicePages: 'Services', navigation: 'Main navigation', breadcrumbs: 'Breadcrumbs', skip: 'Skip to content',
   pin: 'Pin navigation', unpin: 'Collapse navigation', resize: 'Navigation width', close: 'Close navigation',
   open: 'Open navigation', filter: 'Filter services', empty: 'No matching services', emptyHint: 'Try a different name.',
