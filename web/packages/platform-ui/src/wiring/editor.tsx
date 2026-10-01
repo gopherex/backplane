@@ -1,3 +1,4 @@
+import { ExecutionGate, useExecutionEnabled } from '../execution.js';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { create } from '@bufbuild/protobuf';
 import * as api from '@gopherex/backplane-api';
@@ -79,6 +80,7 @@ export function WiringEditor(props: WiringEditorProps) {
 function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, latestVersion, onSaved, onDeleted, loaded, reload }: WiringEditorProps & { loaded: Loaded; reload: () => void }) {
   const bindings = useClient(api.BindingServiceClient), rules = useClient(api.RuleServiceClient), text = usePlatformText();
   const kind: WiringKind = target.kind, key = targetKey(target);
+  const executionEnabled = useExecutionEnabled(kind);
   const version = loaded.version, saved = version && !version.deleted ? version.definition : undefined;
   const source = target.kind === 'binding' ? target.hook : (saved as api.RuleDefinition | undefined)?.event ?? target.event ?? '';
   const baseline = useMemo(() => saved ? toYAML(kind, saved) : templateYAML(kind, source), [kind, saved, source]);
@@ -158,7 +160,7 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
         : <StatusBadge tone={ruleTone[state as api.RuleState]}>{enumLabel(api.RuleState, state)}</StatusBadge>)}
       actions={<HeaderActions target={target} loaded={loaded} saved={!!saved} loadedVersion={loadedVersion} onChanged={reload} onDeleted={onDeleted} />}
       tabs={<TabBar aria-label={title}>{(['graph', 'yaml', 'versions', 'test', 'runs'] as const).filter((entry) => subject || entry === 'graph' || entry === 'yaml' || entry === 'test').map((entry) =>
-        <button key={entry} type="button" aria-current={view === entry ? 'page' : undefined} onClick={() => onView(entry)}
+        <button key={entry} type="button" disabled={!executionEnabled && (entry === 'test' || entry === 'runs')} title={!executionEnabled && (entry === 'test' || entry === 'runs') ? text('executionDisabled') : undefined} aria-current={view === entry ? 'page' : undefined} onClick={() => onView(entry)}
           className="relative -mb-px inline-flex h-9 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-sm text-muted-foreground hover:text-foreground aria-[current=page]:border-primary aria-[current=page]:font-medium aria-[current=page]:text-foreground">
           {text(`wiringView_${entry}`)}{entry === 'yaml' && errors.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}</button>)}</TabBar>} />
     {broken && <Banner tone="danger" icon={<FileWarning />} title={text('brokenTitle')}>{text('brokenHelp')}</Banner>}
@@ -220,11 +222,11 @@ function DraftEditor({ target, index, mode, view, onView, drafts, hookInfo, late
     </div>}
     {view === 'versions' && subject && <div className="flex min-h-0 flex-1 flex-col"><Versions subject={subject} current={loadedVersion || undefined} mode={mode} onChanged={reload}
       onOpenDraft={(text) => { draft.apply(text); onView('yaml'); }} /></div>}
-    {view === 'test' && <div className="flex min-h-0 flex-1 flex-col"><TestRun subject={subject ?? { kind: 'rule', id: '' }} draft={parsed.definition} dirty={changed} mode={mode}
+    {view === 'test' && <ExecutionGate kind={kind}><div className="flex min-h-0 flex-1 flex-col"><TestRun subject={subject ?? { kind: 'rule', id: '' }} draft={parsed.definition} dirty={changed} mode={mode}
       schema={kind === 'binding' ? index.hooks.get(source)?.value.input : index.events.get(source)?.value.schema}
       onRun={(ref) => { setRun(ref); }} />
-      {run && <div className="mt-2"><Button size="sm" variant="outline" onClick={() => onView('graph')}><GitFork />{text('showOnGraph')}</Button></div>}</div>}
-    {view === 'runs' && subject && <div className="flex min-h-0 flex-1 flex-col"><Runs subject={subject} mode={mode} onOpen={(ref) => { setRun(ref); onView('graph'); }} /></div>}
+      {run && <div className="mt-2"><Button size="sm" variant="outline" onClick={() => onView('graph')}><GitFork />{text('showOnGraph')}</Button></div>}</div></ExecutionGate>}
+    {view === 'runs' && subject && <ExecutionGate kind={kind}><div className="flex min-h-0 flex-1 flex-col"><Runs subject={subject} mode={mode} onOpen={(ref) => { setRun(ref); onView('graph'); }} /></div></ExecutionGate>}
     <DetailDrawer open={conflictOpen} onOpenChange={setConflictOpen} size="xl" title={text('compareLatest')} description={text('compareLatestHelp')}>
       {conflictOpen && <LatestDiff kind={kind} target={target} draft={draft.text} mode={mode} />}
     </DetailDrawer>

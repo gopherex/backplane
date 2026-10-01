@@ -111,3 +111,15 @@ configured dependencies as OK/NO and separately lists deployment capabilities.
 See [deployment modes](../deployments/README.md#server-deployment-modes) for
 Compose profiles and endpoints. Service **Workflows** includes administrative
 schedule creation, editing and deletion; module SDKs never reconcile schedules.
+
+## Complete verification
+
+After `make configure` and `cd web && yarn playwright install --with-deps chromium`,
+run `make verify` from a clean committed checkout. This is also the GitHub Actions
+CI entry point for master and pull requests. It checks generated files, lint,
+Go race tests with the full containerized infrastructure, browser schedule CRUD
+and timer execution, frontend suites, packed consumers, and the minimal Compose
+installation in both themes. The runner owns only the `backplane-verify` Compose
+project and stops it on exit; infrastructure ports used by the development stack must be free. The minimal
+console check uses port 18081, leaving a separately running console untouched.
+Results are retained under `bin/verification`.

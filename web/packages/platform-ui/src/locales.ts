@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 export const platformEnglish = {
+  executionDisabled: 'Execution is disabled in this deployment', executionDisabledHelp: 'Definitions and versions remain editable. Enable the required runtime in the deployment to execute them.',
   loading: 'Loading…', stale: 'Reconnecting. Showing the last received data.', error: 'Could not load data.', retry: 'Retry', refresh: 'Refresh',
   anonymous: 'Sign in to continue.', offline: 'The platform is unavailable.', connected: 'Connected',
   save: 'Save', validate: 'Validate', valid: 'Validation passed.', invalid: 'Validation failed.', saved: 'Saved', pending: 'Working…',

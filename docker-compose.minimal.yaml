@@ -5,7 +5,7 @@ services:
     image: gcr.io/distroless/static-debian12:nonroot
     command: [/app/bin/backplane]
     restart: unless-stopped
-    ports: ["127.0.0.1:8081:8081"]
+    ports: ["127.0.0.1:${BACKPLANE_MINIMAL_PORT:-8081}:8081"]
     volumes:
       - ./bin:/app/bin:ro
       - ./web/apps/embedding/dist-live:/app/web/apps/embedding/dist-live:ro
@@ -14,6 +14,7 @@ services:
       BACKPLANE_PG_DSN: postgres://backplane:backplane@postgres:5432/backplane?sslmode=disable
       BACKPLANE_VALKEY_ADDR: valkey:6379
       BACKPLANE_ADMIN_TOKEN: ${DEV_ADMIN_TOKEN:-dev-admin-token-change-me}
+      BACKPLANE_CONSOLE_PREFIX: /backplane
       BACKPLANE_CONSOLE_INSECURE_COOKIE: "true"
       BACKPLANE_CONSOLE_ASSETS_DIR: /app/web/apps/embedding/dist-live
       BACKPLANE_XDS_ENABLED: "false"

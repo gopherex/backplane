@@ -164,8 +164,7 @@ run-backplane: backplane ## Run backplane against the local stack (console token
 		"$(BIN)/backplane"
 
 .PHONY: check
-check: lint gen conformance web-check ## Everything a release requires: generated code, Go and frontend checks
-	git diff --exit-code --stat -- '*.pb.go' internal/store/db go.mod go.sum web/packages/api/src || { echo "✗ generated code or go.mod is stale — commit the result of 'make gen'"; exit 1; }
+check: verify ## Everything a release requires; same verification as CI
 
 .PHONY: configure-web web-check dev-ui dev-module
 configure-web: ## Install locked frontend dependencies (Node >=22.12, Yarn 1.22.22)
@@ -327,4 +326,8 @@ test-dev: ## Browser acceptance against the installation started by make dev
 .PHONY: dev-minimal
 dev-minimal: dev-build ## Start console with PostgreSQL, Consul and Valkey only
 	docker compose -f docker-compose.yaml -f docker-compose.minimal.yaml up -d --wait
-	echo 'Minimal console: http://127.0.0.1:8081/ (DEV_ADMIN_TOKEN)'
+	echo 'Minimal console: http://127.0.0.1:8081/backplane/ (DEV_ADMIN_TOKEN)'
+
+.PHONY: verify
+verify: ## Full release verification: live race suite, browser schedules, packages and minimal Compose
+	bash scripts/verify.sh

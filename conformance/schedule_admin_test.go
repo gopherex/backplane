@@ -2,6 +2,7 @@ package conformance_test
 
 import (
 	"context"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -79,4 +80,29 @@ func (w *replicaWorld) schedules(t *testing.T) {
 	if err := m1Call(ctx, w.clients[1], consolev1.ScheduleService_DeleteSchedule_FullMethodName, &consolev1.DeleteScheduleRequest{Service: "hello", Name: name}, &deleted); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func (w *replicaWorld) browserSchedules(t *testing.T) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var response consolev1.DeleteScheduleResponse
+
+		_ = m1Call(ctx, w.clients[1], consolev1.ScheduleService_DeleteSchedule_FullMethodName, &consolev1.DeleteScheduleRequest{Service: "hello", Name: "BrowserSchedule"}, &response)
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "node", "tests/schedule-browser.mjs", w.bases[0]+m1Prefix+"/", w.adminToken)
+	cmd.Dir = "../web"
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("schedule browser: %v\n%s", err, output)
+	}
+
+	t.Log(string(output))
 }

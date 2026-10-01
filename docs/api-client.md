@@ -249,3 +249,9 @@ Mutations have durable audit intent/result. Never automatically retry them after
 an ambiguous transport failure; inspect the current schedule and audit first.
 The generated Go/TS clients call the same administrative API and need no Temporal
 SDK. CLI clients may use the existing authenticated console WebSocket transport.
+
+Schedule listing uses bounded pages (default 20, maximum 50) and filters by service
+in Temporal. Pass `next_page_token` to continue with the same service filter; an
+empty page may still carry a token. Each request has a ten-second backend budget.
+Definitions remain editable when execution capabilities are disabled; the host
+passes these capabilities to `PlatformExecutionProvider` for Wiring controls.

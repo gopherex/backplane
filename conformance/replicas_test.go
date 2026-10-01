@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +24,8 @@ import (
 const replicaVersion = "0.0.0-replicas"
 
 type replicaWorld struct {
-	auditSink *auditCollector
+	auditSink  *auditCollector
+	adminToken string
 	*m2
 	peers        [2]*m1Proc
 	peersEnv     [2][]string
@@ -60,6 +63,11 @@ func TestReplicas(t *testing.T) {
 
 	w.converged(t)
 	w.schedules(t)
+
+	if os.Getenv("BACKPLANE_TEST_BROWSER") == "1" {
+		w.browserSchedules(t)
+	}
+
 	w.awaitHook(t, "Welcome, probe!")
 	w.greeting(t, "both", "Welcome, both!", 1)
 	first := w.greetedOf(t, "both")
@@ -179,6 +187,7 @@ func newReplicaWorld(t *testing.T) *replicaWorld {
 	w.helloBin = m1Build(t, dir, "hello", "../examples/hello/cmd/hello", "9.9.9")
 	formatterBin := m1Build(t, dir, "formatter", "../examples/formatter/cmd/formatter", "9.9.9")
 	host, secret, token := advertise(t), m1Random(t), m1Random(t)
+	w.adminToken = token
 	common := []string{
 		"BACKPLANE_CONSUL_ADDR=" + addr, "BACKPLANE_NATS_URL=" + natsURL, "BACKPLANE_TEMPORAL_ADDR=" + temporalAddr,
 		"BACKPLANE_ADVERTISE=" + host, "BACKPLANE_INTERNAL_SECRET=" + secret,
@@ -199,6 +208,16 @@ func newReplicaWorld(t *testing.T) *replicaWorld {
 			"BACKPLANE_CONSOLE_PREFIX="+m1Prefix, "BACKPLANE_CONSOLE_INSECURE_COOKIE=true",
 			"BACKPLANE_LIVE_CONFIG_RECONCILE_INTERVAL=200ms", "BACKPLANE_NEXUS_RECONCILE_INTERVAL=200ms",
 			"BACKPLANE_NEXUS_ABSENCE_GRACE=1s", "BACKPLANE_AUDIT_EXPORT_URL="+w.auditSink.url)
+
+		if os.Getenv("BACKPLANE_TEST_BROWSER") == "1" {
+			assets, err := filepath.Abs("../web/apps/embedding/dist-live")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			env = append(env, "BACKPLANE_CONSOLE_ASSETS_DIR="+assets)
+		}
+
 		w.peersEnv[i] = env
 		w.bases[i] = "http://localhost:" + consolePort
 		w.peers[i] = m1Start(t, fmt.Sprintf("backplane-%d", i+1), w.backplaneBin, env...)

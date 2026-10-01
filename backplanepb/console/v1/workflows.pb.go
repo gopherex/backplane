@@ -1734,8 +1734,11 @@ func (x *ScheduleInfo) GetState() *ScheduleState {
 }
 
 type ListSchedulesRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Service       string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Service string                 `protobuf:"bytes,1,opt,name=service,proto3" json:"service,omitempty"`
+	// Default 20, maximum 50. One bounded Temporal page per request.
+	PageSize      uint32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken     []byte `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1777,10 +1780,26 @@ func (x *ListSchedulesRequest) GetService() string {
 	return ""
 }
 
+func (x *ListSchedulesRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *ListSchedulesRequest) GetPageToken() []byte {
+	if x != nil {
+		return x.PageToken
+	}
+	return nil
+}
+
 type ListSchedulesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Sorted by id.
-	Schedules     []*ScheduleInfo `protobuf:"bytes,1,rep,name=schedules,proto3" json:"schedules,omitempty"`
+	// Sorted by id within this page; page ordering belongs to Temporal.
+	Schedules []*ScheduleInfo `protobuf:"bytes,1,rep,name=schedules,proto3" json:"schedules,omitempty"`
+	// Continue even if this page is empty after filtering non-platform ids.
+	NextPageToken []byte `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1818,6 +1837,13 @@ func (*ListSchedulesResponse) Descriptor() ([]byte, []int) {
 func (x *ListSchedulesResponse) GetSchedules() []*ScheduleInfo {
 	if x != nil {
 		return x.Schedules
+	}
+	return nil
+}
+
+func (x *ListSchedulesResponse) GetNextPageToken() []byte {
+	if x != nil {
+		return x.NextPageToken
 	}
 	return nil
 }
@@ -2798,11 +2824,15 @@ const file_backplanepb_console_v1_workflows_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02id\x18\x03 \x01(\tR\x02id\x122\n" +
 	"\bdeclared\x18\x04 \x01(\v2\x16.backplane.v1.ScheduleR\bdeclared\x129\n" +
-	"\x05state\x18\x05 \x01(\v2#.backplane.console.v1.ScheduleStateR\x05state\"0\n" +
+	"\x05state\x18\x05 \x01(\v2#.backplane.console.v1.ScheduleStateR\x05state\"l\n" +
 	"\x14ListSchedulesRequest\x12\x18\n" +
-	"\aservice\x18\x01 \x01(\tR\aservice\"Y\n" +
+	"\aservice\x18\x01 \x01(\tR\aservice\x12\x1b\n" +
+	"\tpage_size\x18\x02 \x01(\rR\bpageSize\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\fR\tpageToken\"\x81\x01\n" +
 	"\x15ListSchedulesResponse\x12@\n" +
-	"\tschedules\x18\x01 \x03(\v2\".backplane.console.v1.ScheduleInfoR\tschedules\"X\n" +
+	"\tschedules\x18\x01 \x03(\v2\".backplane.console.v1.ScheduleInfoR\tschedules\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\fR\rnextPageToken\"X\n" +
 	"\x14PauseScheduleRequest\x12\x18\n" +
 	"\aservice\x18\x01 \x01(\tR\aservice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +

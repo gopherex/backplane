@@ -20,3 +20,5 @@ export { RunDrawer, RunTable, RunStatusBadge, RunStatusFilter, type RunSource } 
 export { WorkflowRuns, WorkflowsPanel, RunInspector, SchedulesPanel, CommandForm } from './workflows.js';
 export { EventStreams, DeadLettersPanel } from './events.js';
 export { SystemMap, collectWires, type Wire, type WireKind } from './map.js';
+
+export { PlatformExecutionProvider } from './execution.js';

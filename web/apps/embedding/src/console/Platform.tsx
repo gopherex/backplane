@@ -1,3 +1,4 @@
+import { PlatformExecutionProvider } from '@gopherex/backplane-platform-ui';
 import { createContext, useContext, useEffect, type ReactNode } from 'react';
 import { create } from '@bufbuild/protobuf';
 import { timestampDate } from '@bufbuild/protobuf/wkt';
@@ -17,7 +18,9 @@ function usePlatformState() {
 }
 const Context = createContext<ReturnType<typeof usePlatformState> | null>(null);
 export function PlatformProvider({ children }: { children: ReactNode }) {
-  const state = usePlatformState(); return <Context.Provider value={state}>{children}</Context.Provider>;
+  const state = usePlatformState();
+  const enabled = (name: string) => state.capabilities.value?.capabilities.some((entry) => entry.name === name && entry.enabled) ?? false;
+  return <Context.Provider value={state}><PlatformExecutionProvider value={{ bindings: enabled('bindings'), rules: enabled('rules') }}>{children}</PlatformExecutionProvider></Context.Provider>;
 }
 export function useCapabilities() { return useContext(Context)?.capabilities.value?.capabilities; }
 const dependencies: Record<string, string[]> = { events: ['nats'], workflows: ['temporal'], schedules: ['temporal'], bindings: ['temporal'], rules: ['nats', 'temporal'], metrics: ['metrics'], logs: ['logs'], traces: ['traces'] };

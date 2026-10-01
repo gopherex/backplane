@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 	"time"
 
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	workflowservice "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -29,6 +29,8 @@ type ScheduleAPI struct {
 
 var _ consolev1.ScheduleServiceServer = ScheduleAPI{}
 
+const scheduleListTimeout = 10 * time.Second
+
 // ListSchedules implements ScheduleService.
 func (a ScheduleAPI) ListSchedules(
 	ctx context.Context, req *consolev1.ListSchedulesRequest,
@@ -42,79 +44,81 @@ func (a ScheduleAPI) ListSchedules(
 		return nil, a.o.status(ctx, err)
 	}
 
-	byID := map[string]*consolev1.ScheduleInfo{}
-
-	services := map[string]bool{}
-	if req.GetService() != "" {
-		services[req.GetService()] = true
+	size := req.GetPageSize()
+	if size == 0 {
+		size = 20
 	}
-	// Schedules under a service's prefix that no manifest declares.
-	if err := a.undeclared(ctx, c, services, byID); err != nil {
+
+	if size > 50 || len(req.GetPageToken()) > 16<<10 {
+		return nil, a.o.status(ctx, ErrInput)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, scheduleListTimeout)
+	defer cancel()
+
+	query := ""
+	if req.GetService() != "" {
+		query = "ScheduleId STARTS_WITH '" + req.GetService() + "/'"
+	}
+
+	page, err := c.WorkflowService().ListSchedules(ctx, &workflowservice.ListSchedulesRequest{
+		Namespace: a.o.namespace, MaximumPageSize: int32(size), NextPageToken: req.GetPageToken(), Query: query,
+	})
+	if err != nil {
 		return nil, a.o.status(ctx, err)
 	}
 
-	out := &consolev1.ListSchedulesResponse{}
-
-	for _, id := range slices.Sorted(maps.Keys(byID)) {
-		info := byID[id]
-		if manifests, err := a.o.manifests(info.GetService()); err == nil {
-			for _, m := range manifests {
-				for _, legacy := range m.GetSchedules() {
-					if legacy.GetName() == info.GetName() {
-						info.Declared = legacy
-					}
-				}
-			}
+	out := &consolev1.ListSchedulesResponse{NextPageToken: page.GetNextPageToken()}
+	for _, entry := range page.GetSchedules() {
+		info := scheduleListIdentity(entry.GetScheduleId(), req.GetService())
+		if info == nil {
+			continue
 		}
 
-		desc, err := c.ScheduleClient().GetHandle(ctx, id).Describe(ctx)
+		a.annotateSchedule(info)
+
+		desc, err := c.ScheduleClient().GetHandle(ctx, info.GetId()).Describe(ctx)
 
 		var missing *serviceerror.NotFound
-
-		switch {
-		case errors.As(err, &missing):
-		case err != nil:
-			return nil, a.o.status(ctx, err)
-		default:
-			info.State = scheduleStatePB(desc)
+		if errors.As(err, &missing) {
+			continue
 		}
 
+		if err != nil {
+			return nil, a.o.status(ctx, err)
+		}
+
+		info.State = scheduleStatePB(desc)
 		out.Schedules = append(out.Schedules, info)
 	}
+
+	slices.SortFunc(out.GetSchedules(), func(a, b *consolev1.ScheduleInfo) int {
+		return strings.Compare(a.GetId(), b.GetId())
+	})
 
 	return out, nil
 }
 
-// undeclared adds the schedules in Temporal with the prefix <service>/ of
-// services that the manifests do not declare.
-func (a ScheduleAPI) undeclared(
-	ctx context.Context, c client.Client, services map[string]bool, byID map[string]*consolev1.ScheduleInfo,
-) error {
-	iter, err := c.ScheduleClient().List(ctx, client.ScheduleListOptions{PageSize: maxPage})
-	if err != nil {
-		return fmt.Errorf("list schedules: %w", err)
+func scheduleListIdentity(id, filter string) *consolev1.ScheduleInfo {
+	service, name, ok := strings.Cut(id, "/")
+	if !ok || !serviceName.MatchString(service) || name == "" || (filter != "" && service != filter) {
+		return nil
 	}
 
-	for iter.HasNext() {
-		e, err := iter.Next()
-		if err != nil {
-			return fmt.Errorf("list schedules: %w", err)
-		}
+	return &consolev1.ScheduleInfo{Service: service, Name: name, Id: id}
+}
 
-		service, name, ok := strings.Cut(e.ID, "/")
-		if !ok ||
-			!serviceName.MatchString(service) ||
-			name == "" ||
-			(len(services) > 0 &&
-				!services[service]) ||
-			byID[e.ID] != nil {
-			continue
+// annotateSchedule retains declarations from older module manifests for display.
+func (a ScheduleAPI) annotateSchedule(info *consolev1.ScheduleInfo) {
+	if manifests, err := a.o.manifests(info.GetService()); err == nil {
+		for _, m := range manifests {
+			for _, legacy := range m.GetSchedules() {
+				if legacy.GetName() == info.GetName() {
+					info.Declared = legacy
+				}
+			}
 		}
-
-		byID[e.ID] = &consolev1.ScheduleInfo{Service: service, Name: name, Id: e.ID}
 	}
-
-	return nil
 }
 
 // nextActions bounds the upcoming action times a schedule's state lists.

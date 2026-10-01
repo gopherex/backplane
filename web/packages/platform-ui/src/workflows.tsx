@@ -140,11 +140,12 @@ function StartWorkflow({ service, workflow, mode, onStarted }: { service: string
 export function SchedulesPanel(props: { service: string; mode: 'dark' | 'light'; onShowRuns?: (prefix: string) => void; onTriggered?: () => void }) { return <ServiceSchedules key={props.service} {...props} />; }
 function ServiceSchedules({ service, mode, onShowRuns, onTriggered }: { service: string; mode: 'dark' | 'light'; onShowRuns?: (prefix: string) => void; onTriggered?: () => void }) {
   const client = useClient(api.ScheduleServiceClient), text = usePlatformText();
-  const state = usePlatformQuery(`schedules:${service}`, (signal) => client.listSchedules(create(api.ListSchedulesRequestSchema, { service }), { signal }));
+  const pages = useRunPages();
+  const state = usePlatformQuery(`schedules:${service}:${Array.from(pages.page)}`, (signal) => client.listSchedules(create(api.ListSchedulesRequestSchema, { service, pageSize: 20, pageToken: pages.page }), { signal }));
   const [opened, setOpened] = useState<RunRef>();
   const [editing, setEditing] = useState<string | null>(null);
   const schedules = state.value?.schedules ?? [];
-  return <Panel title={<><CalendarClock className="size-4 text-muted-foreground" />{text('schedules')}</>} count={schedules.length} flush
+  return <Panel title={<><CalendarClock className="size-4 text-muted-foreground" />{text('schedules')}</>} count={schedules.length} flush footer={<RunPager pages={pages} next={state.value?.nextPageToken} loading={state.loading} />}
     actions={<><Button size="xs" variant="outline" onClick={() => setEditing('')}>{text('createSchedule')}</Button><Button size="icon-sm" variant="ghost" aria-label={text('refresh')} title={text('refresh')} onClick={state.refresh} disabled={state.loading}><RefreshCw className={state.loading ? 'animate-spin' : ''} /></Button></>}>
     {!schedules.length && !state.loading && <EmptyState className="py-6" title={text('noSchedules')} />}
     {schedules.map((schedule) => <ScheduleRow key={schedule.id} onEdit={() => setEditing(schedule.name)} schedule={schedule} onOpenRun={setOpened} onShowRuns={onShowRuns} onChanged={(trigger) => { state.refresh(); if (trigger) onTriggered?.(); }} />)}

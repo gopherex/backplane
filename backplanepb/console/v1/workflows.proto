@@ -308,11 +308,16 @@ message ScheduleInfo {
 
 message ListSchedulesRequest {
   string service = 1;
+  // Default 20, maximum 50. One bounded Temporal page per request.
+  uint32 page_size = 2;
+  bytes page_token = 3;
 }
 
 message ListSchedulesResponse {
-  // Sorted by id.
+  // Sorted by id within this page; page ordering belongs to Temporal.
   repeated ScheduleInfo schedules = 1;
+  // Continue even if this page is empty after filtering non-platform ids.
+  bytes next_page_token = 2;
 }
 
 message PauseScheduleRequest {

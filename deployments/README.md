@@ -411,7 +411,7 @@ endpoint in Backplane are explicit deployment choices.
 - `make up`: full infrastructure for existing integration tests.
 - `make dev`: complete seeded hello/formatter installation, including audit export.
 - `make dev-minimal`: console and required dependencies, direct access at
-  `http://127.0.0.1:8081/`; no gateway, events, workflows or observability.
+  `http://127.0.0.1:8081/backplane/`; no gateway, events, workflows or observability.
 - Minimal plus Temporal:
   `BACKPLANE_TEMPORAL_ADDR=temporal:7233 docker compose --profile workflows -f docker-compose.yaml -f docker-compose.minimal.yaml up -d --wait`.
 - Minimal plus NATS: use `--profile events` with

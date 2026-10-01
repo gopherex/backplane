@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GOWORK: 'off'
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@gopherex'
+      - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - run: make configure
+      - run: cd web && yarn playwright install --with-deps chromium
+      - run: make verify
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: verification
+          path: |
+            bin/verification/
+            web/test-results/
+            web/playwright-report/

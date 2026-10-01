@@ -2,6 +2,7 @@ package ops_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -91,11 +92,78 @@ func TestScheduleAdministrationLive(t *testing.T) {
 	if _, err = first.UpdateSchedule(ctx, update); status.Code(err) != codes.Aborted {
 		t.Fatalf("stale revision: %v", err)
 	}
+	// Pagination is scoped to this service and never drops entries between pages.
+	for i := range 3 {
+		extra := proto.CloneOf(req)
+
+		extra.Name = fmt.Sprintf("Extra%d", i)
+		if _, err := first.CreateSchedule(ctx, extra); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Cleanup(func() {
+			_, _ = first.DeleteSchedule(context.Background(), &consolev1.DeleteScheduleRequest{Service: svc, Name: extra.GetName()})
+		})
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+
+	for {
+		seen := map[string]bool{}
+
+		var token []byte
+
+		for pageNumber := 0; ; pageNumber++ {
+			if pageNumber >= 10 {
+				t.Fatal("pagination did not terminate")
+			}
+
+			page, err := first.ListSchedules(ctx, &consolev1.ListSchedulesRequest{Service: svc, PageSize: 1, PageToken: token})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(page.GetSchedules()) > 1 {
+				t.Fatal("page size ignored")
+			}
+
+			for _, entry := range page.GetSchedules() {
+				if entry.GetService() != svc || seen[entry.GetId()] {
+					t.Fatalf("wrong or repeated schedule: %v", entry)
+				}
+
+				seen[entry.GetId()] = true
+			}
+
+			token = page.GetNextPageToken()
+			if len(token) == 0 {
+				break
+			}
+
+			if len(seen) > 4 {
+				t.Fatal("pagination did not finish")
+			}
+		}
+
+		if len(seen) == 4 {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("missing schedules: %v", seen)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	if _, err := first.ListSchedules(ctx, &consolev1.ListSchedulesRequest{Service: svc, PageSize: 51}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("oversized page: %v", err)
+	}
 	// Discovery and deletion remain available after the service disappears.
 	hub.Publish(map[string]registry.Service{})
 
 	list, err := second.ListSchedules(ctx, &consolev1.ListSchedulesRequest{Service: svc})
-	if err != nil || len(list.GetSchedules()) != 1 {
+	if err != nil || len(list.GetSchedules()) != 4 {
 		t.Fatalf("orphan hidden: %v %v", list, err)
 	}
 
