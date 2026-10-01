@@ -29,6 +29,13 @@ try {
   assert.ok(bundles.some((url) => url.endsWith('/remoteEntry.js')));
   assert.ok(bundles.every((url) => new URL(url).origin === origin));
   assert.deepEqual(sockets, [new URL('ws', base).href.replace(/^http/, 'ws')]);
+  // The Go server enables public ingest keys. The console reports through
+  // its authenticated log endpoint, without embedding a key in the bundle.
+  const delivered = page.waitForResponse((response) => response.url() === new URL('auth/telemetry/v1/logs', base).href, { timeout: 15_000 });
+  await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', {
+    message: 'console-ingest-regression', error: new Error('console-ingest-regression'),
+  })));
+  assert.equal((await delivered).status(), 200);
   // This service only exists in the Go test's registry, proving the browser
   // consumed the real CatalogService stream rather than the dev installation.
   await page.getByRole('navigation', { name: 'Platform', exact: true }).getByRole('link', { name: 'Services', exact: true }).click();

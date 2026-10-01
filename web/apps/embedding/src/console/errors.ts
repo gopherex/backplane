@@ -3,12 +3,12 @@ import { createReactErrorHandler, instrumentBrowser } from '@gopherex/backplane-
 
 /**
  * The console reports its own errors like any frontend: through the
- * installation's OTLP ingest, as the service backplane-console. Only the live
+ * installation's session-authenticated OTLP ingest, as backplane-console. Only the live
  * console reports (the compatibility fixture has no ingest). Nothing is sent
- * when the ingest is disabled: delivery failures stay local.
+ * when the ingest is disabled or no session exists: delivery failures stay local.
  */
 export function consoleErrors(base: string) {
-  const url = new URL(`${base.replace(/\/$/, '')}/telemetry/v1/logs`, location.origin).href;
+  const url = new URL(`${base.replace(/\/$/, '')}/auth/telemetry/v1/logs`, location.origin).href;
   const client = createOtlpClient({
     url,
     resource: { 'service.name': 'backplane-console' },

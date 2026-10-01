@@ -45,9 +45,11 @@ try {
   await expect(page.getByRole('alert')).toHaveText('Cannot reach Backplane right now. Please try again.');
   assert.equal(requests, 1);
   await page.unroute('**/auth/login');
+  await page.evaluate(() => { window.__backplaneLoginDocument = 'same-document'; });
   await token.fill(process.env.DEV_ADMIN_TOKEN ?? 'dev-admin-token-change-me');
   await page.getByRole('button', { name: 'Log in', exact: true }).click();
   await expect(page.getByLabel('Display name')).toBeVisible();
+  assert.equal(await page.evaluate(() => window.__backplaneLoginDocument), 'same-document', 'Loading the authenticated shell must not reload the page');
   await expect(page).toHaveURL(`${base}/s/hello/settings`);
   await page.getByRole('button', { name: 'Session', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();

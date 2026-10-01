@@ -40,8 +40,8 @@ try {
   assert.ok(sockets.some((url) => new URL(url).pathname.endsWith('/__vite_hmr')));
   await edit('../apps/embedding/src/console/console.css', (css) => `${css}\n.console-brand { --backplane-hmr-check: ready; }\n`);
   await expect.poll(() => page.locator('.console-brand').evaluate((element) => getComputedStyle(element).getPropertyValue('--backplane-hmr-check').trim())).toBe('ready');
-  await edit('../apps/embedding/src/console/Console.tsx', (source) => source.replace('className="console-brand"', 'className="console-brand" data-hmr-check="updated"'));
-  await expect(page.locator('.console-brand')).toHaveAttribute('data-hmr-check', 'updated');
+  await edit('../apps/embedding/src/console/Console.tsx', (source) => source.replace('className="console-shell"', 'className="console-shell" data-hmr-check="updated"'));
+  await expect(page.locator('.console-shell')).toHaveAttribute('data-hmr-check', 'updated');
   await expect(page.getByLabel('Display name')).toHaveValue('Unsaved HMR draft');
   assert.equal(await page.evaluate(() => window.__backplaneHmrProbe), 'same-document');
   assert.equal(platformSocketCount(), before, 'HMR must not recreate the platform transport');
@@ -54,7 +54,8 @@ try {
     req.on('error', reject); req.setTimeout(5000, () => req.destroy(new Error('Proxy rejection timed out'))); req.end();
   });
   assert.equal(wsStatus, 404);
-  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  await page.getByRole('button', { name: 'Session', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Log out', exact: true }).click();
   await expect(page.getByLabel('Operator token', { exact: true })).toHaveValue('');
   assert.deepEqual(errors, []);
   console.log('Console dev acceptance passed: cookie login, same-origin bundles, service RPC, deep links, CSS/React HMR without draft/session loss, foreign-origin rejection and logout');

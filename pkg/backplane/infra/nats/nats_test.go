@@ -1,8 +1,10 @@
 package nats_test
 
 import (
+	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/nats-io/nkeys"
@@ -72,5 +74,26 @@ func TestProvider(t *testing.T) {
 
 	if err := conn.Get().Publish("infra.nats.test", []byte("ping")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCanceledConnectionRedactsCredentials(t *testing.T) {
+	t.Parallel()
+
+	h := backplanetest.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := nats.New(nats.Config{URL: "nats://review:synthetic-password@127.0.0.1:1"}).Provide(ctx, h.Root())
+	if err == nil {
+		t.Fatal("expected canceled connection")
+	}
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation: %v", err)
+	}
+
+	if strings.Contains(err.Error(), "synthetic-password") {
+		t.Fatal("connection error contains credentials")
 	}
 }

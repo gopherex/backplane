@@ -108,7 +108,8 @@ func NewState(root backplane.Root[Config]) (*State, error) {
 			return nil, fmt.Errorf("OTLP admission: %w", err)
 		}
 
-		consoleOptions = append(consoleOptions, console.WithTelemetry(admission))
+		consoleOptions = append(consoleOptions,
+			console.WithTelemetry(admission), console.WithSessionTelemetry(admission.SessionLogs()))
 
 		root.OnStop(func(context.Context) error { admission.Close(); return nil })
 	}

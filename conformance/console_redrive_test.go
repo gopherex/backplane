@@ -3,6 +3,7 @@ package conformance_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +122,10 @@ func TestConsoleRedrive(t *testing.T) {
 
 	lock.Lock()
 	defer lock.Unlock()
+
+	// The audit reactor is concurrent: handler completion order is not
+	// delivery order. Assert the exact set (including duplicate count).
+	slices.Sort(audit)
 
 	if strings.Join(audit, ",") != "f,o" || attempts["f"] != 1 {
 		t.Fatalf("audit saw %v; redriven attempt %d", audit, attempts["f"])

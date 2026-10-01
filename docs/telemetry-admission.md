@@ -14,6 +14,14 @@ An empty URL disables them. They require no operator session, registry lookup,
 module declaration or IAM call. This is HTTP admission; OTLP/gRPC admission is
 not implemented. The server process still has its ordinary startup dependencies.
 
+The console itself sends logs to `<console-prefix>/auth/telemetry/v1/logs`.
+This POST-only route requires a valid operator session and passes the console's
+origin checks. It shares the public admission handler's rate, size, concurrency
+and timeout budgets, but uses session authentication instead of an ingest key.
+It accepts logs only, strips credentials before forwarding, and marks traffic
+as `X-Backplane-Ingest: proxy` just like the public routes. The Vite console
+proxies it with the other `/auth/` routes.
+
 The proxy treats signal payloads as opaque bytes. It never parses or re-encodes
 OTLP messages, reserves attribute names, injects storage metadata, duplicates
 records or archives metric points. It marks every forwarded request with the

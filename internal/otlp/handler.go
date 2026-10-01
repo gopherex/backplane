@@ -76,6 +76,24 @@ func (h *Handler) Close() { h.transport.CloseIdleConnections() }
 
 // ServeHTTP expects /v1/logs, /v1/metrics or /v1/traces after prefix stripping.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.serveHTTP(w, r, false)
+}
+
+// SessionLogs is for the console's authenticated, same-origin route only.
+// It shares public admission limits and marks records as proxy traffic, so
+// they cannot become application audit. The caller must validate the session.
+func (h *Handler) SessionLogs() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/logs" {
+			h.reject(w, r, http.StatusNotFound, "unknown console telemetry endpoint")
+			return
+		}
+
+		h.serveHTTP(w, r, true)
+	})
+}
+
+func (h *Handler) serveHTTP(w http.ResponseWriter, r *http.Request, session bool) {
 	if r.URL.Path != "/v1/logs" && r.URL.Path != "/v1/metrics" && r.URL.Path != "/v1/traces" {
 		h.reject(w, r, http.StatusNotFound, "unknown OTLP signal")
 		return
@@ -105,7 +123,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.authorized(r) {
+	if !session && !h.authorized(r) {
 		h.reject(w, r, http.StatusUnauthorized, "ingest key required")
 		return
 	}

@@ -2,6 +2,7 @@ package console_test
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
@@ -16,10 +17,15 @@ import (
 	"testing/fstest"
 	"time"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	"google.golang.org/protobuf/proto"
+
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/internal/console"
+	"github.com/gopherex/backplane/internal/otlp"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
+	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
 // Real HTTP cookie, ws-proto and bundle-proxy acceptance. Only the registry and
@@ -84,7 +90,45 @@ func TestBrowserConsole(t *testing.T) {
 		"browser-live-data": {Name: "browser-live-data"},
 	})
 	h := backplanetest.New(t, backplanetest.Name("backplane"))
-	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken, InternalSecret: "relay-secret", InsecureCookie: true}, newMemSessions(), newAttempts(), hub, console.WithShell(shell))
+
+	var reported atomic.Bool
+
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+
+		var batch collogspb.ExportLogsServiceRequest
+		if err != nil || proto.Unmarshal(body, &batch) != nil {
+			t.Error("invalid console OTLP report")
+			w.WriteHeader(http.StatusBadRequest)
+
+			return
+		}
+
+		for _, resource := range batch.GetResourceLogs() {
+			for _, scope := range resource.GetScopeLogs() {
+				for _, record := range scope.GetLogRecords() {
+					if strings.Contains(record.GetBody().GetStringValue(), "console-ingest-regression") {
+						reported.Store(true)
+					}
+				}
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/x-protobuf")
+	}))
+	t.Cleanup(collector.Close)
+
+	admission, err := otlp.New(otlp.Config{
+		URL: collector.URL, Keys: []config.Secret{"browser-ingest-key-012345"},
+		BodyBytes: 1 << 20, Concurrent: 2, RatePerMinute: 6000, Burst: 100, MaxIPs: 16, IdleTTL: time.Minute, Timeout: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(admission.Close)
+	c := console.New(h.Root(), console.Settings{Prefix: "/backplane", AdminToken: adminToken, InternalSecret: "relay-secret", InsecureCookie: true}, newMemSessions(), newAttempts(), hub,
+		console.WithShell(shell), console.WithTelemetry(admission), console.WithSessionTelemetry(admission.SessionLogs()))
 	h.Start()
 
 	srv := httptest.NewServer(c.Handler())
@@ -103,6 +147,10 @@ func TestBrowserConsole(t *testing.T) {
 
 	if bundleRequests.Load() == 0 {
 		t.Fatal("browser never used the module bundle proxy")
+	}
+
+	if !reported.Load() {
+		t.Fatal("console error did not reach keyed ingest using its session")
 	}
 
 	t.Log(string(output))

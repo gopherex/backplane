@@ -106,11 +106,12 @@ func (s Settings) Validate() error {
 type Option func(o *options)
 
 type options struct {
-	now        func() time.Time
-	services   []func(grpc.ServiceRegistrar)
-	cacheBytes int64
-	shell      fs.FS
-	telemetry  http.Handler
+	now              func() time.Time
+	services         []func(grpc.ServiceRegistrar)
+	cacheBytes       int64
+	shell            fs.FS
+	telemetry        http.Handler
+	sessionTelemetry http.Handler
 }
 
 // WithClock replaces time.Now (tests).
@@ -131,6 +132,12 @@ func WithShell(fsys fs.FS) Option { return func(o *options) { o.shell = fsys } }
 
 // WithTelemetry installs independent OTLP admission without operator auth.
 func WithTelemetry(handler http.Handler) Option { return func(o *options) { o.telemetry = handler } }
+
+// WithSessionTelemetry installs log admission behind console session and
+// origin checks, without requiring a public ingest key in the frontend.
+func WithSessionTelemetry(handler http.Handler) Option {
+	return func(o *options) { o.sessionTelemetry = handler }
+}
 
 // Console is the console server: a component whose start checks the admin
 // token is configured and opens the listener,
@@ -192,7 +199,7 @@ func New(
 
 	c.relay = newRelay(src, s.InternalSecret)
 	c.bundles = newBundles(s.InternalSecret, o.cacheBytes)
-	c.handler = c.routes(c.newWS(o.services), o.shell, o.telemetry)
+	c.handler = c.routes(c.newWS(o.services), o.shell, o.telemetry, o.sessionTelemetry)
 
 	c.OnStart(func(context.Context) error { return s.Validate() })
 	c.OnStart(c.listen)

@@ -48,8 +48,13 @@ createRoot(root, { onCaughtError: createReactErrorHandler(errors) });
 - Stacks are kept as text (no sourcemaps); the console parses V8, Firefox,
   Safari and Go frames from them.
 
-The console reports its own errors this way (service `backplane-console`), and
-modules report handled errors with `usePluginErrorReporter()` from the plugin
+The signed-in console reports its own errors as `backplane-console` through
+`<console>/auth/telemetry/v1/logs`, using its HttpOnly session cookie and the
+console's origin checks. This route shares the public proxy's limits and
+Collector, but needs no ingest key in the frontend. Anonymous and expired
+sessions cannot report through it; public applications still use ingest keys
+on `<console>/telemetry/v1/logs` when configured. Modules report handled
+errors with `usePluginErrorReporter()` from the plugin
 SDK (marked `backplane.module=<service>`); their unhandled and render errors
 are the console's.
 

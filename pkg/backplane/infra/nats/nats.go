@@ -234,7 +234,7 @@ func (p provider) Provide(ctx context.Context, s deps.Scope) (*natsgo.Conn, erro
 		case <-ctx.Done():
 			conn.Close()
 
-			return nil, fmt.Errorf("nats: %s: %w", p.cfg.URL, ctx.Err())
+			return nil, fmt.Errorf("nats: connection interrupted: %w", ctx.Err())
 		case <-tick.C:
 		}
 	}

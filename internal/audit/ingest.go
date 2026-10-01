@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -53,7 +54,7 @@ const (
 	maxIngestBytes  = 8 << 20
 	unknownService  = "unknown_service"
 	keyBytes        = 16
-	rejectedMessage = "records without backplane.audit=true or over 64 KiB are not stored"
+	rejectedMessage = "unmarked, oversized or invalid audit records are not stored"
 )
 
 // Ingest is backplane's OTLP audit listener: the deployment's Collector
@@ -276,17 +277,23 @@ func Records(req *collogspb.ExportLogsServiceRequest, now time.Time) ([]db.Inser
 			service = unknownService
 		}
 
-		resourceJSON := attributesJSON(resource.GetAttributes())
+		resourceJSON, resourceErr := attributesJSON(resource.GetAttributes())
 
 		for _, sl := range logs.GetScopeLogs() {
 			for _, record := range sl.GetLogRecords() {
-				if !marked(record) || proto.Size(record) > maxRecordBytes {
+				if resourceErr != nil || !marked(record) || proto.Size(record) > maxRecordBytes {
 					rejected++
 
 					continue
 				}
 
-				out = append(out, row(record, resource, service, resourceJSON, now))
+				entry, err := row(record, resource, service, resourceJSON, now)
+				if err != nil {
+					rejected++
+					continue
+				}
+
+				out = append(out, entry)
 			}
 		}
 	}
@@ -306,9 +313,22 @@ func marked(record *logspb.LogRecord) bool {
 
 func row(
 	record *logspb.LogRecord, resource *resourcepb.Resource, service string, resourceJSON json.RawMessage, now time.Time,
-) db.InsertApplicationAuditParams {
+) (db.InsertApplicationAuditParams, error) {
 	attrs := record.GetAttributes()
-	body := bodyText(record.GetBody())
+
+	body, err := bodyText(record.GetBody())
+	if err != nil {
+		return db.InsertApplicationAuditParams{}, err
+	}
+
+	attributes, err := attributesJSON(attrs)
+	if err != nil {
+		return db.InsertApplicationAuditParams{}, err
+	}
+
+	if !validText(record.GetSeverityText()) || !validText(record.GetEventName()) {
+		return db.InsertApplicationAuditParams{}, errRecordText
+	}
 
 	action := stringAttr(attrs, attrEvent)
 	if action == "" {
@@ -335,11 +355,11 @@ func row(
 		Outcome:    cut(stringAttr(attrs, LabelOutcome)),
 		Severity:   severity,
 		Body:       body,
-		Attributes: attributesJSON(attrs),
+		Attributes: attributes,
 		Resource:   resourceJSON,
 		TraceID:    hex.EncodeToString(record.GetTraceId()),
 		SpanID:     hex.EncodeToString(record.GetSpanId()),
-	}
+	}, nil
 }
 
 // recordKey deduplicates retries: the service and backplane.audit.id when
@@ -373,18 +393,27 @@ func recordTime(record *logspb.LogRecord, now time.Time) time.Time {
 //nolint:gochecknoglobals // a constant time
 var maxTimestamp = time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC)
 
-func bodyText(body *commonpb.AnyValue) string {
+func bodyText(body *commonpb.AnyValue) (string, error) {
 	if body == nil {
-		return ""
+		return "", nil
 	}
 
 	if s, ok := body.GetValue().(*commonpb.AnyValue_StringValue); ok {
-		return s.StringValue
+		if !validText(s.StringValue) {
+			return "", errRecordText
+		}
+
+		return s.StringValue, nil
 	}
 
-	encoded, _ := json.Marshal(anyJSON(body)) //nolint:errchkjson // plain JSON values
+	value, err := anyJSON(body)
+	if err != nil {
+		return "", err
+	}
 
-	return string(encoded)
+	encoded, err := json.Marshal(value)
+
+	return string(encoded), err
 }
 
 func stringAttr(attrs []*commonpb.KeyValue, key string) string {
@@ -397,47 +426,83 @@ func stringAttr(attrs []*commonpb.KeyValue, key string) string {
 	return ""
 }
 
-func attributesJSON(attrs []*commonpb.KeyValue) json.RawMessage {
+func attributesJSON(attrs []*commonpb.KeyValue) (json.RawMessage, error) {
 	out := make(map[string]any, len(attrs))
 	for _, kv := range attrs {
-		out[kv.GetKey()] = anyJSON(kv.GetValue())
+		if !validText(kv.GetKey()) {
+			return nil, errRecordText
+		}
+
+		value, err := anyJSON(kv.GetValue())
+		if err != nil {
+			return nil, err
+		}
+
+		out[kv.GetKey()] = value
 	}
 
-	encoded, _ := json.Marshal(out) //nolint:errchkjson // plain JSON values
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("audit attributes: %w", err)
+	}
 
-	return encoded
+	return encoded, nil
 }
+
+// PostgreSQL text and jsonb cannot store NUL or invalid UTF-8. Reject the
+// individual record before starting the batch's transaction.
+func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }
+
+var errRecordText = errors.New("audit record contains invalid PostgreSQL text")
 
 // anyJSON is an OTLP value as JSON: bytes as base64, a key-value list as an
 // object.
-func anyJSON(v *commonpb.AnyValue) any {
+func anyJSON(v *commonpb.AnyValue) (any, error) {
 	switch x := v.GetValue().(type) {
 	case *commonpb.AnyValue_StringValue:
-		return x.StringValue
+		if !validText(x.StringValue) {
+			return nil, errRecordText
+		}
+
+		return x.StringValue, nil
 	case *commonpb.AnyValue_BoolValue:
-		return x.BoolValue
+		return x.BoolValue, nil
 	case *commonpb.AnyValue_IntValue:
-		return x.IntValue
+		return x.IntValue, nil
 	case *commonpb.AnyValue_DoubleValue:
-		return x.DoubleValue
+		return jsonNumber(x.DoubleValue), nil
 	case *commonpb.AnyValue_BytesValue:
-		return base64.StdEncoding.EncodeToString(x.BytesValue)
+		return base64.StdEncoding.EncodeToString(x.BytesValue), nil
 	case *commonpb.AnyValue_ArrayValue:
 		out := make([]any, 0, len(x.ArrayValue.GetValues()))
 		for _, item := range x.ArrayValue.GetValues() {
-			out = append(out, anyJSON(item))
+			value, err := anyJSON(item)
+			if err != nil {
+				return nil, err
+			}
+
+			out = append(out, value)
 		}
 
-		return out
+		return out, nil
 	case *commonpb.AnyValue_KvlistValue:
-		out := make(map[string]any, len(x.KvlistValue.GetValues()))
-		for _, kv := range x.KvlistValue.GetValues() {
-			out[kv.GetKey()] = anyJSON(kv.GetValue())
-		}
-
-		return out
+		return attributesJSON(x.KvlistValue.GetValues())
 	default:
-		return nil
+		return nil, nil //nolint:nilnil // an unset OTLP AnyValue is JSON null
+	}
+}
+
+// jsonNumber matches protobuf JSON's representation of non-finite doubles.
+func jsonNumber(value float64) any {
+	switch {
+	case math.IsNaN(value):
+		return "NaN"
+	case math.IsInf(value, 1):
+		return "Infinity"
+	case math.IsInf(value, -1):
+		return "-Infinity"
+	default:
+		return value
 	}
 }
 

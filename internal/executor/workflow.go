@@ -418,7 +418,7 @@ func (f *flow) runItems(
 	)
 
 	fail := func(index int, err error) {
-		if plan.ForEach.Continue {
+		if plan.ForEach.Continue && !temporal.IsCanceledError(err) && ctx.Err() == nil {
 			msg, _ := readableFailure(err)
 			out.failed = append(out.failed, bindings.ItemError{Index: index, Message: msg})
 		} else if first == nil {
@@ -543,7 +543,12 @@ func (f *flow) startBody(ctx workflow.Context, body *bindings.Program, scope bin
 		}
 
 		if err != nil {
-			err = withUndos(err, f.r.compensate(ctx, child.done))
+			// Cancellation stops the item's work, but must not cancel its
+			// compensation. Finish it before settling the item's future.
+			cleanup, cancel := workflow.NewDisconnectedContext(ctx)
+			err = withUndos(err, f.r.compensate(cleanup, child.done))
+
+			cancel()
 		}
 
 		set.Set(nil, err)

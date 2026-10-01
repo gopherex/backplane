@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
@@ -663,5 +664,46 @@ steps:
 	want := []string{`pay[1].charge:{"id":"c-y"}`, `pay[0].charge:{"id":"c-x"}`}
 	if !slices.Equal(refunds, want) {
 		t.Fatalf("refunds %v, want %v", refunds, want)
+	}
+}
+
+func TestForEachCancellationCompensates(t *testing.T) {
+	t.Parallel()
+
+	for _, policy := range []string{"fail", "continue"} {
+		t.Run(policy, func(t *testing.T) {
+			t.Parallel()
+
+			rec := &calls{}
+			e := env(t, rec, map[string]handler{
+				"Charge": func(map[string]any) (any, error) { return map[string]any{"id": "paid"}, nil },
+				"Refund": func(map[string]any) (any, error) { return map[string]any{}, nil },
+				"Send":   func(map[string]any) (any, error) { return map[string]any{}, nil },
+			})
+			e.OnActivity("Send", mock.Anything, mock.Anything).After(time.Hour).Return(&backplanev1.ActivityResult{Payload: []byte(`{}`)}, nil)
+			e.RegisterDelayedCallback(e.CancelWorkflow, time.Second)
+
+			p := program(t, `
+hook: iam.SendEmail
+steps:
+  pay:
+    forEach: req.users
+    concurrency: 1
+    onError: `+policy+`
+    steps:
+      charge: {activity: billing.Charge, input: {v: item}, undo: billing.Refund}
+      send: {activity: smtp.Send, input: {text: charge.id}, retry: {attempts: 1}}
+    result: {id: send.id}
+`)
+
+			_, err := run(t, e, p, `{"users":["x","y"]}`)
+			if !temporal.IsCanceledError(err) {
+				t.Fatalf("expected canceled workflow: %v", err)
+			}
+
+			if got := rec.steps(); !slices.Equal(got, []string{"pay[0].charge:billing.Charge", "pay[0].charge:billing.Refund"}) {
+				t.Fatalf("must compensate the completed item and not start the next: %v", got)
+			}
+		})
 	}
 }

@@ -185,9 +185,15 @@ keys, each at least 16 characters) the listener requires one as
 A call returns after the records are committed; any failure is `Unavailable`,
 and the Collector's persistent queue (`file_storage`, retries without a time
 limit) keeps them until backplane is back. Retries are deduplicated. Records
-without the label or over 64 KiB are counted in `partial_success.rejected`
+without the label, over 64 KiB, or containing text PostgreSQL cannot store
+(NUL or invalid UTF-8, including attribute keys and nested values) are counted
+in `partial_success.rejected`
 and not stored: a Collector filter that forwards everything shows up there and
 in the metric `backplane.audit.ingest.records{outcome=stored|duplicate|rejected}`.
+Valid records in the same batch are still committed. Non-finite OTLP doubles
+are preserved as the JSON strings `NaN`, `Infinity` and `-Infinity` in bodies,
+attributes and resources; they do not turn a batch into an endlessly retried
+database failure.
 The pipeline needs the `filter` and `attributes` processors and the
 `file_storage` extension (otelcol-contrib or a custom build).
 

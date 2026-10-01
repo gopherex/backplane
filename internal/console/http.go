@@ -37,13 +37,30 @@ var (
 
 // routes is the console's mux under its base, wrapped with the security
 // headers.
-func (c *Console) routes(ws http.Handler, shell fs.FS, telemetry http.Handler) http.Handler {
+func (c *Console) routes(ws http.Handler, shell fs.FS, telemetry, sessionTelemetry http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /auth/login", c.login)
 	mux.HandleFunc("POST /auth/logout", c.logout)
 	mux.HandleFunc("GET /auth/session", c.current)
 	mux.Handle("GET /ws", c.upgrade(ws))
 	mux.HandleFunc("GET /plugins/{service}/{hash}/{path...}", c.plugin)
+
+	if sessionTelemetry != nil {
+		logs := http.StripPrefix("/auth/telemetry", sessionTelemetry)
+
+		mux.HandleFunc("POST /auth/telemetry/v1/logs", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+
+			if c.crossSite(r) {
+				httpError(w, http.StatusForbidden, errOrigin.Error())
+				return
+			}
+
+			if _, ok := c.authorized(w, r); ok {
+				logs.ServeHTTP(w, r)
+			}
+		})
+	}
 
 	if telemetry != nil {
 		admission := http.StripPrefix("/telemetry", telemetry)
