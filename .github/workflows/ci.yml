@@ -11,7 +11,123 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.select.outputs.go }}
+      web: ${{ steps.select.outputs.web }}
+      contracts: ${{ steps.select.outputs.contracts }}
+      compose: ${{ steps.select.outputs.compose }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - run: python3 -B -m unittest discover -s scripts -p 'test_ci_*.py'
+      - id: select
+        env:
+          CI_EVENT: ${{ github.event_name }}
+          CI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          CI_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/ci_changes.py
+
+  go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Save each successful revision, so test results advance with the code.
+      # Go invalidates cached results using package inputs and dependencies.
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-go-${{ hashFiles('go.mod', 'go.sum') }}-
+      - run: make configure-lint
+      - run: bin/golangci-lint run ./...
+      - run: go vet ./...
+      # No -count=1: unchanged packages reuse successful test results.
+      # Infrastructure integration suites are reserved for the full run below.
+      - run: go test -race -timeout 10m ./...
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@gopherex'
+      - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - uses: actions/cache@v5
+        with:
+          path: ${{ runner.temp }}/yarn-cache
+          key: ${{ runner.os }}-yarn-${{ hashFiles('web/yarn.lock') }}
+      - run: make configure-web
+        env:
+          YARN_CACHE_FOLDER: ${{ runner.temp }}/yarn-cache
+      # Workspace exports reference built files: build all packages before tsc.
+      - run: cd web && yarn build:packages && yarn typecheck && yarn test:unit
+
+  contracts:
+    needs: changes
+    if: needs.changes.outputs.contracts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+      NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com
+          scope: '@gopherex'
+      - run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - run: make configure-web configure-gen
+      - run: |
+          export PATH="$PWD/web/node_modules/.bin:$PWD/bin:$PATH"
+          easyp lint -p backplanepb
+          easyp --cfg examples/hello/easyp.yaml lint -p proto
+          make gen breaking
+          git diff --exit-code -- backplanepb examples/hello internal/store/db web/packages/api/src docs/api-reference.md web/tests/api-examples.generated.ts
+
+  compose:
+    needs: changes
+    if: needs.changes.outputs.compose == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          docker compose --profile full config --quiet
+          docker compose --profile full -f docker-compose.yaml -f docker-compose.observability.yaml -f docker-compose.dev.yaml config --quiet
+          docker compose -f docker-compose.yaml -f docker-compose.minimal.yaml config --quiet
+          bash -n scripts/verify.sh
+
   verify:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:

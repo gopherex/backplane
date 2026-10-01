@@ -3,7 +3,7 @@
 # Conventions (shared with schemapb):
 #   - ALL tools live in ./bin (version-pinned below); nothing is installed
 #     globally. `git clone` + `make configure` = fully working environment.
-#   - `make help` lists every target. `make check` is what a release requires.
+#   - `make check` explicitly runs full verification; `make release` only tags.
 
 SHELL := /bin/bash
 .ONESHELL:
@@ -36,7 +36,11 @@ help: ## List all targets with explanations
 	  awk -F':.*## ' '{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: configure
-configure: configure-web ## Bring environment to working state: fetch pinned Go and frontend tools
+configure: configure-web configure-lint configure-gen ## Bring environment to working state: fetch pinned Go and frontend tools
+	@echo "✓ configure done — tools in $(BIN)"
+
+.PHONY: configure-gen
+configure-gen: ## Install pinned code generators and fetch proto dependencies
 	mkdir -p "$(BIN)"
 	echo "--- easyp $(EASYP_VERSION)"
 	GOBIN="$(BIN)" go install github.com/easyp-tech/easyp/cmd/easyp@$(EASYP_VERSION)
@@ -47,11 +51,13 @@ configure: configure-web ## Bring environment to working state: fetch pinned Go 
 	echo "--- sqld, sqld-gen-go $(SQLD_VERSION)"
 	GOBIN="$(BIN)" go install github.com/gopherex/sqld/cmd/sqld@$(SQLD_VERSION)
 	GOBIN="$(BIN)" go install github.com/gopherex/sqld/cmd/sqld-gen-go@$(SQLD_VERSION)
-	echo "--- golangci-lint $(GOLANGCI_LINT_VERSION)"
-	GOBIN="$(BIN)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	echo "--- proto deps"
 	$(EASYP) mod update
-	echo "✓ configure done — tools in $(BIN)"
+
+.PHONY: configure-lint
+configure-lint: ## Install only the pinned Go linter
+	mkdir -p "$(BIN)"
+	GOBIN="$(BIN)" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: gen
 gen: db ## Generate Go/TS APIs, the hello example, and the store's queries
@@ -164,7 +170,7 @@ run-backplane: backplane ## Run backplane against the local stack (console token
 		"$(BIN)/backplane"
 
 .PHONY: check
-check: verify ## Everything a release requires; same verification as CI
+check: verify ## Full verification on explicit request; same as manual full CI
 
 .PHONY: configure-web web-check dev-ui dev-module
 configure-web: ## Install locked frontend dependencies (Node >=22.12, Yarn 1.22.22)
@@ -200,14 +206,23 @@ test-otlp: ## OTLP admission and errors -> isolated Collector -> Victoria storag
 	BACKPLANE_TEST_METRICS_URL=http://127.0.0.1:18428 \
 		go test -race -count=1 -run '^(TestStoredSignals|TestErrorsLive)$$' -v ./internal/otlp ./internal/obs
 
-release: ## Interactive tag-driven release (runs `make check` first)
+release: ## Create and push a version tag; no local builds or tests
 	cd "$$(git rev-parse --show-toplevel)"
 	if [ -n "$$(git status --porcelain)" ]; then
 	  echo "✗ Working tree is not clean — commit or stash first:"
 	  git status --short
 	  exit 1
 	fi
-	$(MAKE) check
+	if ! upstream="$$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+	  echo "✗ Current branch has no upstream — push it first."
+	  exit 1
+	fi
+	git fetch --quiet --prune --tags
+	read -r behind ahead <<< "$$(git rev-list --left-right --count "$$upstream...HEAD")"
+	if [ "$$ahead" -gt 0 ] || [ "$$behind" -gt 0 ]; then
+	  echo "✗ Branch differs from $$upstream ($$ahead ahead, $$behind behind) — synchronize first."
+	  exit 1
+	fi
 
 	cur="$$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
 	cur="$${cur:-0.0.0}"

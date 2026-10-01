@@ -112,14 +112,37 @@ See [deployment modes](../deployments/README.md#server-deployment-modes) for
 Compose profiles and endpoints. Service **Workflows** includes administrative
 schedule creation, editing and deletion; module SDKs never reconcile schedules.
 
-## Complete verification
+## CI and release verification
+
+Pushes to master and pull requests select checks from the changed paths:
+
+- Go changes run Go lint, vet and race tests without starting infrastructure.
+  The Go build/test cache is restored and saved per revision; unchanged test
+  results are reused, including automatic invalidation when dependencies change.
+- Web changes build workspace packages, typecheck and run the web unit suite.
+  This checks shared package consumers together. Browser, Storybook and packed
+  consumer suites are reserved for full verification.
+- Proto, SQL and generated API changes also check generation and proto compatibility,
+  and run both Go and web checks.
+- Compose/deployment changes validate Compose configurations without starting containers.
+- Markdown-only changes skip application checks. CI/build configuration changes and
+  unknown paths conservatively select all quick checks.
+
+The small path-selector regression suite always runs. A pull request compares
+against the merge base; a push checks the entire pushed commit range, including
+deletions and both sides of renames. There is no full stack startup on a normal push.
 
 After `make configure` and `cd web && yarn playwright install --with-deps chromium`,
-run `make verify` from a clean committed checkout. This is also the GitHub Actions
-CI entry point for master and pull requests. It checks generated files, lint,
+run `make verify` from a clean committed checkout. The CI workflow's manual
+**Run workflow** action runs the same full verification, as does `make check`.
+Full verification runs only when explicitly requested. It checks generated files, lint,
 Go race tests with the full containerized infrastructure, browser schedule CRUD
 and timer execution, frontend suites, packed consumers, and the minimal Compose
 installation in both themes. The runner owns only the `backplane-verify` Compose
 project and stops it on exit; infrastructure ports used by the development stack must be free. The minimal
 console check uses port 18081, leaving a separately running console untouched.
 Results are retained under `bin/verification`.
+
+`make release` checks that the working tree is clean and the branch is synchronized
+with its upstream, then creates and pushes the selected version tag. It does not
+build, install dependencies, or run tests. The Go module keeps `vX.Y.Z` tags.
