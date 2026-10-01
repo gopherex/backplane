@@ -1,12 +1,11 @@
 // Package configrt is what the SDK core needs from a live configuration and
 // authors do not: the effective values for instance state, schema walks for
-// the manifest, provenance and the shared Consul client.
+// the manifest and provenance. Backend clients belong to optional drivers.
 package configrt
 
 import (
 	"strings"
 
-	"github.com/hashicorp/consul/api"
 	"google.golang.org/protobuf/proto"
 
 	sp "github.com/gopherex/schemapb/go/schemapb"
@@ -40,9 +39,6 @@ type State interface {
 	// OnChange calls fn whenever Effective or Degraded may have changed.
 	OnChange(fn func())
 	Degraded() error
-	// Consul is the client the configuration reads KV through; nil when
-	// Consul is not configured.
-	Consul() *api.Client
 	// SetLog routes the configuration's own logging (rejected updates,
 	// Consul layer transitions) to the service logger; until then it goes
 	// to log/slog.

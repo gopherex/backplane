@@ -9,6 +9,7 @@ import (
 
 	"github.com/gopherex/backplane/internal/server"
 	"github.com/gopherex/backplane/pkg/backplane"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 )
 
 func main() {
@@ -19,7 +20,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	svc, err := backplane.Open(ctx, server.NewState, backplane.Name(server.Name))
+	svc, err := backplane.Open(ctx, server.NewState, standard.Drivers(), backplane.Name(server.Name))
 	if err != nil {
 		return err //nolint:wrapcheck // prefixed by backplane
 	}

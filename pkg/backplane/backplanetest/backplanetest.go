@@ -1,7 +1,7 @@
 // Package backplanetest runs components without Open, Run, ports or
 // Consul: build them under Root, Start, and inspect what they published,
-// answer their hooks, invoke their activities and reactors, run their
-// workflows in Temporal's test environment and check their readiness.
+// answer their hooks, invoke their activities and reactors, and check their
+// readiness. Native workflow tests use the optional workflows/workflowtest package.
 //
 //	h := backplanetest.New(t, backplanetest.Name("hello"))
 //	g, _ := greeter.New(h.Root(), &cfg, deps.Static(db))
@@ -12,8 +12,8 @@
 // and Unavailable make it fail), Call is answered by Answer, reactors run
 // through React and activities through Activity, both with the metadata a
 // transport puts on the handler's context (event.DeliveryOf,
-// activity.InfoOf). Workflows builds a testsuite environment with the
-// service's worker registrations and its hooks answered by Answer.
+// activity.InfoOf). The optional workflows/workflowtest package builds a Temporal
+// testsuite environment with the same registrations and hook answers.
 package backplanetest
 
 import (

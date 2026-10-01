@@ -16,11 +16,7 @@
 //
 //	workflows.Declare(root, "Ship", orders.Ship, workflows.Describe("ships an order"))
 //
-// Schedule declares a Temporal Schedule of a registered workflow; the SDK
-// creates, updates and deletes the service's schedules to match the
-// declarations at every start:
-//
-//	workflows.Schedule(root, "NightlyReport", workflows.Cron("0 3 * * *"), reports.Nightly)
+// Schedules are managed by the platform administrative API, never by SDK startup.
 //
 // The worker is tuned by configuration, not code: BACKPLANE_TEMPORAL_WORKER_*
 // (config.Worker).

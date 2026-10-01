@@ -14,21 +14,18 @@ import (
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
-	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
-	inftemporal "github.com/gopherex/backplane/pkg/backplane/infra/temporal"
-	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
+	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/configrt"
-	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/gate"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/health"
+	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 	"github.com/gopherex/backplane/pkg/backplane/internal/listener"
 	"github.com/gopherex/backplane/pkg/backplane/internal/manifest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 	"github.com/gopherex/backplane/pkg/backplane/internal/recovery"
 	"github.com/gopherex/backplane/pkg/backplane/internal/telemetry"
-	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
 const (
@@ -60,9 +57,9 @@ type core struct {
 	svc *node.Node // service root: the SDK's nodes and the author's tree
 	app *node.Node // the author's tree
 
-	broker    *broker.Broker // nil without NATS
+	broker    EventTransport // nil without NATS
 	telemetry *telemetry.Telemetry
-	temporal  *temporal.Client // nil without Temporal
+	temporal  WorkflowTransport // nil without Temporal
 	health    *health.Health
 	guard     guard.Guard
 	gate      *gate.Gate
@@ -71,7 +68,7 @@ type core struct {
 	public    []*publicPort
 	// consulPresence is built by Run (it needs the manifest); nil without
 	// Consul.
-	consulPresence *consul.Presence
+	consulPresence Presence
 
 	mu    sync.Mutex
 	phase phase
@@ -129,16 +126,10 @@ func newCore(ctx context.Context, o options, conf configrt.State, cfg config.Bac
 // connect adds the NATS and Temporal connections ahead of the author's tree,
 // so components may publish and call hooks from their start.
 func (c *core) connect() {
+	scope := link.Scope(c.svc).(deps.Scope) //nolint:forcetypeassert,errcheck // deps installs it
+
 	if c.cfg.NATS.Enabled() {
-		c.broker = broker.New(broker.Params{
-			Conn:           infranats.Config{URL: c.cfg.NATS.URL, Creds: c.cfg.NATS.Creds, TLS: c.cfg.NATS.TLS},
-			PublishTimeout: c.cfg.NATS.PublishTimeout,
-			Service:        c.id.Service, Instance: c.id.Instance, Version: c.id.Version, Log: c.log, Env: c.env,
-			Streams: broker.Streams{
-				MaxAge: c.cfg.NATS.MaxAge, MaxBytes: c.cfg.NATS.MaxBytes, Replicas: int(c.cfg.NATS.Replicas),
-				Duplicates: c.cfg.NATS.DedupWindow, DeadMaxAge: c.cfg.NATS.DLQMaxAge,
-			},
-		})
+		c.broker = c.opts.events(c.cfg, scope, c.id)
 		n := c.svc.Child("nats", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.broker.Connect(ctx, n) })
 		n.OnStop(c.broker.Close)
@@ -146,14 +137,7 @@ func (c *core) connect() {
 	}
 
 	if c.cfg.Temporal.Enabled() {
-		c.temporal = temporal.New(temporal.Params{
-			Conn: inftemporal.Config{
-				Addr: c.cfg.Temporal.Addr, Namespace: c.cfg.Temporal.Namespace, TLS: c.cfg.Temporal.TLS,
-				APIKey: c.cfg.Temporal.APIKey, DialTimeout: c.cfg.Temporal.DialTimeout,
-			},
-			Service: c.id.Service, Instance: c.id.Instance, Log: c.log, Env: c.env,
-			Worker: tuning(c.cfg.Temporal.Worker), HookTimeout: c.cfg.Temporal.HookTimeout,
-		})
+		c.temporal = c.opts.workflows(c.cfg, scope, c.id)
 		n := c.svc.Child("temporal", node.System, false)
 		n.OnStart(func(ctx context.Context) error { return c.temporal.Connect(ctx, n) })
 		n.OnStop(c.temporal.Close)
@@ -165,17 +149,6 @@ func (c *core) connect() {
 		hn.OnStop(c.temporal.StopHookWorker)
 
 		c.env.SetCaller(c.temporal)
-		c.env.SetWorkflowClient(func() (any, error) { return c.temporal.SDK() })
-	}
-}
-
-// tuning of the Temporal worker from its configuration block.
-func tuning(w config.Worker) temporal.Tuning {
-	return temporal.Tuning{
-		MaxConcurrentActivities:    int(w.MaxConcurrentActivities),
-		MaxConcurrentWorkflowTasks: int(w.MaxConcurrentWorkflowTasks),
-		ActivityPollers:            int(w.ActivityPollers),
-		WorkflowPollers:            int(w.WorkflowPollers),
 	}
 }
 

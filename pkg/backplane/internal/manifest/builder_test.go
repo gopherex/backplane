@@ -165,7 +165,6 @@ func TestDuplicatesListed(t *testing.T) {
 		b.Event(&backplanev1.Event{Name: "e"})
 		b.Activity(&backplanev1.Activity{Name: "a"})
 		b.Subscription(&backplanev1.Subscription{Event: "other.E", Consumer: "c:other.E"})
-		b.Schedule(&backplanev1.Schedule{Name: "Nightly", Workflow: "Report"})
 		b.Route(&backplanev1.Route{Prefix: "/api/", Port: 80})
 	}
 
@@ -175,28 +174,12 @@ func TestDuplicatesListed(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`hook "h"`, `event "e"`, `activity "a"`, `reactor "c:other.E"`, `schedule "Nightly"`,
+		`hook "h"`, `event "e"`, `activity "a"`, `reactor "c:other.E"`,
 		`route "prefix /api/ on port 80"`,
 	} {
 		if !strings.Contains(err.Error(), want+" declared twice") {
 			t.Errorf("missing %s in:\n%v", want, err)
 		}
-	}
-}
-
-func TestScheduleRecorded(t *testing.T) {
-	t.Parallel()
-
-	b := manifest.New("svc", "1.0.0")
-	b.Schedule(&backplanev1.Schedule{
-		Name: "Nightly", Workflow: "Report", Spec: &backplanev1.Schedule_Cron{Cron: "0 3 * * *"},
-		Overlap: backplanev1.ScheduleOverlap_SCHEDULE_OVERLAP_BUFFER_ONE,
-	})
-
-	got := build(t, b).GetSchedules()
-	if len(got) != 1 || got[0].GetName() != "Nightly" || got[0].GetCron() != "0 3 * * *" ||
-		got[0].GetOverlap() != backplanev1.ScheduleOverlap_SCHEDULE_OVERLAP_BUFFER_ONE {
-		t.Fatalf("schedules: %v", got)
 	}
 }
 

@@ -238,7 +238,7 @@ func TestOptions(t *testing.T) {
 	}
 }
 
-// New installs the platform hook timeout on the env for WorkflowCall.
+// New installs the platform hook timeout on the env for workflows.CallHook.
 func TestHookTimeoutInstalled(t *testing.T) {
 	t.Parallel()
 

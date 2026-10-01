@@ -46,7 +46,7 @@ import (
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/internal/wire"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
-	"github.com/gopherex/backplane/pkg/backplane/event"
+	natsdriver "github.com/gopherex/backplane/pkg/backplane/drivers/nats"
 	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
@@ -187,7 +187,7 @@ type Engine struct {
 func New(parent deps.Scope, src Source, reg registry.Source, opts ...Option) *Engine {
 	e := &Engine{Component: deps.NewComponent(parent, "rules")}
 	e.init(src, reg, opts)
-	e.jetDefault(func() (jetstream.JetStream, error) { return event.JetStream(e) })
+	e.jetDefault(func() (jetstream.JetStream, error) { return natsdriver.JetStream(e) })
 	e.temporalDefault(func() (client.Client, error) { return workflows.Client(e) }, workflows.Queue(parent))
 	e.finish()
 

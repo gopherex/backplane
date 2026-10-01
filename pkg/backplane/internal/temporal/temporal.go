@@ -73,7 +73,7 @@ type Params struct {
 	Worker   Tuning
 
 	// HookTimeout is the deadline of a hook call nothing else bounds; 0 is
-	// env.DefaultHookTimeout. New installs it on Env for WorkflowCall.
+	// env.DefaultHookTimeout. New installs it on Env for workflows.CallHook.
 	HookTimeout time.Duration
 }
 

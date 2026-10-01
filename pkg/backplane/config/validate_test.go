@@ -18,6 +18,7 @@ import (
 	"github.com/gopherex/xlog"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	consuldriver "github.com/gopherex/backplane/pkg/backplane/drivers/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 )
 
@@ -67,7 +68,7 @@ func (c ValidatedConfig) Validate() error {
 func TestValidateAtOpen(t *testing.T) {
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
 
-	opts := []config.Option{config.Service("validated"), config.WithoutFile()}
+	opts := []config.Option{consuldriver.Config(), config.Service("validated"), config.WithoutFile()}
 
 	rt, err := config.Open[ValidatedConfig](t.Context(), opts...)
 	if err != nil {
@@ -153,7 +154,7 @@ func TestConsulDegradeRecoverLogged(t *testing.T) {
 
 	t.Setenv("BACKPLANE_CONSUL_ADDR", srv.Listener.Addr().String())
 
-	rt, err := config.Open[ValidatedConfig](t.Context(), config.Service("degrade"), config.WithoutFile(),
+	rt, err := config.Open[ValidatedConfig](t.Context(), consuldriver.Config(), config.Service("degrade"), config.WithoutFile(),
 		config.ConsulBackoff(10*time.Millisecond, 50*time.Millisecond))
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +223,7 @@ func TestRevisionAppliedAndRejected(t *testing.T) {
 	commit("5", map[string]string{"limits/max": "20"})
 	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
 
-	rt, err := config.Open[ValidatedConfig](context.Background(), config.Service("revision-test"), config.WithoutFile())
+	rt, err := config.Open[ValidatedConfig](context.Background(), consuldriver.Config(), config.Service("revision-test"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}

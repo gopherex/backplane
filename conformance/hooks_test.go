@@ -32,6 +32,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/activity"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/hook"
 )
 
@@ -117,7 +118,7 @@ func runService(t *testing.T, addr, name string) string {
 
 		return &hooksState{Greet: hook.Declare[greetIn, greetOut](root, "Greet", hook.Required())}, nil
 	},
-		backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
+		standard.Drivers(), backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
 		backplane.Logger(xlog.NewJSON(xlog.WithWriter(logs))), backplane.ConfigOptions(config.WithoutFile()),
 	)
 	if err != nil {
@@ -364,7 +365,7 @@ func TestHookFromLifecycle(t *testing.T) {
 
 		return &hooksState{Greet: greet}, nil
 	},
-		backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
+		standard.Drivers(), backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
 		backplane.Logger(xlog.NewJSON(xlog.WithWriter(logs))), backplane.ConfigOptions(config.WithoutFile()),
 	)
 	if err != nil {

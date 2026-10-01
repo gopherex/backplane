@@ -200,15 +200,6 @@ func (b *Builder) Subscription(s *backplanev1.Subscription) {
 	})
 }
 
-// Schedule records a Temporal Schedule.
-func (b *Builder) Schedule(s *backplanev1.Schedule) {
-	b.with("schedule", func(m *backplanev1.Manifest) error {
-		m.Schedules = append(m.Schedules, s)
-
-		return b.unique("schedule", s.GetName())
-	})
-}
-
 // Workflow records a workflow the console may start.
 func (b *Builder) Workflow(w *backplanev1.Workflow) {
 	b.with("workflow", func(m *backplanev1.Manifest) error {

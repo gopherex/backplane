@@ -61,7 +61,7 @@ func TestProvider(t *testing.T) {
 	}
 
 	h := backplanetest.New(t)
-	conn := deps.NewDependency(h.Root(), nats.New(nats.Config{URL: "nats://" + addr}), deps.Name("realtime"))
+	conn := deps.NewDependency(h.Root(), nats.New(nats.Config{URL: config.Secret("nats://" + addr)}), deps.Name("realtime"))
 	h.Start()
 
 	if err := backplanetest.Ready(h); err != nil {

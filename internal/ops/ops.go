@@ -43,7 +43,7 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/internal/registry"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
-	"github.com/gopherex/backplane/pkg/backplane/event"
+	natsdriver "github.com/gopherex/backplane/pkg/backplane/drivers/nats"
 	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
@@ -124,7 +124,7 @@ type Ops struct {
 // New creates the component under parent, reading declarations from src.
 func New(parent deps.Scope, src registry.Source, opts ...Option) *Ops {
 	o := &Ops{Component: deps.NewComponent(parent, "ops"), src: src, author: sessionAuthor, namespace: defaultNamespace}
-	o.jet = func() (jetstream.JetStream, error) { return event.JetStream(o) }
+	o.jet = func() (jetstream.JetStream, error) { return natsdriver.JetStream(o) }
 	o.temporal = func() (client.Client, error) { return workflows.Client(o) }
 	o.queue = workflows.Queue(parent)
 

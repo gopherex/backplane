@@ -1,4 +1,4 @@
-package config_test
+package consul_test
 
 import (
 	"crypto/ecdsa"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/consul"
 )
 
 // selfSigned returns a certificate and its key as PEM.
@@ -49,7 +50,7 @@ func TestConsulEnvFallbacks(t *testing.T) {
 	t.Setenv("CONSUL_CACERT", "/etc/consul/ca.pem")
 	t.Setenv("CONSUL_HTTP_SSL", "true")
 
-	cfg, err := config.ConsulAPIConfig(config.Consul{Addr: "consul:8501"})
+	cfg, err := consul.ConsulAPIConfig(config.Consul{Addr: "consul:8501"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,7 @@ func TestConsulEnvFallbacks(t *testing.T) {
 		t.Fatalf("env fallbacks: %+v", cfg)
 	}
 
-	cfg, err = config.ConsulAPIConfig(config.Consul{Addr: "consul:8501", Token: "block", Datacenter: "eu1"})
+	cfg, err = consul.ConsulAPIConfig(config.Consul{Addr: "consul:8501", Token: "block", Datacenter: "eu1"})
 	if err != nil || cfg.Token != "block" || cfg.Datacenter != "eu1" {
 		t.Fatalf("block must win: token %q dc %q %v", cfg.Token, cfg.Datacenter, err)
 	}
@@ -74,12 +75,12 @@ func TestConsulTLSFromPEM(t *testing.T) {
 		Enabled: true, CA: cert, Cert: cert, Key: config.Secret(key), ServerName: "consul.internal",
 	}}
 
-	cfg, err := config.ConsulAPIConfig(block)
+	cfg, err := consul.ConsulAPIConfig(block)
 	if err != nil || cfg.Scheme != "https" || cfg.TLSConfig.CAFile != "" {
 		t.Fatalf("tls mapping: %+v %v", cfg.TLSConfig, err)
 	}
 
-	tlsCfg, err := config.ConsulClientTLS(block)
+	tlsCfg, err := consul.ConsulClientTLS(block)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +92,7 @@ func TestConsulTLSFromPEM(t *testing.T) {
 	}
 
 	// TLS off: nothing of the block's TLS applies.
-	off, err := config.ConsulAPIConfig(config.Consul{Addr: "consul:8500", TLS: config.TLS{CA: cert}})
+	off, err := consul.ConsulAPIConfig(config.Consul{Addr: "consul:8500", TLS: config.TLS{CA: cert}})
 	if err != nil || off.Scheme != "http" || off.Transport.TLSClientConfig != nil {
 		t.Fatalf("tls disabled: %+v %v", off.TLSConfig, err)
 	}
@@ -131,7 +132,9 @@ func TestConsulTLSBadPEMFailsOpen(t *testing.T) {
 	t.Setenv("BACKPLANE_CONSUL_TLS_CERT", "not a pem")
 	t.Setenv("BACKPLANE_CONSUL_TLS_KEY", "not a pem")
 
-	if _, err := config.Open[Config](t.Context(), config.Service("hello"), config.WithoutFile()); err == nil {
+	if _, err := config.Open[struct {
+		config.Backplane `json:"backplane"`
+	}](t.Context(), consul.Config(), config.Service("hello"), config.WithoutFile()); err == nil {
 		t.Fatal("unusable client certificate accepted")
 	}
 }

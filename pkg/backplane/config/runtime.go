@@ -11,11 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/hashicorp/consul/api"
-
 	sp "github.com/gopherex/schemapb/go/schemapb"
 	"github.com/gopherex/xconf"
-	consulsrc "github.com/gopherex/xconf/contrib/sources/consul"
 	"github.com/gopherex/xlog"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
@@ -47,9 +44,8 @@ type Runtime[C any] struct {
 	schema *sp.Schema
 	live   [][]string
 	rt     *xconf.TypedRuntime[C]
-	consul *api.Client
 	// kv is the Consul layer's source; nil without Consul.
-	kv   *revisioned
+	kv   RemoteSource
 	stop context.CancelFunc
 	wg   sync.WaitGroup
 	once sync.Once
@@ -107,14 +103,31 @@ func Open[C Backplaner](ctx context.Context, opts ...Option) (*Runtime[C], error
 	r := &Runtime[C]{schema: schema, live: live}
 
 	if consul := first.BackplaneConfig().Consul; consul.Enabled() && !st.noConsul {
-		r.consul, err = consul.client()
+		if st.remote == nil {
+			return nil, ErrRemoteDriver
+		}
+
+		r.kv, err = st.remote(first.BackplaneConfig(), st.service)
 		if err != nil {
 			return nil, fmt.Errorf("config: %w", err)
 		}
 
-		var src xconf.Source
+		if r.kv == nil {
+			return nil, ErrRemoteSource
+		}
 
-		src, r.kv = st.consulSource(r.consul, live)
+		paths := make([]xconf.Path, len(live))
+		for i, path := range live {
+			paths[i] = path
+		}
+
+		var backoff []xconf.ResilientOption
+		if st.backoffMin > 0 {
+			backoff = append(backoff, xconf.Backoff(st.backoffMin, st.backoffMax))
+		}
+
+		src := xconf.Resilient(xconf.Optional(xconf.AllowPaths(r.kv, paths...)), backoff...)
+
 		sources = append(sources, src)
 	}
 
@@ -168,31 +181,6 @@ func (r *Runtime[C]) open(ctx context.Context, sources []xconf.Source) (*Runtime
 	return r, nil
 }
 
-// consulSource is the Consul layer: Live paths of config/<service>/, the
-// revision read with them, resilient to Consul being down.
-func (st *settings) consulSource(client *api.Client, live [][]string) (xconf.Source, *revisioned) {
-	prefix := "config/" + st.service + "/"
-	opts := append([]consulsrc.Option{
-		consulsrc.Name(configrt.SourceConsul + prefix), consulsrc.IgnoreKeys(configrt.RevisionKey),
-	}, st.consulOpts...)
-
-	paths := make([]xconf.Path, len(live))
-	for i, p := range live {
-		paths[i] = p
-	}
-
-	var backoff []xconf.ResilientOption
-	if st.backoffMin > 0 {
-		backoff = append(backoff, xconf.Backoff(st.backoffMin, st.backoffMax))
-	}
-
-	lister := revisionLister{kv: client.KV(), key: prefix + configrt.RevisionKey}
-	kv := &revisioned{inner: consulsrc.NewPrefix(lister, prefix, opts...)}
-	src := xconf.Optional(xconf.AllowPaths(kv, paths...))
-
-	return xconf.Resilient(src, backoff...), kv
-}
-
 // forward applies the runtime's snapshots to Value: decoded, validated, then
 // published into the Live fields; a failing one is recorded as rejected.
 func (r *Runtime[C]) forward(ctx context.Context) {
@@ -208,7 +196,7 @@ func (r *Runtime[C]) forward(ctx context.Context) {
 func (r *Runtime[C]) handle(ctx context.Context, event xconf.Event) {
 	if event.Err != nil {
 		// The update never became a snapshot: its revision is the last read.
-		r.reject(ctx, event.Err, r.kv.lastRevision())
+		r.reject(ctx, event.Err, r.lastRevision())
 
 		return
 	}
@@ -312,12 +300,12 @@ func (r *Runtime[C]) revisionOf(snap *xconf.Snapshot) uint64 {
 	return parseRevision(snap.Revisions()[r.kv.Name()])
 }
 
-func (s *revisioned) lastRevision() uint64 {
-	if s == nil {
+func (r *Runtime[C]) lastRevision() uint64 {
+	if r.kv == nil {
 		return 0
 	}
 
-	return s.last.Load()
+	return r.kv.LastRevision()
 }
 
 func (r *Runtime[C]) warn(msg string, err error, kv ...any) {
@@ -464,8 +452,6 @@ func (s state[C]) OnChange(fn func()) {
 }
 
 func (s state[C]) Degraded() error { return s.r.Degraded() }
-
-func (s state[C]) Consul() *api.Client { return s.r.consul }
 
 func (s state[C]) SetLog(log *xlog.Logger) { s.r.log.Store(log) }
 

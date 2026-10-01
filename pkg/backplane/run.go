@@ -15,7 +15,6 @@ import (
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/build"
-	"github.com/gopherex/backplane/pkg/backplane/internal/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/node"
 )
 
@@ -117,7 +116,7 @@ func (c *core) seal() (*backplanev1.Manifest, error) {
 
 // tail adds the nodes that follow the author's tree:
 //
-//	internal-api → reactors → worker → schedules → public:<addr> → drain → register → serving
+//	internal-api → reactors → worker → public:<addr> → drain → register → serving
 //
 // (the ones ahead of it — config, telemetry, health, platform, consul,
 // nats, temporal, hooks — are newCore's). They start in this order and
@@ -157,8 +156,7 @@ func (c *core) tail(m *backplanev1.Manifest) {
 }
 
 // work adds the event reactors and the Temporal worker when the service
-// declared something for them, and the reconciliation of its Temporal
-// schedules; without the transport it warns.
+// declared something for them; without the transport it warns.
 func (c *core) work(m *backplanev1.Manifest, listeners *window) {
 	switch {
 	case len(m.GetSubscriptions()) == 0:
@@ -188,16 +186,6 @@ func (c *core) work(m *backplanev1.Manifest, listeners *window) {
 		n.OnStop(c.temporal.StopWorker)
 		n.Budget(listeners.derive)
 	}
-
-	switch {
-	case c.temporal != nil:
-		// Also with nothing declared: schedules left by an earlier version
-		// are deleted.
-		n := c.svc.Child("schedules", node.System, false)
-		n.OnStart(func(ctx context.Context) error { return c.temporal.ReconcileSchedules(ctx, n) })
-	case len(m.GetSchedules()) > 0:
-		c.log.Warn("schedules declared but Temporal is not configured: they are not created")
-	}
 }
 
 // pause waits d or until ctx ends: load balancers catch up with the
@@ -218,47 +206,24 @@ func pause(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// presence is the Consul component, or nil when Consul is not configured —
-// a warning, not an error, for a service.
-func (c *core) presence(m *backplanev1.Manifest) *consul.Presence {
+// presence builds the explicitly installed discovery driver.
+func (c *core) presence(m *backplanev1.Manifest) Presence { //nolint:ireturn // discovery is an installed driver
 	if err := c.conf.Degraded(); err != nil {
-		c.log.Warn("config without consul layer, retrying", xlog.Err(err))
+		c.log.Warn("remote config unavailable, retrying", xlog.Err(err))
 	}
 
-	client := c.conf.Consul()
-	if client == nil {
-		c.log.Warn("consul not configured: unregistered, config from env/file only")
-
+	if !c.cfg.Consul.Enabled() || c.opts.presence == nil {
+		c.log.Warn("discovery not configured: unregistered, config from env/file only")
 		return nil
 	}
 
-	presence, err := consul.New(consul.Params{
-		Client: client,
-		Log:    c.log,
-		Identity: consul.Identity{
-			Service:      c.id.Service,
-			Version:      m.GetVersion(),
-			Instance:     c.id.Instance,
-			Address:      c.id.Advertise,
-			PlatformPort: port16(c.cfg.InternalPort),
-			PublicPort:   c.primaryPort(),
-			Commit:       build.Get().Commit,
-		},
-		Manifest: m,
-		Register: c.cfg.Consul.Register,
-		Tags:     c.cfg.Consul.Tags,
-		Check: consul.Check{
-			Interval: c.cfg.Consul.CheckInterval, Timeout: c.cfg.Consul.CheckTimeout,
-			DeregisterAfter: c.cfg.Consul.DeregisterAfter,
-		},
-		SessionTTL: c.cfg.Consul.SessionTTL,
-		Config:     c.conf,
-		Transports: c.transports,
-		Nodes:      c.nodes,
+	presence, err := c.opts.presence(PresenceParams{
+		Config: c.cfg, Identity: c.id, Manifest: m, Log: c.log, Configuration: c.conf,
+		PlatformPort: port16(c.cfg.InternalPort),
+		PrimaryPort:  c.primaryPort(), Commit: build.Get().Commit, Transports: c.transports, Nodes: c.nodes,
 	})
 	if err != nil {
-		c.log.Warn("consul presence", xlog.Err(err))
-
+		c.log.Warn("discovery presence", xlog.Err(err))
 		return nil
 	}
 

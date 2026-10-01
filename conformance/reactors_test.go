@@ -20,6 +20,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/event"
 )
 
@@ -126,7 +127,7 @@ func runNATSService(
 
 		return &reactorsState{root: root}, nil
 	},
-		backplane.Name(name), backplane.Instance(name+"-1"), backplane.Version("1.0.0"),
+		standard.Drivers(), backplane.Name(name), backplane.Instance(name+"-1"), backplane.Version("1.0.0"),
 		backplane.Advertise("127.0.0.1"), backplane.KeepSlog(),
 		backplane.Logger(xlog.NewJSON(xlog.WithWriter(logs))),
 		backplane.ConfigOptions(config.WithoutEnv(), config.WithoutConsul(), config.File(file)),

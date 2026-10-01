@@ -31,8 +31,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
@@ -481,22 +479,6 @@ func StartAt(s Start) ReactOption {
 	}
 
 	return startAt(s)
-}
-
-// JetStream is the service's native JetStream client, for what the
-// package does not wrap. It fails with ErrUnavailable when NATS is not
-// configured or not connected yet (before the service starts, after it
-// stops); while the connection is down it is returned all the same and
-// reconnects by itself.
-func JetStream(scope deps.Scope) (jetstream.JetStream, error) {
-	j, ok := transport[interface {
-		JetStream() (jetstream.JetStream, error)
-	}](scope)
-	if !ok {
-		return nil, fmt.Errorf("event: jetstream: %w", ErrUnavailable)
-	}
-
-	return j.JetStream() //nolint:wrapcheck // wraps ErrUnavailable
 }
 
 // Redrive runs the handler of the service's reactor consumer (its name in

@@ -107,7 +107,7 @@ func (c Consul) Enabled() bool { return c.Addr != "" }
 // its dead letters bp_dlq_<service> (applied when its reactors start).
 // Zero max_age, max_bytes or dlq_max_age mean unlimited.
 type NATS struct {
-	URL   string `json:"url,omitempty"`
+	URL   Secret `json:"url,omitempty"`
 	Creds Secret `json:"creds,omitempty"`
 	TLS   TLS    `json:"tls"`
 	// Bound of a Publish whose context has no deadline.
@@ -148,7 +148,7 @@ type Temporal struct {
 type Worker struct {
 	// false: this replica runs no worker (activities and the author's
 	// workflows are served by replicas that do); it still raises hooks
-	// (their own worker runs on every replica), reconciles schedules and
+	// (their own worker runs on every replica) and
 	// uses the client.
 	Enabled bool `json:"enabled" schemapb:"default=true"`
 	// Activities executing at once.

@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	natsdriver "github.com/gopherex/backplane/pkg/backplane/drivers/nats"
 	"github.com/gopherex/backplane/pkg/backplane/event"
 	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
@@ -50,7 +52,7 @@ func connect(t *testing.T, service string) live {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	g := &group{ctx: ctx}
-	b := broker.New(broker.Params{Conn: infranats.Config{URL: "nats://" + addr}, Service: service, Instance: service + "-1", Env: e})
+	b := broker.New(broker.Params{Conn: infranats.Config{URL: config.Secret("nats://" + addr)}, Service: service, Instance: service + "-1", Env: e})
 
 	t.Cleanup(func() {
 		sctx, scancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -103,7 +105,7 @@ func TestLiveReactor(t *testing.T) {
 	emit.start()
 	recv.start()
 
-	native, err := event.JetStream(recv.root)
+	native, err := natsdriver.JetStream(recv.root)
 	if err != nil {
 		t.Fatal(err)
 	}

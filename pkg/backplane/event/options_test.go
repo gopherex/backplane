@@ -10,6 +10,7 @@ import (
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	natsdriver "github.com/gopherex/backplane/pkg/backplane/drivers/nats"
 	"github.com/gopherex/backplane/pkg/backplane/event"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 )
@@ -196,7 +197,7 @@ func TestNativeWithoutNATS(t *testing.T) {
 
 	h := backplanetest.New(t)
 
-	if _, err := event.JetStream(h.Root()); !errors.Is(err, event.ErrUnavailable) {
+	if _, err := natsdriver.JetStream(h.Root()); !errors.Is(err, event.ErrUnavailable) {
 		t.Fatalf("jetstream: %v", err)
 	}
 
@@ -204,7 +205,7 @@ func TestNativeWithoutNATS(t *testing.T) {
 		t.Fatalf("redrive: %v", err)
 	}
 
-	if _, err := event.JetStream(deps.Component{}); !errors.Is(err, event.ErrUnavailable) {
+	if _, err := natsdriver.JetStream(deps.Component{}); !errors.Is(err, event.ErrUnavailable) {
 		t.Fatalf("zero scope: %v", err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/activity"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
+	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
 func TestOptionsRecorded(t *testing.T) {
@@ -22,7 +23,7 @@ func TestOptionsRecorded(t *testing.T) {
 		activity.StartToClose(10*time.Second), activity.HeartbeatTimeout(2*time.Second),
 		activity.Retry(activity.RetryHint{Attempts: 5}), activity.Describe("charges an order"))
 	activity.Handle(h.Root(), "Plain", charge, activity.StartToClose(0))
-	activity.Workflow(h.Root(), "Ship", func(workflow.Context, Order) (Receipt, error) { return Receipt{}, nil },
+	workflows.Activity(h.Root(), "Ship", func(workflow.Context, Order) (Receipt, error) { return Receipt{}, nil },
 		activity.Describe("ships"))
 
 	acts := h.Manifest().GetActivities()
@@ -104,7 +105,7 @@ func TestBadNamePanics(t *testing.T) {
 	for _, declare := range []func(){
 		func() { activity.Handle(backplanetest.New(t).Root(), "charge", charge) },
 		func() {
-			activity.Workflow(backplanetest.New(t).Root(), "ship-it",
+			workflows.Activity(backplanetest.New(t).Root(), "ship-it",
 				func(workflow.Context, Order) (Receipt, error) { return Receipt{}, nil })
 		},
 	} {

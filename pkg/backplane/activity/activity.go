@@ -1,6 +1,7 @@
 // Package activity declares operations a service implements ("умею"): the
 // targets of bindings and rules. Handle declares one run as a Temporal
-// activity, Workflow one run as a child workflow; both are named as
+// activity through the installed driver; workflows.Activity declares a child
+// workflow through the native extension. Both are named as
 // declared on the service's task queue, input and output enveloped in
 // backplane.v1.ActivityCall / ActivityResult.
 //
@@ -18,25 +19,20 @@ import (
 	"fmt"
 	"time"
 
-	"go.temporal.io/sdk/worker"
-	"go.temporal.io/sdk/workflow"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
-	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
 // Option sets what the manifest tells a binding about the activity: its
 // defaults for a step calling it. The binding may override them; the
 // handler does not enforce them.
-type Option interface{ apply(a *backplanev1.Activity) }
+type Option = decl.ActivityOption
 
-type optionFunc func(a *backplanev1.Activity)
-
-func (f optionFunc) apply(a *backplanev1.Activity) { f(a) }
+type optionFunc = decl.ActivityOptionFunc
 
 // StartToClose is how long one attempt may take (for a workflow-backed
 // activity, one run).
@@ -81,7 +77,7 @@ func positive(d time.Duration) *durationpb.Duration {
 func Handle[Req, Res any](
 	scope deps.Scope, name string, fn func(ctx context.Context, in Req) (Res, error), opts ...Option,
 ) {
-	e := declare[Req, Res](scope, name, backplanev1.ActivityKind_ACTIVITY_KIND_ACTIVITY, opts)
+	e := decl.Activity[Req, Res](scope, name, backplanev1.ActivityKind_ACTIVITY_KIND_ACTIVITY, opts)
 	e.Activity(name, func(ctx context.Context, in []byte) ([]byte, error) {
 		var req Req
 		if err := decl.Decode(in, &req); err != nil {
@@ -95,58 +91,6 @@ func Handle[Req, Res any](
 
 		return decl.Encode(res)
 	})
-}
-
-// Workflow declares a workflow-backed activity: a binding step runs fn as
-// a child workflow of type name on the service's queue, so the activity
-// may itself wait, sleep, call hooks (WorkflowCall) and run activities.
-// name is CamelCase; errors map as for Handle (NonRetryable included).
-func Workflow[Req, Res any](
-	scope deps.Scope, name string, fn func(ctx workflow.Context, in Req) (Res, error), opts ...Option,
-) {
-	e := declare[Req, Res](scope, name, backplanev1.ActivityKind_ACTIVITY_KIND_WORKFLOW, opts)
-
-	run := temporal.WorkflowActivity(e.Service, name, func(ctx workflow.Context, in []byte) ([]byte, error) {
-		var req Req
-		if err := decl.Decode(in, &req); err != nil {
-			return nil, env.NonRetryableError{Err: fmt.Errorf("activity %s: decode: %w", name, err)}
-		}
-
-		res, err := fn(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-
-		return decl.Encode(res)
-	})
-
-	e.RegisterWorker(func(registry any) {
-		if r, ok := registry.(worker.Registry); ok {
-			r.RegisterWorkflowWithOptions(run, workflow.RegisterOptions{Name: name})
-		}
-	})
-}
-
-// declare records the activity in the manifest.
-func declare[Req, Res any](
-	scope deps.Scope, name string, kind backplanev1.ActivityKind, opts []Option,
-) *env.Env {
-	e, _ := decl.Env(scope, "activity "+name)
-	temporal.CheckName("activity", name)
-
-	a := &backplanev1.Activity{
-		Name:   name,
-		Kind:   kind,
-		Input:  decl.Schema[Req](e.Service, "activity_"+name+"_in"),
-		Output: decl.Schema[Res](e.Service, "activity_"+name+"_out"),
-	}
-	for _, opt := range opts {
-		opt.apply(a)
-	}
-
-	e.Manifest.Activity(a)
-
-	return e
 }
 
 // NonRetryable marks err as final: the binding does not retry the activity

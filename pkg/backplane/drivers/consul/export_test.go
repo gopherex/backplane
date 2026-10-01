@@ -1,19 +1,21 @@
-package config
+package consul
 
 import (
 	"crypto/tls"
 	"net/http"
 
 	"github.com/hashicorp/consul/api"
+
+	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
 // ConsulAPIConfig is the client configuration the block maps to.
-func ConsulAPIConfig(c Consul) (*api.Config, error) { return c.apiConfig() }
+func ConsulAPIConfig(c config.Consul) (*api.Config, error) { return apiConfig(c) }
 
 // ConsulClientTLS builds the client's HTTP client and returns the TLS
 // settings of its transport.
-func ConsulClientTLS(c Consul) (*tls.Config, error) {
-	cfg, err := c.apiConfig()
+func ConsulClientTLS(c config.Consul) (*tls.Config, error) {
+	cfg, err := apiConfig(c)
 	if err != nil {
 		return nil, err
 	}

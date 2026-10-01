@@ -51,7 +51,7 @@ const (
 // Config is the connection's section.
 type Config struct {
 	// URL is one server or a comma-separated list.
-	URL string `json:"url,omitempty"`
+	URL config.Secret `json:"url,omitempty"`
 	// Creds is the content of a .creds file (user JWT and seed).
 	Creds config.Secret `json:"creds,omitempty"`
 	TLS   config.TLS    `json:"tls"`
@@ -203,7 +203,7 @@ func Connect(cfg Config, o Options) (*natsgo.Conn, error) {
 		}),
 	)
 
-	conn, err := natsgo.Connect(cfg.URL, opts...)
+	conn, err := natsgo.Connect(cfg.URL.Reveal(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("nats: connect: %w", err)
 	}

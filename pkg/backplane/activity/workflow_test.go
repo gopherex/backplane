@@ -22,6 +22,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal/temporaltest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
+	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
 // ship is a workflow-backed activity: it sleeps (durable timer), then
@@ -46,7 +47,7 @@ func TestWorkflowActivity(t *testing.T) {
 	svc := temporaltest.Name("wfact")
 	e := env.New(svc, manifest.New(svc, "0.0.0"))
 	root := link.Scope(node.New(svc, testlog.Discard(), e).Child(svc, node.Root, false)).(deps.Component)
-	activity.Workflow(root, "Ship", ship)
+	workflows.Activity(root, "Ship", ship)
 
 	c := temporal.New(temporal.Params{
 		Conn: inftemporal.Config{Addr: temporaltest.Addr(t)}, Service: svc, Instance: svc + "-1", Log: testlog.Discard(), Env: e,

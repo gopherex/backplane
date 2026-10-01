@@ -8,7 +8,7 @@
 //     (Key, ID, Header); serves HelloService.
 //   - internal/audit: a reactor on hello.Greeted with a pinned Consumer and
 //     delivery options, idempotent through event.DeliveryOf.
-//   - internal/flows: the Greet hook (Call and WorkflowCall), the Echo
+//   - internal/flows: the Greet hook (Call and workflows.CallHook), the Echo
 //     activity (Handle) and the workflow-backed Welcome, workflows Declare,
 //     Register and an hourly Schedule.
 //   - internal/web and internal/legacy: HTTP, GraphQL, middleware and
@@ -43,6 +43,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/route"
 	"github.com/gopherex/backplane/pkg/backplane/wsproto"
 )
@@ -122,7 +123,7 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	svc, err := backplane.Open(ctx, NewState)
+	svc, err := backplane.Open(ctx, NewState, standard.Drivers())
 	if err != nil {
 		return err //nolint:wrapcheck // prefixed by backplane
 	}

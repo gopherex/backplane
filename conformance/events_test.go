@@ -23,6 +23,7 @@ import (
 
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/event"
 )
 
@@ -187,7 +188,7 @@ func runWatcher(t *testing.T, url, watcher string, got chan<- received) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	svc, err := backplane.Open(ctx, newState,
-		backplane.Name(watcher), backplane.Version("1.0.0"), backplane.KeepSlog(),
+		standard.Drivers(), backplane.Name(watcher), backplane.Version("1.0.0"), backplane.KeepSlog(),
 		backplane.Logger(xlog.NewJSON(xlog.WithWriter(io.Discard))),
 		backplane.ConfigOptions(config.WithoutEnv(), config.WithoutConsul(), config.File(file)),
 	)

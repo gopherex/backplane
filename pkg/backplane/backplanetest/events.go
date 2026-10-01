@@ -73,7 +73,7 @@ func FailPublish(h *Harness, err error) {
 
 // Unavailable takes both transports away, as while NATS and Temporal are
 // down: Publish fails with event.ErrUnavailable, Call with
-// hook.ErrUnavailable (in Workflows, a WorkflowCall finds no binding),
+// hook.ErrUnavailable (in Workflows, a workflows.CallHook finds no binding),
 // until Available.
 func Unavailable(h *Harness) { h.rec.setUnavailable(true) }
 

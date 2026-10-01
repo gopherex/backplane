@@ -8,12 +8,13 @@ import (
 
 	"github.com/gopherex/backplane/internal/server"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	consuldriver "github.com/gopherex/backplane/pkg/backplane/drivers/consul"
 )
 
 func load(t *testing.T) (server.Config, error) {
 	t.Helper()
 
-	return config.Load[server.Config](context.Background(), config.Service(server.Name), config.WithoutFile())
+	return config.Load[server.Config](context.Background(), consuldriver.Config(), config.Service(server.Name), config.WithoutFile())
 }
 
 // The environment: BACKPLANE_* for the server's sections and the block.

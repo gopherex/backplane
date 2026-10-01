@@ -14,11 +14,14 @@ import (
 type Option func(*options)
 
 type options struct {
-	id     Identity
-	log    *xlog.Logger
-	config []config.Option
-	slog   bool
-	grpc   []grpc.ServerOption
+	presence  PresenceFactory
+	events    EventTransportFactory
+	workflows WorkflowTransportFactory
+	id        Identity
+	log       *xlog.Logger
+	config    []config.Option
+	slog      bool
+	grpc      []grpc.ServerOption
 
 	requireNATS     bool
 	requireTemporal bool
@@ -69,3 +72,12 @@ func RequireNATS() Option { return func(o *options) { o.requireNATS = true } }
 // instance is not ready while it is down. Without Temporal configured,
 // Open fails.
 func RequireTemporal() Option { return func(o *options) { o.requireTemporal = true } }
+
+// Options composes explicit driver options without global registration.
+func Options(opts ...Option) Option {
+	return func(o *options) {
+		for _, opt := range opts {
+			opt(o)
+		}
+	}
+}

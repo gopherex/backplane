@@ -1,7 +1,7 @@
 // Package flows is hello's side of Temporal: the hook it raises (Greet),
 // the activities it offers to bindings (Echo, and Welcome backed by a
 // workflow), its own workflows (GreetMany, declared for the console;
-// Report, registered and scheduled hourly) and the activities those run.
+// Report, available for an administrative schedule) and the activities those run.
 package flows
 
 import (
@@ -88,21 +88,18 @@ func New(parent deps.Scope, g *greeter.Greeter, db deps.Dependency[*store.DB]) *
 	activity.Handle(f, "Echo", f.Echo,
 		activity.StartToClose(stepTimeout), activity.HeartbeatTimeout(stepTimeout),
 		activity.Retry(activity.RetryHint{Attempts: echoAttempts}), activity.Describe("returns its input"))
-	activity.Workflow(f, "Welcome", f.Welcome,
+	workflows.Activity(f, "Welcome", f.Welcome,
 		activity.StartToClose(time.Minute), activity.Describe("greets through the Greet hook, locally without a binding"))
 
 	// The service's own workflows: one declared (the console starts it with
 	// a form), the rest registered with their activities.
 	workflows.Declare(f, "GreetMany", f.GreetMany, workflows.Describe("greets every name"))
+	workflows.Declare(f, "Report", f.Report, workflows.Describe("reports greetings so far"))
 	workflows.Register(f, func(r worker.Registry) {
-		r.RegisterWorkflow(f.Report)
 		r.RegisterActivityWithOptions(f.compose, tactivity.RegisterOptions{Name: Compose})
 		r.RegisterActivityWithOptions(f.total, tactivity.RegisterOptions{Name: Total})
 		r.RegisterActivityWithOptions(f.record, tactivity.RegisterOptions{Name: Record})
 	})
-	// Paused: created in Temporal, starts nothing until unpaused there.
-	workflows.Schedule(f, "HourlyReport", workflows.Every(time.Hour), f.Report,
-		workflows.Paused(), workflows.Overlap(workflows.OverlapSkip), workflows.Timeout(time.Minute))
 
 	return f
 }
@@ -122,7 +119,7 @@ func (f *Flows) Echo(ctx context.Context, in EchoIn) (EchoOut, error) {
 // Welcome is the workflow-backed activity: it may wait and call hooks.
 // Without a binding for Greet it greets locally.
 func (f *Flows) Welcome(ctx workflow.Context, in GreetIn) (GreetOut, error) {
-	out, err := f.Greet.WorkflowCall(ctx, in, hook.Timeout(greetTimeout))
+	out, err := workflows.CallHook(ctx, f.Greet, in, hook.Timeout(greetTimeout))
 	if err == nil {
 		if err := workflow.ExecuteActivity(steps(ctx), Record, in.Name, out.Text).Get(ctx, nil); err != nil {
 			return GreetOut{}, fmt.Errorf("record greeting: %w", err)
@@ -159,8 +156,8 @@ func (f *Flows) GreetMany(ctx workflow.Context, in ManyIn) (ManyOut, error) {
 	return out, nil
 }
 
-// Report logs the greetings so far; the HourlyReport schedule starts it.
-func (f *Flows) Report(ctx workflow.Context) (uint64, error) {
+// Report logs the greetings so far; an administrator may schedule it.
+func (f *Flows) Report(ctx workflow.Context, _ struct{}) (uint64, error) {
 	var total uint64
 	if err := workflow.ExecuteActivity(steps(ctx), Total).Get(ctx, &total); err != nil {
 		return 0, fmt.Errorf("total: %w", err)

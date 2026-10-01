@@ -22,6 +22,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/event"
 	"github.com/gopherex/backplane/pkg/backplane/hook"
 	"github.com/gopherex/backplane/pkg/backplane/workflows"
+	"github.com/gopherex/backplane/pkg/backplane/workflows/workflowtest"
 )
 
 // recordingTB keeps the cleanups and errors of a harness for the test to
@@ -393,7 +394,7 @@ type greetFlow struct {
 }
 
 func (f greetFlow) Welcome(ctx workflow.Context, in WelcomeIn) (WelcomeOut, error) {
-	who, err := f.lookup.WorkflowCall(ctx, LookupIn(in))
+	who, err := workflows.CallHook(ctx, f.lookup, LookupIn(in))
 	if err != nil {
 		return WelcomeOut{}, err
 	}
@@ -435,8 +436,8 @@ func TestWorkflows(t *testing.T) {
 
 		return WelcomeOut{Text: "[" + in.Name + "]"}, nil
 	})
-	activity.Workflow(h.Root(), "Twice", func(ctx workflow.Context, in LookupIn) (LookupOut, error) {
-		who, err := flow.lookup.WorkflowCall(ctx, in)
+	workflows.Activity(h.Root(), "Twice", func(ctx workflow.Context, in LookupIn) (LookupOut, error) {
+		who, err := workflows.CallHook(ctx, flow.lookup, in)
 		if errors.Is(err, hook.ErrNoBinding) {
 			return LookupOut{Title: "none"}, nil
 		}
@@ -450,7 +451,7 @@ func TestWorkflows(t *testing.T) {
 	h.Start()
 
 	// Unanswered: no binding.
-	w := backplanetest.Workflows(h)
+	w := workflowtest.New(t, h)
 	w.ExecuteWorkflow("Welcome", WelcomeIn{Name: "Ann"})
 
 	if err := w.GetWorkflowError(); err == nil || !strings.Contains(err.Error(), "hook hello.Lookup: no binding") {
@@ -458,7 +459,7 @@ func TestWorkflows(t *testing.T) {
 	}
 
 	// In workflow code the error matches hook.ErrNoBinding.
-	none, err := backplanetest.WorkflowActivity[LookupIn, LookupOut](backplanetest.Workflows(h), "Twice", LookupIn{})
+	none, err := workflowtest.WorkflowActivity[LookupIn, LookupOut](workflowtest.New(t, h), "Twice", LookupIn{})
 	if err != nil || none.Title != "none" {
 		t.Fatalf("no binding: %+v %v", none, err)
 	}
@@ -471,7 +472,7 @@ func TestWorkflows(t *testing.T) {
 		return LookupOut{Title: "dr"}, nil
 	})
 
-	w = backplanetest.Workflows(h)
+	w = workflowtest.New(t, h)
 	w.ExecuteWorkflow("Welcome", WelcomeIn{Name: "Ann"})
 
 	var out WelcomeOut
@@ -479,12 +480,12 @@ func TestWorkflows(t *testing.T) {
 		t.Fatalf("welcome: %+v %v", out, err)
 	}
 
-	twice, err := backplanetest.WorkflowActivity[LookupIn, LookupOut](backplanetest.Workflows(h), "Twice", LookupIn{Name: "x"})
+	twice, err := workflowtest.WorkflowActivity[LookupIn, LookupOut](workflowtest.New(t, h), "Twice", LookupIn{Name: "x"})
 	if err != nil || twice.Title != "drdr" {
 		t.Fatalf("workflow activity: %+v %v", twice, err)
 	}
 
-	_, err = backplanetest.WorkflowActivity[LookupIn, LookupOut](backplanetest.Workflows(h), "Twice", LookupIn{Name: "bad"})
+	_, err = workflowtest.WorkflowActivity[LookupIn, LookupOut](workflowtest.New(t, h), "Twice", LookupIn{Name: "bad"})
 	if err == nil || !strings.Contains(err.Error(), "unknown person") {
 		t.Fatalf("failing answer: %v", err)
 	}

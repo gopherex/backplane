@@ -12,6 +12,7 @@ import (
 	"github.com/gopherex/backplane/examples/hello/internal/flows"
 	"github.com/gopherex/backplane/examples/hello/internal/hellotest"
 	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
+	"github.com/gopherex/backplane/pkg/backplane/workflows/workflowtest"
 )
 
 func setup(t *testing.T) (*hellotest.Tree, *flows.Flows) {
@@ -46,7 +47,7 @@ func TestWelcome(t *testing.T) {
 
 	tree, f := setup(t)
 
-	out, err := backplanetest.WorkflowActivity[flows.GreetIn, flows.GreetOut](backplanetest.Workflows(tree.H), "Welcome",
+	out, err := workflowtest.WorkflowActivity[flows.GreetIn, flows.GreetOut](workflowtest.New(t, tree.H), "Welcome",
 		flows.GreetIn{Name: "ann"})
 	if err != nil || out.Text != "Hello, ann!" {
 		t.Fatalf("without a binding: %+v %v", out, err)
@@ -56,7 +57,7 @@ func TestWelcome(t *testing.T) {
 		return flows.GreetOut{Text: "Bound hello, " + in.Name}, nil
 	})
 
-	out, err = backplanetest.WorkflowActivity[flows.GreetIn, flows.GreetOut](backplanetest.Workflows(tree.H), "Welcome",
+	out, err = workflowtest.WorkflowActivity[flows.GreetIn, flows.GreetOut](workflowtest.New(t, tree.H), "Welcome",
 		flows.GreetIn{Name: "ann"})
 	if err != nil || out.Text != "Bound hello, ann" {
 		t.Fatalf("bound: %+v %v", out, err)
@@ -73,7 +74,7 @@ func TestGreetManyAndReport(t *testing.T) {
 
 	tree, f := setup(t)
 
-	w := backplanetest.Workflows(tree.H)
+	w := workflowtest.New(t, tree.H)
 	w.ExecuteWorkflow("GreetMany", flows.ManyIn{Names: []string{"ann", "bob"}})
 
 	var many flows.ManyOut
@@ -81,8 +82,8 @@ func TestGreetManyAndReport(t *testing.T) {
 		t.Fatalf("greet many: %+v %v", many, err)
 	}
 
-	w = backplanetest.Workflows(tree.H)
-	w.ExecuteWorkflow(f.Report)
+	w = workflowtest.New(t, tree.H)
+	w.ExecuteWorkflow(f.Report, struct{}{})
 
 	var total uint64
 	if err := w.GetWorkflowResult(&total); err != nil || total != 2 {
@@ -112,13 +113,11 @@ func TestManifest(t *testing.T) {
 		t.Errorf("activities: %v", kinds)
 	}
 
-	if w := m.GetWorkflows(); len(w) != 1 || w[0].GetName() != "GreetMany" {
+	if w := m.GetWorkflows(); len(w) != 2 || w[0].GetName() != "GreetMany" || w[1].GetName() != "Report" {
 		t.Errorf("workflows: %v", w)
 	}
 
-	s := m.GetSchedules()
-	if len(s) != 1 || s[0].GetName() != "HourlyReport" || s[0].GetWorkflow() != "Report" || !s[0].GetPaused() ||
-		s[0].GetEvery().AsDuration() != time.Hour {
-		t.Errorf("schedules: %v", s)
+	if s := m.GetSchedules(); len(s) != 0 {
+		t.Errorf("SDK declared administrative schedules: %v", s)
 	}
 }

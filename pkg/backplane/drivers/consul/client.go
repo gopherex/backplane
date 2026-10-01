@@ -1,9 +1,11 @@
-package config
+package consul
 
 import (
 	"fmt"
 
 	"github.com/hashicorp/consul/api"
+
+	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
 // apiConfig maps the block onto the Consul client configuration. It starts
@@ -12,7 +14,7 @@ import (
 // CONSUL_CLIENT_CERT/KEY, CONSUL_TLS_SERVER_NAME and CONSUL_HTTP_SSL_VERIFY
 // fill what the block leaves empty; every field the block sets wins. With
 // the block's TLS enabled its TLS replaces the environment's entirely.
-func (c Consul) apiConfig() (*api.Config, error) {
+func apiConfig(c config.Consul) (*api.Config, error) {
 	cfg := api.DefaultConfig()
 	cfg.Address = c.Addr
 
@@ -42,8 +44,8 @@ func (c Consul) apiConfig() (*api.Config, error) {
 // the block's TLS on the transport api.NewHttpClient keeps it, and
 // api.NewClient does not refill TLS from the environment behind the
 // block's back.
-func (c Consul) client() (*api.Client, error) {
-	cfg, err := c.apiConfig()
+func newClient(c config.Consul) (*api.Client, error) {
+	cfg, err := apiConfig(c)
 	if err != nil {
 		return nil, err
 	}

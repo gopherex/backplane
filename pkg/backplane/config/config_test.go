@@ -15,6 +15,7 @@ import (
 	"github.com/gopherex/xconf"
 
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	consuldriver "github.com/gopherex/backplane/pkg/backplane/drivers/consul"
 	"github.com/gopherex/backplane/pkg/backplane/internal/link"
 )
 
@@ -48,7 +49,7 @@ func TestLoadLayers(t *testing.T) {
 	t.Setenv("HELLO_SUFFIX", "?")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "consul:8500")
 
-	cfg, err := config.Load[Config](context.Background(), config.Service("hello"), config.File(path))
+	cfg, err := config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.File(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestLoadLayers(t *testing.T) {
 func TestTemporalWorkerFromEnv(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 
-	cfg, err := config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	cfg, err := config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestTemporalWorkerFromEnv(t *testing.T) {
 	t.Setenv("BACKPLANE_TEMPORAL_WORKER_ACTIVITY_POLLERS", "3")
 	t.Setenv("BACKPLANE_TEMPORAL_WORKER_WORKFLOW_POLLERS", "2")
 
-	cfg, err = config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	cfg, err = config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,7 @@ func TestTemporalWorkerFromEnv(t *testing.T) {
 
 	t.Setenv("BACKPLANE_TEMPORAL_WORKER_ACTIVITY_POLLERS", "-1")
 
-	if _, err := config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile()); err == nil {
+	if _, err := config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile()); err == nil {
 		t.Fatal("negative pollers accepted")
 	}
 }
@@ -104,7 +105,7 @@ func TestTemporalWorkerFromEnv(t *testing.T) {
 func TestLivePathsFromSchema(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 
-	rt, err := config.Open[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	rt, err := config.Open[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestOpenWithoutReachableConsul(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "127.0.0.1:1")
 
-	rt, err := config.Open[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	rt, err := config.Open[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatalf("must open without consul: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestLiveReloadFromConsul(t *testing.T) {
 	// The runtime outlives the context that bounded loading.
 	openCtx, cancelOpen := context.WithCancel(context.Background())
 
-	rt, err := config.Open[Config](openCtx, config.Service("live-test"), config.WithoutFile())
+	rt, err := config.Open[Config](openCtx, consuldriver.Config(), config.Service("live-test"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ type (
 func TestOpenRejectsLiveInCollections(t *testing.T) {
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
 
-	opts := []config.Option{config.Service("collections"), config.WithoutFile()}
+	opts := []config.Option{consuldriver.Config(), config.Service("collections"), config.WithoutFile()}
 
 	check := func(name string, err error) {
 		t.Helper()
@@ -244,12 +245,12 @@ func TestRuntimeCloseIsIdempotent(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "")
 
-	rt, err := config.Open[Config](t.Context(), config.Service("hello"), config.WithoutFile())
+	rt, err := config.Open[Config](t.Context(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if rt.Degraded() != nil || link.ConfigState(rt).Consul() != nil {
+	if rt.Degraded() != nil {
 		t.Fatalf("without consul: degraded %v", rt.Degraded())
 	}
 
@@ -279,7 +280,7 @@ func TestOpenWaitsForRequiredLiveWhileConsulDown(t *testing.T) {
 	start := time.Now()
 
 	_, err := config.Open[GatedConfig](ctx,
-		config.Service("gated"), config.WithoutFile(), config.ConsulBackoff(10*time.Millisecond, 50*time.Millisecond))
+		consuldriver.Config(), config.Service("gated"), config.WithoutFile(), config.ConsulBackoff(10*time.Millisecond, 50*time.Millisecond))
 
 	var degraded *xconf.DegradedError
 	if !errors.As(err, &degraded) {
@@ -303,7 +304,7 @@ func TestOpenFailsFastOnMissingStaticWhileConsulDown(t *testing.T) {
 
 	start := time.Now()
 
-	if _, err := config.Open[GatedConfig](ctx, config.Service("gated"), config.WithoutFile()); err == nil {
+	if _, err := config.Open[GatedConfig](ctx, consuldriver.Config(), config.Service("gated"), config.WithoutFile()); err == nil {
 		t.Fatal("missing postgres.dsn must fail")
 	}
 
@@ -333,7 +334,7 @@ func TestOpenRequiredLiveFromConsul(t *testing.T) {
 	t.Setenv("GATED_TEST_POSTGRES_DSN", "x")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
 
-	rt, err := config.Open[GatedConfig](context.Background(), config.Service("gated-test"), config.WithoutFile())
+	rt, err := config.Open[GatedConfig](context.Background(), consuldriver.Config(), config.Service("gated-test"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +348,7 @@ func TestOpenRequiredLiveFromConsul(t *testing.T) {
 func TestNATSStreamSettings(t *testing.T) {
 	t.Setenv("HELLO_POSTGRES_DSN", "x")
 
-	cfg, err := config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	cfg, err := config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +365,7 @@ func TestNATSStreamSettings(t *testing.T) {
 	t.Setenv("BACKPLANE_NATS_DEDUP_WINDOW", "5m")
 	t.Setenv("BACKPLANE_NATS_DLQ_MAX_AGE", "0s")
 
-	cfg, err = config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile())
+	cfg, err = config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +378,7 @@ func TestNATSStreamSettings(t *testing.T) {
 
 	t.Setenv("BACKPLANE_NATS_REPLICAS", "7")
 
-	if _, err := config.Load[Config](context.Background(), config.Service("hello"), config.WithoutFile()); err == nil {
+	if _, err := config.Load[Config](context.Background(), consuldriver.Config(), config.Service("hello"), config.WithoutFile()); err == nil {
 		t.Fatal("7 replicas accepted")
 	}
 }
@@ -396,7 +397,7 @@ func TestServiceNamedBackplane(t *testing.T) {
 	t.Setenv("BACKPLANE_PG_DSN", "postgres://x")
 	t.Setenv("BACKPLANE_CONSUL_ADDR", "consul:8500")
 
-	cfg, err := config.Load[Own](context.Background(), config.Service("backplane"), config.WithoutFile())
+	cfg, err := config.Load[Own](context.Background(), consuldriver.Config(), config.Service("backplane"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +429,7 @@ func TestUnsetLiveTakesKV(t *testing.T) {
 	t.Cleanup(func() { _, _ = client.KV().DeleteTree("config/unset-live/", nil) })
 	t.Setenv("BACKPLANE_CONSUL_ADDR", addr)
 
-	rt, err := config.Open[unsetLiveConfig](t.Context(), config.Service("unset-live"), config.WithoutFile())
+	rt, err := config.Open[unsetLiveConfig](t.Context(), consuldriver.Config(), config.Service("unset-live"), config.WithoutFile())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/gopherex/backplane/pkg/backplane/config"
 	infranats "github.com/gopherex/backplane/pkg/backplane/infra/nats"
 	"github.com/gopherex/backplane/pkg/backplane/internal/backoff"
 	"github.com/gopherex/backplane/pkg/backplane/internal/broker"
@@ -341,7 +342,7 @@ func TestStreamSettings(t *testing.T) {
 		Event: svc + ".Greeted", Consumer: "self", Handler: func(context.Context, []byte) ([]byte, error) { return nil, nil },
 	})
 
-	b := openWith(t, broker.Params{Conn: infranats.Config{URL: url}, Service: svc, Env: e, Streams: lim})
+	b := openWith(t, broker.Params{Conn: infranats.Config{URL: config.Secret(url)}, Service: svc, Env: e, Streams: lim})
 	startReactors(t, jet, b, svc, broker.Durable(svc, "self"))
 
 	events, err := jet.Stream(t.Context(), broker.StreamName(svc))

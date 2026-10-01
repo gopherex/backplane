@@ -1,10 +1,11 @@
-package backplanetest
+package workflowtest
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"testing"
 
 	"github.com/nexus-rpc/sdk-go/nexus"
 	tactivity "go.temporal.io/sdk/activity"
@@ -13,27 +14,30 @@ import (
 	"go.temporal.io/sdk/testsuite"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/backplanetest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	internal "github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
-// Workflows is a new Temporal test environment (go.temporal.io/sdk/
+// New creates a Temporal test environment (go.temporal.io/sdk/
 // testsuite) set up as the service's worker is: every activity declared
 // with activity.Handle (by name, over the envelope), every workflow of
-// workflows.Declare and activity.Workflow, and what workflows.Register
+// workflows.Declare and workflows.Activity, and what workflows.Register
 // registers. The service's hooks are a Nexus service of the environment
-// answered by Answer, so hook.WorkflowCall works in workflow code; an
+// answered by Answer, so workflows.CallHook works in workflow code; an
 // unanswered hook fails with hook.ErrNoBinding, a failing answer with its
 // message. Declare everything first; Start the harness first when the
 // handlers use dependencies. An environment runs one workflow: call
-// Workflows again for the next.
+// New again for the next.
 //
-//	w := backplanetest.Workflows(h)
+//	w := workflowtest.New(t, h)
 //	w.ExecuteWorkflow("Welcome", in)
 //	err := w.GetWorkflowResult(&out)
-func Workflows(h *Harness) *testsuite.TestWorkflowEnvironment {
-	h.t.Helper()
+func New(tb testing.TB, h *backplanetest.Harness) *testsuite.TestWorkflowEnvironment {
+	tb.Helper()
+
+	e, _ := decl.Env(h.Root(), "workflow test")
 
 	var suite testsuite.WorkflowTestSuite
 
@@ -41,22 +45,22 @@ func Workflows(h *Harness) *testsuite.TestWorkflowEnvironment {
 
 	w := suite.NewTestWorkflowEnvironment()
 
-	for name, handler := range h.env.Activities() {
-		w.RegisterActivityWithOptions(internal.ActivityFunc(h.env.Service, name, handler),
+	for name, handler := range e.Activities() {
+		w.RegisterActivityWithOptions(internal.ActivityFunc(e.Service, name, handler),
 			tactivity.RegisterOptions{Name: name})
 	}
 
-	for _, register := range h.env.WorkerRegistrations() {
+	for _, register := range e.WorkerRegistrations() {
 		register(w)
 	}
 
-	m, err := h.env.Manifest.Build()
+	m, err := e.Manifest.Build()
 	if err != nil {
-		h.t.Fatalf("backplanetest: manifest: %v", err)
+		tb.Fatalf("backplanetest: manifest: %v", err)
 	}
 
 	if len(m.GetHooks()) > 0 {
-		w.RegisterNexusService(hooks(h, m.GetHooks()))
+		w.RegisterNexusService(hooks(tb, e, m.GetHooks()))
 	}
 
 	return w
@@ -65,15 +69,17 @@ func Workflows(h *Harness) *testsuite.TestWorkflowEnvironment {
 // hooks is the Nexus service <service>.Hooks of the environment: one sync
 // operation per declared hook, answered by the recorder. Failures are what
 // backplane fails a hook call with.
-func hooks(h *Harness, declared []*backplanev1.Hook) *nexus.Service {
-	s := nexus.NewService(h.env.Service + internal.HooksSuffix)
+func hooks(tb testing.TB, e *env.Env, declared []*backplanev1.Hook) *nexus.Service {
+	tb.Helper()
+
+	s := nexus.NewService(e.Service + internal.HooksSuffix)
 
 	for _, d := range declared {
-		full := h.env.Service + "." + d.GetName()
+		full := e.Service + "." + d.GetName()
 		operation := nexus.NewSyncOperation(d.GetName(), func(
 			ctx context.Context, call *backplanev1.HookCall, _ nexus.StartOperationOptions,
 		) (*backplanev1.HookResult, error) {
-			out, err := h.rec.Call(ctx, full, call.GetPayload())
+			out, err := e.Caller().Call(ctx, full, call.GetPayload())
 
 			switch {
 			case errors.Is(err, env.ErrUnavailable):
@@ -86,16 +92,16 @@ func hooks(h *Harness, declared []*backplanev1.Hook) *nexus.Service {
 		})
 
 		if err := s.Register(operation); err != nil {
-			h.t.Fatalf("backplanetest: hook %s: %v", full, err)
+			tb.Fatalf("backplanetest: hook %s: %v", full, err)
 		}
 	}
 
 	return s
 }
 
-// WorkflowActivity runs the workflow-backed activity name (activity.Workflow)
+// WorkflowActivity runs the workflow-backed activity name (workflows.Activity)
 // in w as a binding step would start it, and returns its result. w is
-// from Workflows; it runs this one workflow.
+// from New; it runs this one workflow.
 func WorkflowActivity[Req, Res any](w *testsuite.TestWorkflowEnvironment, name string, in Req) (Res, error) {
 	var out Res
 

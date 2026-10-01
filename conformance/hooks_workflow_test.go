@@ -28,15 +28,15 @@ func TestHookFromWorkflow(t *testing.T) {
 	name := uniqueName("wfhook")
 	playBackplane(t, addr, name)
 
-	st, _, _ := runWorkflows(t, addr, name, func(root deps.Scope) {
+	st, _ := runWorkflows(t, addr, name, func(root deps.Scope) {
 		greet := hook.Declare[greetIn, greetOut](root, "Greet", hook.Required())
 		activity.Handle(root, "Echo", func(_ context.Context, in echoIn) (echoOut, error) { return echoOut(in), nil })
 
 		workflows.Declare(root, "CallGreet", func(ctx workflow.Context, in greetIn) (greetOut, error) {
-			return greet.WorkflowCall(ctx, in)
+			return workflows.CallHook(ctx, greet, in)
 		})
 
-		activity.Workflow(root, "Shout", func(_ workflow.Context, in echoIn) (echoOut, error) {
+		workflows.Activity(root, "Shout", func(_ workflow.Context, in echoIn) (echoOut, error) {
 			return echoOut{Text: strings.ToUpper(in.Text)}, nil
 		})
 	})

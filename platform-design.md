@@ -25,6 +25,52 @@ standalone-шаблон. Полного shell с карточками, полн�
 названо по пакету. Всё непомеченное про SDK описывает код как он есть;
 статус по этапам — §16.2.
 
+## Границы Go SDK и подключение драйверов
+
+`pkg/backplane`, `config`, `deps`, `hook`, `activity`, `event`, `route`,
+`wsproto` и `backplanetest` не импортируют Temporal SDK, Nexus, NATS,
+Consul, PostgreSQL или Valkey. CI проверяет эту границу через `go list -deps`
+в `TestSDKDependencyBoundary`. Общими остаются protobuf/gRPC, отражение
+схем, конфигурация, lifecycle и OpenTelemetry.
+
+Драйвер выбирают явно в точке сборки приложения:
+
+```go
+import "github.com/gopherex/backplane/pkg/backplane/drivers/standard"
+
+svc, err := backplane.Open(ctx, NewState, standard.Drivers())
+```
+
+`standard.Drivers()` включает адаптеры `drivers/consul`, `drivers/nats`
+и `drivers/temporal`; каждый подключается только при заданной конфигурации.
+Можно передать только нужные `consul.Driver()`, `nats.Driver()` или
+`temporal.Driver()`. Без опций базовый SDK работает с локальной конфигурацией,
+HTTP/gRPC, lifecycle и телеметрией. Настроенный NATS/Temporal/Consul без
+установленного драйвера — ошибка конфигурации, а не молчаливое отключение.
+Для standalone `config.Open` Consul подключается опцией `consul.Config()`.
+Фабрики создают отдельный транспорт для каждого сервиса; глобального
+реестра и регистрации через `init` нет. Конфигурационный источник и
+discovery Consul используют отдельные HTTP-клиенты с одинаковыми настройками.
+
+`workflows` — явное расширение для нативного Temporal: `Declare`, `Register`,
+`Client`, `Activity` и `CallHook(ctx, ref, input, opts...)`. Обычные
+`hook.Ref.Call` и `activity.Handle` используют нейтральные контракты.
+`drivers/nats.JetStream(scope)` даёт нативный JetStream; общий `event`
+оставляет публикацию, реакторы и redrive. Для тестов нативных workflow
+используется `workflows/workflowtest.New(t, harness)`, для обычных
+компонентов достаточно `backplanetest`.
+
+Это разделение импортов и компиляции внутри существующего Go-модуля.
+`go.mod` пока общий с сервером и нативными адаптерами; отдельные модули,
+теги и независимый выпуск не вводятся этим изменением. Профили деплоя
+сервера без Temporal/других подсистем относятся к следующему этапу:
+отсутствие драйвера в SDK само по себе не делает сервер независимым от него.
+
+NATS URL имеет тип `config.Secret`, поскольку может содержать логин,
+пароль или токен. Для программного присваивания нужен `config.Secret(url)`;
+транспорт получает значение через `Reveal`, effective config и логирование
+маскируют его целиком. Это относится и к `config.NATS`, и к `infra/nats.Config`.
+
 ## 0. Что такое backplane
 
 Стек без backplane полноценен: Consul, Envoy, NATS, Temporal, PostgreSQL.
@@ -131,7 +177,7 @@ Consul — не Kubernetes-специфичен, ставится везде; э
 | 4 | хуки, которые он вызывает | backplane (биндинги) | имена | schemapb входа/выхода |
 | 5 | активити, которые он может обработать | биндинги и правила | имена | schemapb входа/выхода |
 | 6 | UI-бандл | консоль | `plugin.json` | — |
-| 7 | свои workflows и расписания (§9) | консоль | имена | schemapb входа/выхода |
+| 7 | свои workflows (§9); расписания — административные | консоль | имена | schemapb входа/выхода |
 
 Плюс то, что SDK добавляет сам: дерево узлов автора (`nodes`) и общий
 `FileDescriptorSet` сервисов (`descriptors`).
@@ -184,7 +230,7 @@ Consul — не Kubernetes-специфичен, ставится везде; э
 (имя, если `build.Service` не проштампован), `File` (вместо
 `BACKPLANE_CONFIG_FILE`; YAML или JSON по расширению), `WithoutFile`,
 `EnvPrefix` (вместо `<SERVICE>_`), `WithoutEnv`, `Source` (свои слои выше
-env, ниже KV), `WithoutConsul`, `ConsulOptions` (в Consul-источник xconf),
+env, ниже KV), `WithoutConsul`, `consul.Config(opts...)` из `drivers/consul` (в Consul-источник xconf),
 `ConsulBackoff(min, max)` (пауза между попытками до недоступного Consul,
 по умолчанию 1s..30s). `ctx` ограничивает только загрузку; runtime живёт
 до `Close`.
@@ -321,7 +367,7 @@ JSON-payload (§8). `event.Declare[T](scope, "Greeted", event.Describe(s))`
 он — `subscriptions` (`event` и `consumer`). Метаданные доставки —
 `event.DeliveryOf(ctx)`, ошибка без повторов — `event.Terminal(err)`,
 повторная обработка dead letters — `event.Redrive`, нативный клиент —
-`event.JetStream(scope)`.
+`natsdriver.JetStream(scope)`.
 
 ### 3.4 Хуки («нужно»)
 
@@ -344,7 +390,7 @@ out, err := send.Call(ctx, in, hook.Key(in.RequestID), hook.Timeout(5*time.Secon
   `description` и схемы. `ref.Name()` — полное имя `<service>.<Name>`.
 - `ref.Call(ctx, req, opts...)` работает из любого Go-кода — HTTP-handler'а,
   реактора, активити, `OnStart` и `OnStop` компонента (§7.2); из
-  workflow-кода — `ref.WorkflowCall(wctx, req, opts...)` с
+  workflow-кода — `workflows.CallHook(wctx, ref, req, opts...)` с
   `workflow.Context`. Пока транспорта нет (Temporal не задан, не
   подключён или backplane ещё не завёл Nexus endpoint сервиса), `Call`
   сразу возвращает `hook.ErrUnavailable`; нет биндинга —
@@ -352,17 +398,17 @@ out, err := send.Call(ctx, in, hook.Key(in.RequestID), hook.Timeout(5*time.Secon
 - Дедлайн вызова — самый ранний из дедлайна `ctx` и собственного:
   `hook.Timeout(d)` вызова, иначе `DefaultTimeout` объявления, иначе — если
   у `ctx` дедлайна нет — платформенный `backplane.temporal.hook_timeout`
-  (30 s, §4.3). У `WorkflowCall` дедлайн есть всегда: тот же выбор, урезанный
+  (30 s, §4.3). У `CallHook` дедлайн есть всегда: тот же выбор, урезанный
   до остатка таймаута run'а; бесконечного вызова хука не бывает.
 - `hook.Key(k)` — идемпотентный вызов: вызовы с одним ключом исполняют
   биндинг один раз. Вызов, пока первый идёт, ждёт его; вызов после
   успешного — получает его результат, не исполняя заново (вход повторного
   вызова не смотрится); вызов после неуспешного — исполняется снова. Ключ
   живёт, пока Temporal хранит завершённый запуск (retention namespace'а).
-  `WorkflowCall` ключ игнорирует — workflow и так durable.
+  `CallHook` ключ игнорирует — workflow и так durable.
 - Метрика `backplane.hook.call.duration` (атрибуты `hook`, `outcome`:
   `ok`, `no_binding`, `unavailable`, `timeout`, `error`) — на каждый `Call`
-  (`WorkflowCall` виден в истории workflow и её не пишет).
+  (`CallHook` виден в истории workflow и её не пишет).
 
 ### 3.5 Активити («умею»)
 
@@ -376,17 +422,17 @@ out, err := send.Call(ctx, in, hook.Key(in.RequestID), hook.Timeout(5*time.Secon
 activity.Handle(root, "Send", smtp.Send, activity.StartToClose(10*time.Second),
     activity.HeartbeatTimeout(5*time.Second), activity.Retry(activity.RetryHint{Attempts: 5}),
     activity.Describe("отправка письма"))
-activity.Workflow(root, "Onboard", onboarding.Run) // func(workflow.Context, Req) (Res, error)
+workflows.Activity(root, "Onboard", onboarding.Run) // func(workflow.Context, Req) (Res, error)
 ```
 
 - `activity.Handle(scope, name, func(ctx, in Req) (Res, error), opts...)` —
   Temporal activity (`kind: ACTIVITY` в манифесте). Ошибка обработчика
   повторяется по политике шага; `activity.NonRetryable(err)` — без
   повторов; вход, который не декодируется, — тоже без повторов (§7.2).
-- `activity.Workflow(scope, name, func(wctx, in Req) (Res, error), opts...)`
+- `workflows.Activity(scope, name, func(wctx, in Req) (Res, error), opts...)`
   — активити на workflow (`kind: WORKFLOW`): шаг биндинга исполняет её как
   child workflow с этим именем на очереди сервиса; внутри можно ждать,
-  спать, вызывать хуки (`WorkflowCall`) и свои активити. Ошибки — как у
+  спать, вызывать хуки (`CallHook`) и свои активити. Ошибки — как у
   `Handle` (§7.2).
 - Опции — умолчания для шага биндинга, который её вызывает (биндинг может
   переопределить; SDK их не навязывает): `StartToClose(d)` — одна попытка
@@ -485,7 +531,7 @@ readiness сами; в liveness зависимостям не место — м�
   Содержимое: `service`, `version`, `sdk_version`; `config` (схема, ключи
   верхнего уровня, пути Live-полей); `routes`; `internal_services`;
   `events`, `hooks`, `activities`; `subscriptions` (реакторы: событие и
-  consumer); `workflows` и `schedules` (§9); `ui`; `nodes` — дерево автора
+  consumer); `workflows` (§9); legacy `schedules` читается только у старых версий; `ui`; `nodes` — дерево автора
   в порядке старта (путь, вид, `optional`); `descriptors` — один
   `FileDescriptorSet` на все сервисы managed-роутов и внутреннего API.
   Манифест больше 512 KB — ошибка `Run`. **[backplane]** Консоль и
@@ -752,19 +798,18 @@ cache := deps.NewDependency(root, valkey.New(cfg.Cache), deps.Name("cache"))
 него: компонент — раньше зависимости, которую ему передали, ребёнок —
 раньше родителя. Узлы сервиса:
 
-`config → telemetry → health → platform → consul → nats → temporal → hooks → <дерево автора> → internal-api → reactors → worker → schedules → public:<addr> → drain → register → serving`
+`config → telemetry → health → platform → consul → nats → temporal → hooks → <дерево автора> → internal-api → reactors → worker → public:<addr> → drain → register → serving`
 
 Не все узлы есть всегда: `nats` — когда задан `nats.url`; `temporal` и
 `hooks` — когда задан `temporal.addr` (`hooks` — worker вызовов хуков вне
 workflow; ничего не запускает, если хуков нет); `reactors` — когда
 объявлены реакторы и есть NATS; `worker` — когда объявлены активити или
-workflows, есть Temporal и `temporal.worker.enabled`; `schedules` — когда
-есть Temporal (сверка идёт и без объявлений, §9); `register` — когда
+workflows, есть Temporal и `temporal.worker.enabled`; `register` — когда
 задан Consul; `public:<addr>` — по одному на публичный адрес. Без
 транспорта объявленное остаётся в манифесте, `Run` пишет предупреждение.
 Соединения стоят до дерева автора, поэтому компонент может публиковать
 события и вызывать хуки уже из `OnStart` и ещё из `OnStop`; `reactors`,
-`worker` (активити и workflows автора) и `schedules` идут после дерева и
+`worker` (активити и workflows автора) идут после дерева и
 останавливаются раньше него.
 
 `consul` публикует манифест и состояние инстанса (фаза `starting`) до
@@ -782,7 +827,7 @@ workflows, есть Temporal и `temporal.worker.enabled`; `schedules` — ко�
 снимает readiness (`NOT_SERVING`) → `register` снимает регистрацию в
 каталоге и пишет фазу `stopping` → `drain` ждёт `Shutdown.Drain`, пока
 балансировщики заметят уход → публичные listener'ы перестают принимать и
-дорабатывают запросы в полёте → `schedules`, `worker`, `reactors` →
+дорабатывают запросы в полёте → `worker`, `reactors` →
 `internal-api` закрывает приём и ждёт внутренних вызовов в полёте →
 дерево автора (компоненты раньше своих зависимостей) → `hooks`,
 `temporal`, `nats` → `consul` удаляет состояние инстанса (сессию) →
@@ -837,8 +882,7 @@ Consul задан и доступен — иначе предупреждени�
 манифест и состояние в Consul (фаза `starting`, если Consul есть; в
 фоне) → соединения NATS и Temporal (одна короткая попытка, дальше в фоне)
 и worker хуков → дерево узлов автора (обязательные зависимости ждут
-готовности) → внутреннее API открывается → реакторы, worker, сверка
-расписаний (в фоне, как только есть соединение) → порты внешнего API →
+готовности) → внутреннее API открывается → реакторы и worker (в фоне, как только есть соединение) → порты внешнего API →
 регистрация в каталоге Consul, фаза `serving` → health `SERVING`. Без Consul, NATS и Temporal сервис работает в
 объёме внешнего API и конфигурации из env/файла.
 
@@ -853,7 +897,7 @@ Consul задан и доступен — иначе предупреждени�
 | NATS · `Publish` | клиент переподключается бесконечно (2 s + jitter до 1 s); `Publish` сразу — `event.ErrUnavailable`; стрим `bp_<service>` создаётся в фоне после подключения (backoff 0.5s..15s) | сразу `ErrUnavailable` — без буферизации | снова публикует |
 | NATS · реакторы | стримы и consumers создаются в фоне после подключения (backoff 0.5s..15s) | потребление стоит; неподтверждённое будет доставлено заново; consumer, удалённый на сервере, пересоздаётся с позиции реактора (старейшее неподтверждённое, иначе после последнего увиденного) | потребление продолжается с позиции durable consumer'а |
 | Temporal · `Call` (хуки) | одна попытка подключения (`dial_timeout`), дальше в фоне (backoff 1s..30s); `Call` сразу — `hook.ErrUnavailable` | подключённый клиент проверяет соединение каждые 5 s; вызов падает ошибкой транспорта в пределах своего дедлайна | вызовы проходят |
-| Temporal · worker'ы, расписания | worker'ы стартуют и расписания сверяются, как только соединение поднимется | worker'ы SDK Temporal переподключаются сами; активити в полёте добегают или истекают по таймаутам Temporal | опрос очередей продолжается |
+| Temporal · worker'ы | worker'ы стартуют, как только соединение поднимется | worker'ы SDK Temporal переподключаются сами; активити в полёте добегают или истекают по таймаутам Temporal | опрос очередей продолжается |
 | OTLP · экспорт | сигнал без endpoint не экспортируется; с endpoint экспортёр ретраит и отбрасывает | батчи отбрасываются после ретраев экспортёра | экспорт продолжается |
 | readiness | Consul и OTLP не входят никогда; NATS и Temporal — только с `RequireNATS()` / `RequireTemporal()`: не ready, пока соединения нет | то же | ready снова, как только соединение есть |
 
@@ -870,14 +914,14 @@ h := backplanetest.New(t, backplanetest.Name("hello"))           // дерево
 cfg := backplanetest.Config[greeter.Config](t, map[string]string{"SUFFIX": "?"})
 g, _ := greeter.New(h.Root(), &cfg, deps.Static(db))              // узлы — под h.Root()
 f := flows.New(h.Root(), g, deps.Static(db))
-backplanetest.Answer(h, f.Greet, fn)                             // ответ на хук: Call и WorkflowCall
+backplanetest.Answer(h, f.Greet, fn)                             // ответ на хук: Call и CallHook
 h.Start()                                                        // provide, горутины; стоп — в t.Cleanup
 backplanetest.Ready(h)                                           // readiness дерева, как у пробы
 backplanetest.Events(h, g.Greeted())                             // что опубликовано в event.Ref
 backplanetest.Activity[flows.EchoIn, flows.EchoOut](ctx, h, "Echo", in) // вызов активити
 backplanetest.ReactConsumer(ctx, h, audit.Consumer, v)           // доставка реактору
 backplanetest.SetLive(&cfg.Suffix, "!")                          // Live как из консоли; Watch срабатывает
-w := backplanetest.Workflows(h)                                  // testsuite Temporal с worker'ом сервиса
+w := workflowtest.New(t, h)                                  // testsuite Temporal с worker'ом сервиса
 h.Manifest()                                                     // что объявлено
 ```
 
@@ -895,8 +939,8 @@ h.Manifest()                                                     // что об�
   все `Validate` вызываются. Файл, env процесса и Consul не читаются.
   `SetLive(&live, v)` — обновление Live-поля, как из консоли.
 - **Хуки.** `Answer(h, ref, fn)` отвечает на `Call` и, в `Workflows`, на
-  `WorkflowCall`; `CallKey(ctx)` в `fn` — `hook.Key` вызова. Хук без
-  `Answer` отвечает `hook.ErrUnavailable` (`WorkflowCall` —
+  `CallHook`; `CallKey(ctx)` в `fn` — `hook.Key` вызова. Хук без
+  `Answer` отвечает `hook.ErrUnavailable` (`CallHook` —
   `hook.ErrNoBinding`), как в продакшене без транспорта или биндинга.
 - **События.** `Events(h, ref)` — значения, `EventsWithMeta(h, ref)` — с
   `Key`, `ID`, `Time`, `Headers`. `FailPublish(h, err)` — `Publish`
@@ -914,12 +958,12 @@ h.Manifest()                                                     // что об�
 - **Активити.** `Activity[Req, Res](ctx, h, name, in)` вызывает активити
   один раз, как шаг биндинга: `activity.InfoOf` даёт `Attempt` 1,
   уникальный `Key` и дедлайн `ctx`; `Heartbeat` ничего не делает.
-- **Workflows.** `Workflows(h)` — `testsuite.TestWorkflowEnvironment` с
+- **Workflows.** `workflowtest.New(t, h)` — `testsuite.TestWorkflowEnvironment` с
   регистрациями worker'а сервиса: активити `Handle` по имени через
-  envelope, workflows `workflows.Declare`, `activity.Workflow`,
+  envelope, workflows `workflows.Declare`, `workflows.Activity`,
   `workflows.Register`; хуки — Nexus-сервис `<service>.Hooks` среды,
   отвечающий через `Answer`. Одна среда — один workflow.
-  `WorkflowActivity[Req, Res](w, name, in)` запускает активити на
+  `workflowtest.WorkflowActivity[Req, Res](w, name, in)` запускает активити на
   workflow, как шаг биндинга.
 
 Активити или реактор, которых нет, — `backplanetest.ErrNotDeclared`.
@@ -1441,7 +1485,7 @@ step}` на входе активити; симметричные `*Result`); **
   ещё не видел сервис), `Call` сразу возвращает `hook.ErrUnavailable`
   («no Nexus endpoint»), не дожидаясь дедлайна.
 - Nexus вызывается только из workflow-кода. Внутри workflow —
-  `hook.Ref.WorkflowCall(wctx, req)`: Nexus напрямую; дедлайн — `Timeout`
+  `workflows.CallHook(wctx, ref, req)`: Nexus напрямую; дедлайн — `Timeout`
   вызова, иначе `DefaultTimeout` объявления, иначе платформенный
   `hook_timeout`, урезанный до остатка таймаута run'а (§3.4) — всегда
   конечный.
@@ -1488,7 +1532,7 @@ step}` на входе активити; симметричные `*Result`); **
   <service>.<Name>`): паника бывает и от временного состояния, число
   попыток ограничивает шаг. Каждое исполнение —
   `backplane.activity.duration` (`activity`, `outcome`: `ok`/`error`).
-- Активити на workflow (`activity.Workflow`, `kind: WORKFLOW`) — workflow
+- Активити на workflow (`workflows.Activity`, `kind: WORKFLOW`) — workflow
   сервиса на его очереди, тип — имя активити, вход `ActivityCall`, выход
   `ActivityResult`; биндинг исполняет его child workflow'ом по имени.
   Ошибки — те же правила; паника в workflow-коде — как в Temporal: workflow
@@ -1656,7 +1700,7 @@ for iam.SendEmail`, `transform failed at step render: <CEL>`.
 ## 8. События
 
 Тонкая обёртка SDK над брокером; под капотом NATS JetStream. Что обёртка
-не покрывает, сервис делает нативным клиентом: `event.JetStream(scope)`
+не покрывает, сервис делает нативным клиентом: `natsdriver.JetStream(scope)`
 возвращает `jetstream.JetStream` соединения сервиса (`ErrUnavailable`, если
 NATS не сконфигурирован или сервис ещё не стартовал / уже остановлен; пока
 соединение разорвано, клиент возвращается и переподключается сам).
@@ -1900,7 +1944,7 @@ NATS не сконфигурирован или сервис ещё не ста�
 - **[backplane]** backplane в data path событий не участвует; наблюдает
   каталог, lag, DLQ; держит consumers правил (§8.1). Консоль — сервис
   `EventService` (`internal/ops`, NATS — соединение backplane через
-  `event.JetStream`, `BACKPLANE_NATS_URL`; без него NATS-вызовы —
+  `natsdriver.JetStream`, `BACKPLANE_NATS_URL`; без него NATS-вызовы —
   `UNAVAILABLE`, а `ListEvents` отдаёт одни объявления с `nats_error`):
   - `ListEvents` — все события из последних манифестов: схема,
     описание, subject, число сообщений события в стриме, последнее
@@ -2090,7 +2134,7 @@ id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
 Сервис описывает свои workflows и activities как хочет; с proto —
 `protoc-gen-go-temporal` даёт стабы и типизированные клиенты. Task queue =
 имя сервиса, namespace один (`BACKPLANE_TEMPORAL_NS`, по умолчанию
-`default`). SDK даёт подключение, worker, расписания и настройку worker'а
+`default`). Драйвер SDK даёт подключение, worker и настройку worker'а
 из конфигурации; больше ничего своего. Логи Temporal SDK идут в логгер
 сервиса, метрики и трейсы — в OTel сервиса.
 
@@ -2139,8 +2183,7 @@ id — новое правило), `RollbackRule`, `DeleteRule`, `PauseRule`,
     `backplane.service`, тип workflow; `PauseSchedule`/`UnpauseSchedule`
     (note + автор) и `TriggerSchedule` (Temporal не принимает memo на
     trigger: запуск несёт memo действия расписания, кто нажал — в аудите).
-    Ручная пауза живёт до изменения
-    объявления (сверка SDK не трогает совпадающее расписание);
+    Ручную паузу меняет только административная команда, SDK её не трогает;
   - `CallService`: вызовы идут коротким workflow на **очереди backplane**
     `backplane` (зарегистрирован через `workflows.Register` сервиса
     backplane; результат, вход и ошибка — в Temporal как у любого
@@ -2195,7 +2238,7 @@ worker на очереди `<service>.hooks`, живущий дольше дер
 
 | поле | смысл |
 |---|---|
-| `enabled` | `false` — реплика без worker'а: очередь сервиса обслуживают другие реплики (отдельный деплоймент-воркер), а эта держит клиент, `Call` хуков (worker хуков работает и здесь) и сверку расписаний (по умолчанию `true`) |
+| `enabled` | `false` — реплика без worker'а: очередь сервиса обслуживают другие реплики (отдельный деплоймент-воркер), а эта держит клиент, `Call` хуков (worker хуков работает и здесь) (по умолчанию `true`) |
 | `max_concurrent_activities` | activities, исполняемых одновременно |
 | `max_concurrent_workflow_tasks` | workflow task'ов одновременно |
 | `activity_pollers`, `workflow_pollers` | поллеры очередей activity и workflow task'ов |
@@ -2211,67 +2254,23 @@ worker на очереди `<service>.hooks`, живущий дольше дер
 `backplane.CallHook.v1` — §7.2). Для долгих workflows рекомендуется Worker
 Versioning / build ID Temporal в деплое; SDK его не включает.
 
-**Расписания** — Temporal Schedules, объявленные в коде:
+**Расписания — административная функция сервера.** SDK регистрирует
+workflow и выполняет задания из очереди, но не объявляет расписания,
+не создаёт, не обновляет и не удаляет их при старте или остановке реплики.
+Ни обычный рестарт, ни rolling update не меняют операторскую паузу.
 
-```go
-workflows.Schedule(root, "NightlyReport", workflows.Cron("0 3 * * *"), reports.Nightly,
-    workflows.Args(reports.Daily), workflows.TimeZone("Europe/Moscow"),
-    workflows.Overlap(workflows.OverlapBufferOne))
-workflows.Schedule(root, "Poll", workflows.Every(time.Minute), "poller.Poll")
-```
+Создание, редактирование и удаление расписаний принадлежат административному
+API Backplane. Это следующий серверный этап: текущий API уже умеет список,
+паузу, снятие паузы и ручной запуск; CRUD ещё не реализован. До него
+существующими расписаниями управляют через Temporal. Нативный Temporal
+клиент доступен явно через `workflows.Client`, но SDK не выполняет с ним
+никаких автоматических операций над расписаниями.
 
-- Когда — `Cron(expr)` (как читает Temporal: 5 полей, 6 — плюс год, 7 —
-  секунды первыми; `@hourly`, `@daily`, `@weekly`, `@monthly`,
-  `@yearly`; в часовом поясе `TimeZone`) или `Every(d)` (интервал от
-  Unix-эпохи, не меньше секунды: `Every(time.Hour)` — в начале каждого
-  часа).
-- Что — workflow функцией или зарегистрированным именем типа; для функции
-  имя — как у `RegisterWorkflow` (короткое имя функции). `Schedule` его не
-  регистрирует: workflow обязан быть в `Register` — регистрацию и
-  расписание держит один автор, двойная регистрация в Temporal — паника.
-- Опции: `Args(...)` — аргументы запуска (JSON; proto — protojson);
-  `Overlap(p)` — что делать, если прошлый запуск ещё идёт: `OverlapSkip`
-  (по умолчанию), `OverlapBufferOne`, `OverlapBufferAll`,
-  `OverlapCancelOther`, `OverlapTerminateOther`, `OverlapAllowAll`; `CatchupWindow(d)` — насколько поздно
-  догонять пропущенное, пока Temporal лежал (по умолчанию год);
-  `Jitter(d)`; `TimeZone(iana)` (по умолчанию UTC); `Paused()` — создать на
-  паузе; `PauseOnFailure()`; для запущенного workflow — `Timeout(d)`
-  (execution), `RunTimeout(d)`, `Retry(policy)`.
-- Имя — `[A-Za-z][A-Za-z0-9_]*`, уникально в сервисе. Плохое имя, spec,
-  workflow, опция или неуникальное имя — ошибка `Run` до старта
-  (`workflows.ErrSchedule`, `ErrDuplicate` манифеста); объявление после
-  `Run` — паника. Манифест несёт `schedules[]`: имя, `cron` или `every`,
-  тип workflow, overlap, paused, часовой пояс, jitter.
-- Id расписания — `<service>/<Name>`; оно запускает workflow на очереди
-  сервиса с id `<service>/<Name>-<время запуска>` (время дописывает
-  Temporal), по префиксу консоль и находит запуски. Memo расписания
-  `backplane.service=<service>` — владелец; memo запускаемого workflow —
-  владелец и отпечаток объявления `backplane.schedule` (sha256 spec,
-  workflow, аргументов, политик и таймаутов).
-
-**Сверка расписаний.** Каждая реплика при старте, в фоне после
-подключения к Temporal (узел `schedules` после worker'а; readiness не
-ждёт), приводит расписания сервиса к объявленным:
-
-- нет расписания — создаётся;
-- есть — отпечаток сравнивается с объявленным; отличается — spec, действие,
-  политики и пауза заменяются целиком; совпадает — не трогается, так что
-  ручная пауза или снятие паузы оператором живут до изменения объявления;
-- расписание с id `<service>/…` и memo-владельцем `<service>`, которого нет
-  в объявлениях, удаляется; без memo-владельца (заведено руками) — не
-  трогается. Сверка идёт и когда сервис не объявил ни одного расписания —
-  так удаляются оставшиеся от прошлой версии; и без worker'а на реплике.
-
-Реплики стартуют одновременно без координации: создание, наткнувшееся на
-существующее расписание, превращается в сравнение отпечатков, удаление
-уже удалённого — не ошибка. Временный сбой — повтор всего прохода с
-backoff (1–30 с) до успеха или остановки; расписание, которое Temporal
-отверг как невалидное (кривой cron, неизвестный часовой пояс), — ошибка в
-лог и пропуск, остальные сверяются. Список расписаний в Temporal
-eventually consistent: расписание, созданное секунды назад, сверка может
-ещё не увидеть и удалит его при следующем старте. Во время раскатки
-последней применяется версия той реплики, что стартовала последней.
-Без Temporal объявления остаются в манифесте, в лог — предупреждение.
+Существующие расписания сохраняются при обновлении SDK. Для перехода
+нужно обновить все реплики: старый SDK продолжает свою сверку до остановки.
+Поле `Manifest.schedules` сохранено для чтения манифестов старых версий;
+новый SDK его не заполняет. Административные изменения нельзя основывать
+на этом поле или на объявлениях отдельной реплики.
 
 ## 10. Прямые вызовы и mesh
 
@@ -2839,9 +2838,9 @@ test-m1`, §16.3): цикл «форма → ревизия → KV → серв�
 
 **M2 — хуки, биндинги, правила, события. Сервер сделан, фронтенда
 консоли нет.** Сторона SDK: Temporal в SDK — хуки (`Call` через
-`backplane.CallHook.v1` на очереди `<service>.hooks`, `WorkflowCall` —
+`backplane.CallHook.v1` на очереди `<service>.hooks`, `CallHook` —
 Nexus напрямую, ключ идемпотентности), активити обоих видов, workflows
-(`Register`, `Declare`, `Client`) и расписания со сверкой, настройка
+(`Register`, `Declare`, `Client`), настройка
 worker'а; события CloudEvents над JetStream, реакторы с опциями доставки,
 DLQ и `Redrive`. Сторона backplane: биндинги и правила — версии в
 PostgreSQL, валидация по последним манифестам с CEL над JSON-схемами,
@@ -2900,7 +2899,7 @@ case в SDK ради них — дефект модели.
   - хук из HTTP-handler'а и из `OnStart`/`OnStop` через биндинг, который
     вызывает активити по имени с JSON-входом; `hook.Key` исполняет
     биндинг один раз; `no binding`;
-  - хук из workflow (`WorkflowCall`); активити на workflow по имени с
+  - хук из workflow (`CallHook`); активити на workflow по имени с
     envelope `ActivityCall`;
   - событие с корректными `ce-*` и trace до реактора;
   - реакторы через `backplane.Open`: DLQ по терминальной ошибке и после
@@ -2912,8 +2911,8 @@ case в SDK ради них — дефект модели.
     доходят до обоих, dead letter одного реактора `RedriveDeadLetters`
     возвращает только ему (тот же `ce-id`, `Attempt` 1), второй его не
     видит, dead letter удалён;
-  - workflows и расписания: клиент, создание, обновление, удаление
-    неописанного на реплике без worker'а.
+  - workflows и административные расписания: клиент, выполнение задания,
+    сохранение определения и операторской паузы при перезапуске реплики.
 
   Другой язык SDK проходит этот же набор.
 - **M1 end-to-end** (`conformance/m1_test.go`, `make test-m1`; нужны
@@ -3081,7 +3080,7 @@ backplane/
                              Provider, Factory, Func (без зависимости от пакета backplane)
     event/                   события: Declare, Publish и опции, React и опции доставки, Delivery,
                              Terminal, Redrive, JetStream
-    hook/                    хуки: Declare, Call, WorkflowCall, Key, Timeout, ErrUnavailable, ErrNoBinding
+    hook/                    хуки без Temporal: Declare, Call, Key, Timeout, ErrUnavailable, ErrNoBinding
     infra/                   подключения к инфраструктуре как провайдеры deps (§4.4): секция
                              конфигурации + New(cfg) deps.Provider[T]; ими пользуется и backplane
       postgres/              PostgreSQL: Config (DSN, лог запросов, пул), DB (pgxpool + pgtx), Open,
@@ -3113,7 +3112,7 @@ backplane/
       recovery/              паника handler'а — ошибка запроса, backplane.panics
       routes/                описания managed-роутов: префиксы, хосты, перехватчики, политика
       telemetry/             OTel через xtrace: resource, экспортёры из OTEL_*
-      temporal/              Temporal: соединение, вызов хуков, worker'ы, активити, расписания, TLS
+      temporal/              Temporal: соединение, вызов хуков, worker'ы, активити, TLS
         temporaltest/        тестовая обвязка против dev-сервера: играет Nexus-сторону backplane
       testlog/               логгер для тестов
   examples/

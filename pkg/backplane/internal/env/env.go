@@ -79,7 +79,6 @@ type Env struct {
 	reactors   []Reactor
 	registers  []func(registry any)
 	workflows  func() (any, error)
-	schedules  []any
 
 	hookTimeout time.Duration // platform default of a hook call
 }
@@ -204,22 +203,6 @@ func (e *Env) WorkerRegistrations() []func(registry any) {
 	defer e.mu.RUnlock()
 
 	return append([]func(any){}, e.registers...)
-}
-
-// Schedule stores a declared schedule (a temporal.Schedule).
-func (e *Env) Schedule(s any) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	e.schedules = append(e.schedules, s)
-}
-
-// Schedules lists the declared schedules in declaration order.
-func (e *Env) Schedules() []any {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	return append([]any(nil), e.schedules...)
 }
 
 // SetWorkflowClient installs how the Temporal client is reached.

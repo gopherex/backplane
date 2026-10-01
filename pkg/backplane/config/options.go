@@ -1,10 +1,10 @@
 package config
 
 import (
+	"errors"
 	"time"
 
 	"github.com/gopherex/xconf"
-	consulsrc "github.com/gopherex/xconf/contrib/sources/consul"
 )
 
 // Option configures Load and Open.
@@ -20,7 +20,7 @@ type settings struct {
 	noEnv      bool
 	noConsul   bool
 	extra      []xconf.Source
-	consulOpts []consulsrc.Option
+	remote     RemoteFactory
 	backoffMin time.Duration
 	backoffMax time.Duration
 }
@@ -52,9 +52,19 @@ func Source(sources ...xconf.Source) Option {
 // WithoutConsul keeps Open off Consul KV even when the block names it.
 func WithoutConsul() Option { return func(s *settings) { s.noConsul = true } }
 
-// ConsulOptions pass through to the xconf Consul source (Open only).
-func ConsulOptions(opts ...consulsrc.Option) Option {
-	return func(s *settings) { s.consulOpts = append(s.consulOpts, opts...) }
+// RemoteSource is a watched configuration layer carrying a console revision.
+type RemoteSource interface {
+	xconf.Source
+	LastRevision() uint64
+}
+
+// RemoteFactory creates the remote layer after file and environment are loaded.
+type RemoteFactory func(Backplane, string) (RemoteSource, error)
+
+// WithRemote installs a remote configuration driver. The runtime restricts it
+// to Live fields and preserves its last valid values during an outage.
+func WithRemote(factory RemoteFactory) Option {
+	return func(s *settings) { s.remote = factory }
 }
 
 // ConsulBackoff bounds the backoff between retries of an unreachable Consul
@@ -62,3 +72,9 @@ func ConsulOptions(opts ...consulsrc.Option) Option {
 func ConsulBackoff(minDelay, maxDelay time.Duration) Option {
 	return func(s *settings) { s.backoffMin, s.backoffMax = minDelay, maxDelay }
 }
+
+// Remote driver configuration errors.
+var (
+	ErrRemoteDriver = errors.New("config: consul configured without a remote configuration driver")
+	ErrRemoteSource = errors.New("config: remote configuration driver returned nil")
+)

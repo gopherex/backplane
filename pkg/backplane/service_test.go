@@ -31,6 +31,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
 )
@@ -77,7 +78,7 @@ func setup(t *testing.T, consul string) ports {
 
 func baseOptions(name string, extra ...backplane.Option) []backplane.Option {
 	return append([]backplane.Option{
-		backplane.Name(name), backplane.Instance(name + "-1"), backplane.Advertise("127.0.0.1"),
+		standard.Drivers(), backplane.Name(name), backplane.Instance(name + "-1"), backplane.Advertise("127.0.0.1"),
 		backplane.Logger(testlog.Discard()), backplane.ConfigOptions(config.WithoutFile()),
 	}, extra...)
 }

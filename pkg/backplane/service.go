@@ -21,7 +21,7 @@
 // nodes. Run starts it in order:
 //
 //	config → telemetry → health → platform → consul → nats → temporal → hooks →
-//	author's tree → internal-api → reactors → worker → schedules →
+//	author's tree → internal-api → reactors → worker →
 //	public:<addr> → drain → register → serving
 //
 // so components may publish events and call hooks from OnStart to OnStop.
@@ -33,8 +33,9 @@
 // dependencies they use. A second SIGINT/SIGTERM during the stop exits at
 // once with status 1. A panicking handler fails its request (codes.Internal,
 // HTTP 500), never the process. Consul, NATS, Temporal and the telemetry
-// collector are optional: missing ones are warnings, never failures, unless
-// RequireNATS or RequireTemporal make a connection part of readiness.
+// collector are optional. Install configured backends explicitly with drivers
+// (for example standard.Drivers). RequireNATS or RequireTemporal make a
+// configured connection part of readiness.
 package backplane
 
 import (
@@ -178,6 +179,10 @@ func validateHealth(h config.Health) error {
 // must be configured.
 func (o options) validate(b config.Backplane) error {
 	switch {
+	case b.NATS.Enabled() && o.events == nil:
+		return fmt.Errorf("%w: nats configured without an event driver (drivers/nats.Driver)", ErrConfig)
+	case b.Temporal.Enabled() && o.workflows == nil:
+		return fmt.Errorf("%w: temporal configured without a workflow driver (drivers/temporal.Driver)", ErrConfig)
 	case o.requireNATS && !b.NATS.Enabled():
 		return fmt.Errorf("%w: RequireNATS without nats.url", ErrConfig)
 	case o.requireTemporal && !b.Temporal.Enabled():

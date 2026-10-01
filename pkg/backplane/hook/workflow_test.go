@@ -23,6 +23,7 @@ import (
 	internal "github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 	"github.com/gopherex/backplane/pkg/backplane/internal/temporal/temporaltest"
 	"github.com/gopherex/backplane/pkg/backplane/internal/testlog"
+	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
 // outcome is what the test workflow saw.
@@ -70,7 +71,7 @@ func TestWorkflowCall(t *testing.T) {
 
 	// A workflow returns an error last, whether it uses it or not.
 	quote := func(ctx workflow.Context, amount int) (outcome, error) { //nolint:unparam // workflow signature
-		out, err := ref.WorkflowCall(ctx, Quote{Amount: amount})
+		out, err := workflows.CallHook(ctx, ref, Quote{Amount: amount})
 		if err != nil {
 			return outcome{NoBinding: errors.Is(err, hook.ErrNoBinding), Err: err.Error()}, nil
 		}
@@ -119,7 +120,7 @@ func TestWorkflowCallZeroRef(t *testing.T) {
 	var ref hook.Ref[Quote, Price]
 
 	// Undeclared: fails before touching the workflow context.
-	if _, err := ref.WorkflowCall(nil, Quote{}); !errors.Is(err, hook.ErrUnavailable) {
+	if _, err := workflows.CallHook(nil, ref, Quote{}); !errors.Is(err, hook.ErrUnavailable) {
 		t.Fatalf("zero ref: %v", err)
 	}
 }
@@ -136,7 +137,7 @@ func deadlines(name string) nexus.Operation[*backplanev1.HookCall, *backplanev1.
 	})
 }
 
-// WorkflowCall is never unbounded: the call's Timeout, else the declared
+// workflows.CallHook is never unbounded: the call's Timeout, else the declared
 // default, else the platform default — cut to what is left of the run.
 func TestWorkflowCallDeadline(t *testing.T) {
 	t.Parallel()
@@ -161,11 +162,11 @@ func TestWorkflowCallDeadline(t *testing.T) {
 
 		switch which {
 		case "platform":
-			out, err = platform.WorkflowCall(ctx, Quote{})
+			out, err = workflows.CallHook(ctx, platform, Quote{})
 		case "declared":
-			out, err = declared.WorkflowCall(ctx, Quote{})
+			out, err = workflows.CallHook(ctx, declared, Quote{})
 		default:
-			out, err = declared.WorkflowCall(ctx, Quote{}, hook.Timeout(3*time.Second))
+			out, err = workflows.CallHook(ctx, declared, Quote{}, hook.Timeout(3*time.Second))
 		}
 
 		return out.Total, err

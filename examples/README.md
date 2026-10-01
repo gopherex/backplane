@@ -61,9 +61,9 @@ deduplicates the hook execution, not HTTP requests or their greeting events.
 | gRPC, streaming, REST transcoding, Connect, ws-proto | hello `HelloService`, `Countdown` |
 | HTTP, GraphQL, route policies, separate listener | hello `internal/web`, `internal/legacy` |
 | Internal console API and plugin bundle delivery | hello `internal/admin`, `ui` |
-| Hook Call / WorkflowCall, idempotency key | hello `Greet`, HTTP handler / `Welcome` |
+| Hook Call / workflows.CallHook, idempotency key | hello `Greet`, HTTP handler / `Welcome` |
 | Activity, workflow-backed activity, execution metadata | hello `Echo`, `Welcome`; formatter `Format`, `Record` |
-| Workflow and paused schedule | hello `GreetMany`, `Report`, `HourlyReport` |
+| Workflows available for administrative runs and schedules | hello `GreetMany`, `Report`; SDK creates no schedules |
 | Events, reactors, delivery metadata, deduplication | hello `Greeted`, audit; formatter independent reactor |
 | Cross-service CEL binding and event rule | `examples/demo` |
 | Invalid event / DLQ / redrive | publish `hello.Greeted` with an empty name: both reactors reject it terminally; console EventService exposes DLQ and targeted redrive |

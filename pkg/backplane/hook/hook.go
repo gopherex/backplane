@@ -1,7 +1,7 @@
 // Package hook declares operations a service calls without implementing
 // them ("нужно"). Who answers is a binding in backplane; the call is a
 // Temporal Nexus operation <Name> of service <service>.Hooks on endpoint
-// <service>. Call works from any Go code; WorkflowCall is the same call from
+// <service>. Call works from any Go code; workflows.CallHook is the same call from
 // workflow code. Without Temporal Call returns ErrUnavailable.
 //
 // Inputs and outputs evolve additively: a reader ignores fields it does not
@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.temporal.io/sdk/workflow"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
@@ -28,7 +27,6 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane/internal/decl"
 	"github.com/gopherex/backplane/pkg/backplane/internal/env"
 	"github.com/gopherex/backplane/pkg/backplane/internal/metrics"
-	"github.com/gopherex/backplane/pkg/backplane/internal/temporal"
 )
 
 var (
@@ -81,7 +79,7 @@ func Describe(s string) Option { return optionFunc(func(o *options) { o.descript
 // for proto messages).
 func Declare[Req, Res any](scope deps.Scope, name string, opts ...Option) Ref[Req, Res] {
 	e, _ := decl.Env(scope, "hook "+name)
-	temporal.CheckName("hook", name)
+	decl.CheckName("hook", name)
 
 	var o options
 	for _, opt := range opts {
@@ -121,7 +119,7 @@ func (f callFunc) applyCall(o *callOptions) { f(o) }
 // succeeded gets its result (the input of the later call is not looked at);
 // a call after it failed runs again. The workflow id is
 // hook/<service>/<Name>/<k>; Temporal remembers it for the namespace's
-// retention. WorkflowCall ignores the key: a workflow is durable already.
+// retention. workflows.CallHook ignores the key: a workflow is durable already.
 func Key(k string) CallOption { return callFunc(func(o *callOptions) { o.key = k }) }
 
 // Timeout is the call's deadline, over the declared DefaultTimeout; the
@@ -146,7 +144,7 @@ func (r Ref[Req, Res]) Name() string {
 // Call raises the hook and waits for the bound implementation. The
 // deadline is the earliest of ctx's and the call's own: Timeout, else the
 // declared DefaultTimeout, else — when ctx has none — the platform default.
-// Outside workflow code only: in a workflow use WorkflowCall.
+// Outside workflow code only: in a workflow use workflows.CallHook.
 func (r Ref[Req, Res]) Call(ctx context.Context, in Req, opts ...CallOption) (Res, error) {
 	var out Res
 
@@ -221,42 +219,17 @@ func outcome(err error) string {
 	}
 }
 
-// WorkflowCall raises the hook from workflow code: the Nexus operation
-// directly, no extra workflow. The deadline is Timeout, else the declared
-// DefaultTimeout, else the platform default — cut to what is left of the
-// run's timeout; a call is never unbounded. The error is readable ("hook
-// <service>.<Name>: no binding") and matches ErrNoBinding when there is no
-// binding.
-func (r Ref[Req, Res]) WorkflowCall(ctx workflow.Context, in Req, opts ...CallOption) (Res, error) {
-	var out Res
-
-	if r.env == nil {
-		return out, fmt.Errorf("hook: call on an undeclared Ref: %w", ErrUnavailable)
-	}
-
+// CallTimeout resolves the declared, per-call and transport default timeout.
+// Native workflow adapters use it without importing a backend into hook.
+func (r Ref[Req, Res]) CallTimeout(opts ...CallOption) time.Duration {
 	o := r.callOptions(opts)
-	if o.timeout <= 0 {
-		o.timeout = r.env.HookTimeout()
+	if o.timeout > 0 {
+		return o.timeout
 	}
 
-	payload, err := decl.Encode(in)
-	if err != nil {
-		return out, fmt.Errorf("hook %s: encode: %w", r.Name(), err)
+	if r.env != nil {
+		return r.env.HookTimeout()
 	}
 
-	res, err := temporal.ExecuteHook(ctx, &backplanev1.HookCall{
-		Hook:     r.Name(),
-		Payload:  payload,
-		Trace:    temporal.WorkflowTrace(ctx),
-		Deadline: temporal.HookDeadline(ctx, o.timeout),
-	})
-	if err != nil {
-		return out, fmt.Errorf("hook %s: %w", r.Name(), temporal.Local(err))
-	}
-
-	if err := decl.Decode(res.GetPayload(), &out); err != nil {
-		return out, fmt.Errorf("hook %s: decode: %w", r.Name(), err)
-	}
-
-	return out, nil
+	return env.DefaultHookTimeout
 }

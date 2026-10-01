@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/workflows"
 )
 
@@ -62,24 +62,26 @@ func registerWorkflows(r worker.Registry) {
 		sdkactivity.RegisterOptions{Name: "Count"})
 }
 
-// TestWorkflowsAndSchedules: a service registers its workflows and a
-// schedule through the SDK; the client runs a workflow on the service's
-// queue; the schedule is created and runs, is updated when its declaration
-// changes and deleted when it is no longer declared — across restarts.
-func TestWorkflowsAndSchedules(t *testing.T) {
+// TestWorkflowsPreserveAdministrativeSchedules verifies SDK replicas execute
+// workflows but never create, update, unpause or prune administrative schedules.
+func TestWorkflowsPreserveAdministrativeSchedules(t *testing.T) { //nolint:paralleltest // runWorkflows configures environment
 	addr := temporalAddr(t)
 	name := uniqueName("wf")
 	tc := dialTemporal(t, addr)
 	id := name + "/Tick"
 
-	t.Cleanup(func() { _ = tc.ScheduleClient().GetHandle(context.Background(), id).Delete(context.Background()) })
-
-	// 1. Declared: created, runs; the client executes a workflow directly.
-	st, _, stop := runWorkflows(t, addr, name, func(root deps.Scope) {
-		workflows.Register(root, registerWorkflows)
-		workflows.Schedule(root, "Tick", workflows.Every(time.Second), Tick, workflows.Args("tick"))
+	handle, err := tc.ScheduleClient().Create(t.Context(), client.ScheduleOptions{
+		ID: id, Spec: client.ScheduleSpec{Intervals: []client.ScheduleIntervalSpec{{Every: time.Hour}}},
+		Action: &client.ScheduleWorkflowAction{ID: id, Workflow: "Tick", TaskQueue: name, Args: []any{"tick"}},
+		Paused: true, Note: "operator maintenance", Memo: map[string]any{"backplane.service": name},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	t.Cleanup(func() { _ = handle.Delete(context.Background()) })
+	scheduleListed(t, tc, id)
+	st, stop := runWorkflows(t, addr, name, func(root deps.Scope) { workflows.Register(root, registerWorkflows) })
 	wc := workflowClient(t, st.scope)
 
 	run, err := wc.ExecuteWorkflow(t.Context(), client.StartWorkflowOptions{
@@ -94,44 +96,24 @@ func TestWorkflowsAndSchedules(t *testing.T) {
 		t.Fatalf("direct workflow: %q %v", greeting, err)
 	}
 
-	waitFor(t, "schedule runs its workflow", func() bool {
-		d, ok := describeSchedule(t, tc, id)
-		if !ok || len(d.Info.RecentActions) == 0 || ticks.Load() == 0 {
-			return false
-		}
+	before := ticks.Load()
 
-		res := d.Info.RecentActions[0].StartWorkflowResult
+	if err := handle.Trigger(t.Context(), client.ScheduleTriggerOptions{}); err != nil {
+		t.Fatal(err)
+	}
 
-		return res != nil && strings.HasPrefix(res.WorkflowID, id+"-")
-	})
-
+	waitFor(t, "administrative schedule executes", func() bool { return ticks.Load() > before })
 	stop()
+	// An older/empty replica must leave the administrative definition and pause alone.
+	st, stop = runWorkflows(t, addr, name, func(deps.Scope) {})
+	defer stop()
 
-	// 2. Changed declaration: updated.
-	_, _, stop = runWorkflows(t, addr, name, func(root deps.Scope) {
-		workflows.Register(root, registerWorkflows)
-		workflows.Schedule(root, "Tick", workflows.Every(2*time.Second), Tick, workflows.Args("tick"), workflows.Paused())
-	})
+	_ = workflowClient(t, st.scope)
 
-	waitFor(t, "schedule updated", func() bool {
-		d, ok := describeSchedule(t, tc, id)
-
-		return ok && d.Schedule.State.Paused && len(d.Schedule.Spec.Intervals) == 1 &&
-			d.Schedule.Spec.Intervals[0].Every == 2*time.Second
-	})
-
-	stop()
-
-	// 3. No longer declared, on a replica without a worker: deleted.
-	scheduleListed(t, tc, id)
-	t.Setenv("BACKPLANE_TEMPORAL_WORKER_ENABLED", "false")
-
-	_, logs, _ := runWorkflows(t, addr, name, func(root deps.Scope) { workflows.Register(root, registerWorkflows) })
-
-	waitFor(t, "schedule deleted", func() bool { _, ok := describeSchedule(t, tc, id); return !ok })
-
-	if !strings.Contains(logs.String(), "temporal worker disabled") {
-		t.Errorf("worker not reported disabled:\n%s", logs)
+	d, ok := describeSchedule(t, tc, id)
+	if !ok || !d.Schedule.State.Paused || d.Schedule.State.Note != "operator maintenance" ||
+		len(d.Schedule.Spec.Intervals) != 1 || d.Schedule.Spec.Intervals[0].Every != time.Hour {
+		t.Fatalf("SDK changed administrative schedule: %+v", d)
 	}
 }
 
@@ -139,7 +121,7 @@ func TestWorkflowsAndSchedules(t *testing.T) {
 // does and runs it until stop or the end of the test.
 func runWorkflows(
 	t *testing.T, addr, name string, declare func(root deps.Scope),
-) (*workflowsState, *syncBuffer, func()) {
+) (*workflowsState, func()) {
 	t.Helper()
 
 	platform := freePort(t)
@@ -157,7 +139,7 @@ func runWorkflows(
 
 		return &workflowsState{scope: root}, nil
 	},
-		backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
+		standard.Drivers(), backplane.Name(name), backplane.Instance(name+"-1"), backplane.Advertise("127.0.0.1"),
 		backplane.Logger(xlog.NewJSON(xlog.WithWriter(logs))), backplane.ConfigOptions(config.WithoutFile()),
 	)
 	if err != nil {
@@ -195,7 +177,7 @@ func runWorkflows(
 		return code == http.StatusOK
 	})
 
-	return svc.State(), logs, stop
+	return svc.State(), stop
 }
 
 // workflowClient waits for the service's Temporal client.

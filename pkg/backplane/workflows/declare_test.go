@@ -56,7 +56,7 @@ func TestDeclareRecordsManifest(t *testing.T) {
 
 	workflows.Declare(h.Root(), "Ship", ship)
 
-	if _, err := workflows.Declared(h.Root()); !errors.Is(err, manifest.ErrDuplicate) {
+	if err := workflows.ManifestError(h.Root()); !errors.Is(err, manifest.ErrDuplicate) {
 		t.Fatalf("duplicate: %v", err)
 	}
 }

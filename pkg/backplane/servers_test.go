@@ -28,6 +28,7 @@ import (
 	hellov1 "github.com/gopherex/backplane/examples/hello/proto/hello/v1"
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/deps"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 	"github.com/gopherex/backplane/pkg/backplane/internal/guard"
 	"github.com/gopherex/backplane/pkg/backplane/route"
 	"github.com/gopherex/backplane/pkg/backplane/wsproto"
@@ -520,8 +521,8 @@ func TestOpenValidation(t *testing.T) {
 		opts []backplane.Option
 		want string
 	}{
-		"name":              {opts: []backplane.Option{backplane.Name("Bad_Name")}, want: "service name"},
-		"name digit":        {opts: []backplane.Option{backplane.Name("1svc")}, want: "service name"},
+		"name":              {opts: []backplane.Option{standard.Drivers(), backplane.Name("Bad_Name")}, want: "service name"},
+		"name digit":        {opts: []backplane.Option{standard.Drivers(), backplane.Name("1svc")}, want: "service name"},
 		"stages over total": {env: map[string]string{"BACKPLANE_SHUTDOWN_TIMEOUT": "5s"}, want: "listeners + reserve"},
 		"no listeners":      {env: map[string]string{"BACKPLANE_SHUTDOWN_LISTENERS": "0s"}, want: "shutdown.listeners"},
 		"negative reserve":  {env: map[string]string{"BACKPLANE_SHUTDOWN_RESERVE": "-1s"}, want: "shutdown.reserve"},

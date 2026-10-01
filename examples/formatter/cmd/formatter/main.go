@@ -9,6 +9,7 @@ import (
 	"github.com/gopherex/backplane/examples/formatter/internal/formatter"
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
+	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
 )
 
 type Config struct {
@@ -23,7 +24,7 @@ func newState(root backplane.Root[Config]) (*State, error) {
 }
 
 func run(ctx context.Context) error {
-	svc, err := backplane.Open(ctx, newState)
+	svc, err := backplane.Open(ctx, newState, standard.Drivers())
 	if err != nil {
 		return fmt.Errorf("formatter: %w", err)
 	}
