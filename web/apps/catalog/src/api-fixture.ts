@@ -27,7 +27,7 @@ export const externalAPIManifest = () => create(ManifestSchema, {
   routes: [
     { kind: RouteKind.HTTP, prefix: '/api/', schema: { case: 'openapi', value: bytes({ openapi: '3.0.3', info: { title: 'Visitor API', version: '1.0.0' },
       paths: { '/api/visitors/{id}': { parameters: [{ $ref: '#/components/parameters/ID' }], get: { summary: 'Read a visitor', responses: { '200': { description: 'The visitor', content: { 'application/json': { schema: { $ref: '#/components/schemas/Visitor' } } } } } }, delete: { summary: 'Remove a visitor', responses: { '204': { description: 'Removed' } } } } },
-      components: { parameters: { ID: { name: 'id', in: 'path', required: true, schema: { type: 'string' } } }, schemas: { Visitor: { type: 'object', required: ['name'], properties: { name: { type: 'string', description: 'Display name' }, friend: { $ref: '#/components/schemas/Visitor' } } } } },
+      components: { parameters: { ID: { name: 'id', in: 'path', required: true, schema: { type: 'string' } } }, schemas: { Visitor: { type: 'object', required: ['name'], example: { name: 'Ada', roles: ['reader'], preferences: { timezone: 'UTC' } }, properties: { name: { type: 'string', minLength: 1, description: 'Display name' }, roles: { type: 'array', items: { type: 'string', enum: ['reader', 'editor'] } }, preferences: { type: 'object', properties: { timezone: { type: 'string', default: 'UTC' }, alerts: { type: 'boolean', default: true } } }, friend: { $ref: '#/components/schemas/Visitor' } } } } },
     }) } },
     { kind: RouteKind.CONNECT, prefix: '/public.v1.Greeter/', services: ['public.v1.Greeter'] },
     { kind: RouteKind.WS_PROTO, prefix: '/ws/', services: ['public.v1.Greeter'], schema: { case: 'descriptors', value: publicDescriptors } },

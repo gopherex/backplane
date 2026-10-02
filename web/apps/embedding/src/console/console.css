@@ -3,6 +3,7 @@
    idioms the kit leaves to the app. */
 .console-shell { height: 100dvh; display: flex; flex-direction: column; background: var(--background); color: var(--foreground); font: 13px/20px var(--font-sans); -webkit-font-smoothing: antialiased; }
 .console-shell a { text-decoration: none; color: inherit; }
+.console-shell a[data-slot=button][data-variant=default] { color: var(--primary-foreground); }
 .console-shell :is(a, button, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .console-shell h1, .console-shell h2, .console-shell h3, .console-shell p { margin: 0; }
 

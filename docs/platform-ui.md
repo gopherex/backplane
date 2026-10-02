@@ -10,7 +10,7 @@ router-agnostic: navigation leaves them through callbacks (`onNavigate`,
 | Export | Behavior |
 | --- | --- |
 | `ServiceCatalog`, `ServiceInspector` | Instances (phase, uptime, address, applied/rejected revision, readiness) with an instance drawer (transports, node readiness, per-key configuration source, effective masked configuration); contract panels for routes, hooks with binding state, activities, published/consumed events, workflows, schedules; component tree; metadata |
-| `ServiceAPI`, `ServiceAPIDocument` | External API reference: route selector, searchable operations, parameters, requests/responses, schemas/types, streaming RPC signatures, GraphQL queries/mutations/subscriptions, source preview and JSON download. OpenAPI JSON/YAML (3.x and Swagger 2.0), protobuf descriptor sets and GraphQL introspection. `ServiceAPI` reads the catalog; `ServiceAPIDocument` accepts a manifest directly. Route/operation state leaves through `onStateChange`. |
+| `ServiceAPI`, `ServiceAPIDocument` | External API reference: route selector, searchable operations and types, linked request/response types, visible examples with copy, schema constraints and nested fields, streaming RPC signatures, GraphQL queries/mutations/subscriptions, source preview and JSON download. OpenAPI JSON/YAML (3.x and Swagger 2.0), protobuf descriptor sets and GraphQL introspection. `ServiceAPI` reads the catalog; `ServiceAPIDocument` accepts a manifest directly. Route/operation state leaves through `onStateChange`. |
 | `ConfigurationPanel` | Live settings grouped by top-level key; each path shows title, description, unit, per-instance source and effective value; an override switch opens a typed editor (switch, number, text, choice, JSON); dirty markers, validation per path, save with comment; rollout per instance; revision history with a diff drawer and rollback |
 | `AutomationPanel` | A service's wiring at a glance: its hooks with binding state, version and activities, the rules on its events with state, and the bindings and rules elsewhere that call its activities; every row opens it in Wiring (`onOpenWiring`) |
 | `WiringWorkspace` | Wiring (see below): live lists of bindings and rules by service, the activity palette, an overview of what needs attention, and the editor of the open item; state (`target`, `view`) reported through `onStateChange` for the URL |
@@ -81,6 +81,23 @@ keeps its comments.
   and timing overlay the graph, as does any run opened from Runs.
 
 ## Publishing external API documents
+
+The reference viewer opens all named types when a document contains at most eight.
+Larger documents offer type search and expand/collapse controls. Clicking a type in
+a request, response or field opens and focuses its definition, including imported
+OpenAPI schemas. Nested inline properties are shown to four levels; named and
+recursive references remain links. The complete raw definition is always available.
+Protobuf types are limited to the transitive dependencies of this route's public
+methods, including imported messages, enums and map values.
+
+OpenAPI examples are shown directly, including named media examples and schema
+examples; `x-codeSamples` supplies authored request snippets. Otherwise the viewer
+builds a curl template with the declared server or a host placeholder. GraphQL
+operations offer query templates when their argument types can be represented.
+Protobuf messages offer sample JSON with placeholder strings. Examples are documentation,
+not executed requests. Deployment-specific hosts, credentials and placeholders must
+be supplied by the reader. The hello example publishes multi-file OpenAPI, protobuf
+and GraphQL introspection; formatter publishes its real process-local statistics API.
 
 The console's service **API** tab (`/services/<name>/api`) reads the latest
 manifest from `CatalogService.GetService`. The route index and selected operation

@@ -66,9 +66,14 @@ func Hello(greet hook.Ref[flows.GreetIn, flows.GreetOut], g *greeter.Greeter) ht
 // with the route.
 //
 //nolint:gochecknoglobals // constant document
-var Introspection = []byte(`{"__schema":{"queryType":{"name":"Query"},"types":[{"kind":"OBJECT","name":"Query",` +
-	`"fields":[{"name":"greeting","args":[{"name":"name","type":{"kind":"NON_NULL","ofType":` +
-	`{"kind":"SCALAR","name":"String"}}}],"type":{"kind":"SCALAR","name":"String"}}]}]}}`)
+var Introspection = []byte(`{"__schema":{"queryType":{"name":"Query"},"types":[` +
+	`{"kind":"OBJECT","name":"Query","description":"One greeting query with an inline name argument.",` +
+	`"fields":[{"name":"greeting","description":"Returns a local greeting. ` +
+	`GraphQL errors use the errors array with HTTP 200.",` +
+	`"args":[{"name":"name","description":"Name as an inline string literal.",` +
+	`"type":{"kind":"NON_NULL","ofType":` +
+	`{"kind":"SCALAR","name":"String"}}}],"type":{"kind":"SCALAR","name":"String"}}]},` +
+	`{"kind":"SCALAR","name":"String","description":"UTF-8 text."}]}}`)
 
 // query is the one query the endpoint answers: { greeting(name: "...") }.
 var query = regexp.MustCompile(`^\s*(?:query\s*)?\{\s*greeting\s*\(\s*name\s*:\s*"([^"]*)"\s*\)\s*\}\s*$`)

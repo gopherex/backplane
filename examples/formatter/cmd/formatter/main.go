@@ -10,6 +10,7 @@ import (
 	"github.com/gopherex/backplane/pkg/backplane"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 	"github.com/gopherex/backplane/pkg/backplane/drivers/standard"
+	"github.com/gopherex/backplane/pkg/backplane/route"
 )
 
 type Config struct {
@@ -29,7 +30,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("formatter: %w", err)
 	}
 
-	svc.HTTP("/formatter/", svc.State().Formatter.HTTP())
+	svc.HTTP("/formatter/", svc.State().Formatter.HTTP(), route.OpenAPI(formatter.API))
 
 	if err := svc.Run(ctx); err != nil {
 		return fmt.Errorf("formatter: %w", err)

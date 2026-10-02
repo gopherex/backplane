@@ -8,16 +8,19 @@ paths:
     get:
       operationId: greet
       summary: Greet a visitor
+      description: Calls the configured Greet hook for up to two seconds, then falls back to the local greeter. The delivered greeting is published as hello.Greeted and recorded as telemetry.
       parameters:
         - name: name
           in: query
           description: Name to greet. Defaults to world when absent or empty.
+          example: Developer
           schema:
             type: string
             default: world
         - name: Idempotency-Key
           in: header
           description: Reuses the hook result for repeated calls with this key.
+          example: greeting-demo-001
           schema:
             type: string
       responses:
@@ -27,10 +30,17 @@ paths:
             text/plain:
               schema:
                 $ref: './schemas/greeting.yaml'
-              example: Hello, world!
+              examples:
+                bound:
+                  summary: With the formatter binding
+                  value: "Welcome, Developer!\n"
+                local:
+                  summary: Local fallback with default configuration
+                  value: "Hello, Developer!\n"
         '500':
           description: The local fallback could not produce a greeting.
           content:
             text/plain:
               schema:
                 type: string
+              example: "greeting failed\n"

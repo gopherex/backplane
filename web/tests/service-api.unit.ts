@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { create } from '@bufbuild/protobuf';
+import { create, toBinary } from '@bufbuild/protobuf';
+import { FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import { ManifestSchema, RouteSchema, RouteKind } from '@gopherex/backplane-api/backplanepb/v1/manifest_pb';
 import { readAPIDocument, type APIDocument } from '../packages/platform-ui/src/api-document';
 import { externalAPIManifest } from '../apps/catalog/src/api-fixture';
@@ -39,19 +40,48 @@ describe('external service API documents', () => {
   it('resolves shared path parameters and keeps recursive schemas finite', () => {
     const doc = document(0);
     expect(doc.operations.map((op) => op.method)).toEqual(['GET', 'DELETE']);
-    expect(doc.operations[0]?.sections[0]?.fields).toEqual([{ name: 'id (path)', type: 'string', required: true, description: '' }]);
+    expect(doc.operations[0]?.sections[0]?.fields).toMatchObject([{ name: 'id (path)', type: 'string', required: true, description: '' }]);
     expect(doc.schemas[0]?.fields?.find((field) => field.name === 'friend')?.type).toBe('Visitor');
     expect(doc.warnings).toEqual([]);
   });
   it('lets operation-level parameters override path-level parameters', () => {
     const result = openAPI({ openapi: '3.1.0', paths: { '/x': { parameters: [{ name: 'q', in: 'query', schema: { type: 'string' } }], get: { parameters: [{ name: 'q', in: 'query', required: true, schema: { type: 'integer' } }] } } } });
-    expect('document' in result && result.document.operations[0]?.sections[0]?.fields).toEqual([{ name: 'q (query)', type: 'integer', required: true, description: '' }]);
+    expect('document' in result && result.document.operations[0]?.sections[0]?.fields).toMatchObject([{ name: 'q (query)', type: 'integer', required: true, description: '' }]);
   });
   it('reads the real embedded multi-file hello API', async () => {
     const source = await bundleOpenAPI('openapi.yaml', async (file) => new Uint8Array(readFileSync(new URL(`../../examples/hello/internal/web/${file}`, import.meta.url))));
     const result = openAPI(source);
     expect('document' in result && result.document.operations[0]?.name).toBe('/hello/');
     expect('document' in result && result.document.warnings).toEqual([]);
+    expect('document' in result && result.document.schemas[0]).toMatchObject({ name: 'schemas/greeting.yaml', type: 'string' });
+    expect('document' in result && result.document.operations[0]?.sections.find((section) => section.name === '200')?.examples).toHaveLength(2);
+    expect('document' in result && result.document.operations[0]?.sections.find((section) => section.name === 'call')?.examples?.[0]?.value).toContain('name=Developer');
+  });
+  it('exposes nested properties, constraints, array enums and examples without unrolling recursive references', () => {
+    const visitor = document(0).schemas[0]!;
+    expect(visitor.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'preferences.timezone', description: 'default: "UTC"' }),
+      expect.objectContaining({ name: 'roles', type: '("reader" | "editor")[]' }),
+      expect.objectContaining({ name: 'name', required: true, description: 'Display name\nminLength: 1' }),
+      expect.objectContaining({ name: 'friend', type: 'Visitor', references: ['Visitor'] }),
+    ]));
+    expect(visitor.fields?.some((field) => field.name.startsWith('friend.'))).toBe(false);
+    expect(visitor.examples?.[0]?.value).toMatchObject({ name: 'Ada' });
+  });
+  it('reads the formatter specification and its real JSON counter fields', () => {
+    const result = openAPI(readFileSync(new URL('../../examples/formatter/internal/formatter/openapi.yaml', import.meta.url), 'utf8'));
+    expect(result).toMatchObject({ document: { title: 'Formatter statistics API', warnings: [], schemas: [{ name: 'Statistics', fields: [
+      { name: 'formatted', type: 'integer (uint64)' }, { name: 'recorded' }, { name: 'observed' }, { name: 'last_text' },
+    ] }] } });
+  });
+  it('retains transitive protobuf messages and enums, renders maps, and excludes unrelated admin types', () => {
+    const bytes = toBinary(FileDescriptorSetSchema, create(FileDescriptorSetSchema, { file: [{ package: 'public', messageType: [
+      { name: 'Request', field: [{ name: 'labels', type: 11, typeName: '.public.Request.LabelsEntry', label: 3 }], nestedType: [{ name: 'LabelsEntry', options: { mapEntry: true }, field: [{ name: 'key', type: 9 }, { name: 'value', type: 11, typeName: '.public.Reply' }] }] },
+      { name: 'Reply', field: [{ name: 'status', type: 14, typeName: '.public.Status' }] }, { name: 'AdminSecret' },
+    ], enumType: [{ name: 'Status', value: [{ name: 'OK', number: 0 }] }], service: [{ name: 'API', method: [{ name: 'Read', inputType: '.public.Request', outputType: '.public.Reply' }] }] }] }));
+    const result = readAPIDocument(create(RouteSchema, { kind: RouteKind.CONNECT, services: ['public.API'], schema: { case: 'descriptors', value: bytes } }), create(ManifestSchema));
+    expect('document' in result && result.document.schemas.map((schema) => schema.name)).toEqual(['public.Request', 'public.Reply', 'public.Status']);
+    expect('document' in result && result.document.schemas[0]?.fields?.[0]?.type).toBe('map<string, public.Reply>');
   });
   it('supports Swagger 2.0 definitions and responses', () => {
     const result = openAPI({ swagger: '2.0', paths: { '/x': { get: { responses: { '200': { $ref: '#/responses/OK' } } } } }, responses: { OK: { description: 'Good' } }, definitions: { Result: { type: 'string' } } });
