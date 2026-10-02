@@ -42,7 +42,7 @@ your own service clients. Do not store operator credentials in plugin code.
 
 ## External-package acceptance
 
-`yarn test:packed` from the workspace root packs all twelve public packages and
+`yarn test:packed` from the workspace root packs all thirteen public packages and
 installs them into fresh temporary module/host directories. It checks types and
 builds without source aliases or workspace symlinks, then runs browser checks
 for standalone dev/build/deep links and embedded shared providers/lazy assets/CSP. No

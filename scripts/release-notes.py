@@ -19,9 +19,10 @@ The image includes the production console under `/backplane/` and runs as a non-
 
 - `backplane_{version}_linux_amd64.tar.gz` / `backplane_{version}_linux_arm64.tar.gz`: server, console, license and launch instructions.
 - `gopherex-backplane-*.tgz`: the 13 coordinated frontend packages, also published to GitHub Packages.
+- `backplane_{version}_docs.tar.gz`: the complete English documentation site, including local search and diagrams (serve under `/backplane/`).
 - `frontend-packages.json`: package inventory and integrity values.
 - `SHA256SUMS`: checksums for all archives and the inventory.
 - `image-digest.txt`: the immutable container reference.
 
-[Deployment and configuration](https://github.com/gopherex/backplane/blob/v{version}/deployments/README.md) · [Frontend SDK](https://github.com/gopherex/backplane/blob/v{version}/web/README.md) · [API reference](https://github.com/gopherex/backplane/blob/v{version}/docs/api-reference.md)
+[Documentation](https://gopherex.github.io/backplane/) · [Deployment and configuration](https://github.com/gopherex/backplane/blob/v{version}/deployments/README.md) · [Frontend SDK](https://github.com/gopherex/backplane/blob/v{version}/web/README.md) · [API reference](https://github.com/gopherex/backplane/blob/v{version}/docs/api-reference.md)
 """)

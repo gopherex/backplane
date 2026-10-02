@@ -42,7 +42,7 @@ yarn test:packed          # fresh external consumers of all 13 package tarballs
 
 `make configure` from the repository root also installs locked frontend tools.
 `make gen` generates Go and TypeScript APIs from the same protobuf sources.
-The [method reference](../docs/api-reference.md) and [transport contract](../docs/api-client.md) cover all 72 RPCs.
+The [method reference](../docs/api-reference.md) and [transport contract](../docs/api-client.md) cover all 85 RPCs.
 The source output includes imported platform/schemapb messages and lossless
 protobuf int64/uint64 handling. `web/scripts/api-index.mjs` exports every console
 service client without colliding generated `CallOptions` declarations.
@@ -89,7 +89,7 @@ session/provider. It is not an event/cursor replay helper.
   navigation components are excluded from our public kit. Further Grafana
   adaptations must be checked individually.
 - Embedded builds make context-bearing dependencies host-only shared singletons.
-  `sdk_major` is 0 for the current 0.1.0 package line. The produced remote
+  `sdk_major` is 0 for the current 0.1.x package line. The produced remote
   passes a browser host integration test under `/backplane/` with the real Go
   console CSP. `loadPlugin` from `plugin-sdk/host` checks catalog identity,
   same-origin paths and SDK metadata before loading remote code. The fixture

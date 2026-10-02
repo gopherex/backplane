@@ -8,7 +8,9 @@ class ChangeSelectionTest(unittest.TestCase):
         return {key for key, value in classify(paths).items() if value}
 
     def test_docs_do_not_run_application_suites(self):
-        self.assertEqual(self.selected("docs/development.md", "web/packages/ui/README.md"), set())
+        self.assertEqual(self.selected("docs/development.md", "web/packages/ui/README.md",
+                                        "website/docusaurus.config.js", "website/yarn.lock",
+                                        ".github/workflows/docs.yml"), set())
 
     def test_backend_does_not_run_frontend(self):
         self.assertEqual(self.selected("internal/ops/schedules.go", "go.sum"), {"go"})

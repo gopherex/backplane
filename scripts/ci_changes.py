@@ -14,6 +14,9 @@ def classify(paths):
             continue
         if path.startswith(".github/assets/"):
             continue
+        # Documentation has its own path-filtered build and strict link checks.
+        if path.startswith("website/") or path == ".github/workflows/docs.yml":
+            continue
         if (
             path.endswith((".proto", ".sql"))
             or path in {"easyp.yaml", "easyp.lock", "sqld.yaml"}

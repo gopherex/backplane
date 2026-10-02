@@ -17,7 +17,8 @@ workflows, API discovery, telemetry and one console for the whole installation.
 [![Container](https://img.shields.io/badge/container-GHCR-12d6a3?logo=docker&logoColor=white&style=flat-square)](https://github.com/gopherex/backplane/pkgs/container/backplane)
 [![License](https://img.shields.io/github/license/gopherex/backplane?style=flat-square)](LICENSE)
 
-**[Quickstart](#quickstart)** ·
+**[Documentation](https://gopherex.github.io/backplane/)** ·
+[Quickstart](#quickstart) ·
 [Deployment](deployments/README.md) ·
 [Go SDK](pkg/backplane) ·
 [Frontend SDK](web/README.md) ·
@@ -106,7 +107,7 @@ console. The release page carries checksums, the image digest and all 13
 frontend package tarballs. Frontend packages publish to **GitHub Packages**.
 
 ```sh
-docker pull ghcr.io/gopherex/backplane:0.1.0
+docker pull ghcr.io/gopherex/backplane:0.1.1
 ```
 
 The image runs as a non-root user. Supply PostgreSQL, Consul, Valkey and an

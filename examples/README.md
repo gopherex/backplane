@@ -71,8 +71,9 @@ deduplicates the hook execution, not HTTP requests or their greeting events.
 Formatter's public `/formatter/` endpoint reports `formatted`, `recorded`,
 `observed` and `last_text`. Its example counters and deduplication window (4096
 keys) are process-local; persistent business data belongs in a real store.
-The UI bundle demonstrates delivery only: the console UI and Module Federation
-host are separate work, as described in `platform-design.md`.
+The UI bundle runs in the console Module Federation host with the shared client,
+router, theme and translations. Authors can run the same pages independently;
+see [module template](../web/templates/module/README.md).
 
 ## Verification
 

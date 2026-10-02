@@ -1,6 +1,6 @@
 {
   "name": "@gopherex/backplane-observability-ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -32,7 +32,7 @@
     "react-i18next": ">=17 <18"
   },
   "dependencies": {
-    "@gopherex/backplane-ui": "0.1.0",
-    "@gopherex/backplane-editors": "0.1.0"
+    "@gopherex/backplane-ui": "0.1.1",
+    "@gopherex/backplane-editors": "0.1.1"
   }
 }

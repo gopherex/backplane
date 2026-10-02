@@ -1,0 +1,49 @@
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+
+:root {
+  --ifm-color-primary: #007d60;
+  --ifm-color-primary-dark: #007056;
+  --ifm-color-primary-darker: #00694f;
+  --ifm-color-primary-darkest: #00533f;
+  --ifm-color-primary-light: #008a6a;
+  --ifm-color-primary-lighter: #009171;
+  --ifm-color-primary-lightest: #00a780;
+  --ifm-background-color: #f7f7fa;
+  --ifm-navbar-background-color: #fff;
+  --ifm-font-family-base: 'IBM Plex Sans', system-ui, sans-serif;
+  --ifm-font-family-monospace: 'IBM Plex Mono', monospace;
+  --ifm-heading-font-weight: 600;
+  --ifm-code-font-size: 88%;
+  --ifm-global-radius: 6px;
+  --ifm-navbar-shadow: 0 1px 0 #e4e4ea;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 125, 96, .08);
+}
+[data-theme='dark'] {
+  --ifm-color-primary: #38e5b7;
+  --ifm-color-primary-dark: #18d7a6;
+  --ifm-color-primary-darker: #12c99a;
+  --ifm-color-primary-darkest: #0ca47d;
+  --ifm-color-primary-light: #5aebc6;
+  --ifm-color-primary-lighter: #6defce;
+  --ifm-color-primary-lightest: #94f5dd;
+  --ifm-background-color: #0f1011;
+  --ifm-background-surface-color: #1a1b1e;
+  --ifm-navbar-background-color: #121314;
+  --ifm-footer-background-color: #121314;
+  --ifm-navbar-shadow: 0 1px 0 #2c2e33;
+  --ifm-font-color-base: #d8dadd;
+  --ifm-toc-border-color: #2c2e33;
+  --docusaurus-highlighted-code-line-bg: rgba(56, 229, 183, .1);
+}
+.markdown h1:first-child { --ifm-h1-font-size: 2.35rem; letter-spacing: -.03em; }
+.markdown h2 { margin-top: 2.25rem; }
+.markdown table { display: block; overflow-x: auto; }
+.markdown img { border-radius: 8px; }
+.markdown pre { border: 1px solid var(--ifm-toc-border-color); }
+.theme-doc-sidebar-menu { font-size: .93rem; }
+.menu__link--active:not(.menu__link--sublist) { border-left: 2px solid var(--ifm-color-primary); }
+.theme-mermaid { overflow-x: auto; }
+.footer__copyright { color: #9a9da5; font-size: .9rem; }

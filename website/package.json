@@ -1,0 +1,27 @@
+{
+  "name": "backplane-docs",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Backplane operator and module author documentation",
+  "scripts": {
+    "sync": "node scripts/sync-reference.mjs",
+    "start": "yarn sync && docusaurus start",
+    "build": "yarn sync && docusaurus build",
+    "serve": "docusaurus serve",
+    "clear": "docusaurus clear"
+  },
+  "dependencies": {
+    "@docusaurus/core": "3.10.2",
+    "@docusaurus/preset-classic": "3.10.2",
+    "@docusaurus/theme-mermaid": "3.10.2",
+    "@easyops-cn/docusaurus-search-local": "0.55.3",
+    "@fontsource/ibm-plex-mono": "5.2.6",
+    "@fontsource/ibm-plex-sans": "5.2.6",
+    "@mdx-js/react": "3.1.1",
+    "prism-react-renderer": "2.4.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "engines": { "node": ">=20.0" },
+  "browserslist": { "production": [">0.5%", "not dead", "not op_mini all"], "development": ["last 3 chrome versions", "last 3 firefox versions", "last 5 safari versions"] }
+}

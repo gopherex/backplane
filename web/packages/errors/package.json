@@ -1,6 +1,6 @@
 {
   "name": "@gopherex/backplane-errors",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "description": "Browser error capture over OpenTelemetry logs, for any web frontend reporting to a Backplane installation",

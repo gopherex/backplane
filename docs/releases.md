@@ -10,8 +10,7 @@ verification suite.
 
 The server tag and all 13 public `@gopherex/backplane-*` packages must agree on
 the version. Before tagging, update the package manifests and their internal
-dependency versions together and commit the result. The initial frontend line
-is **0.1.0**, so the first coordinated tag is **v0.1.0**. Version validation
+dependency versions together and commit the result. The documentation package version must agree as well. Version validation
 fails before building or publishing if these values diverge.
 
 Frontend plugin compatibility is currently SDK major **0**. A 1.x release
@@ -24,7 +23,9 @@ version bump alone does not establish compatibility.
 | --- | --- |
 | GitHub Releases | Linux amd64/arm64 archives: `bin/backplane`, `console`, license and launch instructions |
 | GitHub Releases | 13 frontend `.tgz` packages and `frontend-packages.json` inventory |
+| GitHub Releases | `backplane_X.Y.Z_docs.tar.gz`: static English documentation site |
 | GitHub Releases | `SHA256SUMS` and `image-digest.txt` |
+| GitHub Pages | Release documentation at https://gopherex.github.io/backplane/ |
 | GHCR | `ghcr.io/gopherex/backplane:X.Y.Z` and `:latest`, both Linux amd64/arm64 |
 | GitHub Packages | All 13 `@gopherex/backplane-*` packages at the coordinated version |
 
@@ -34,7 +35,9 @@ certificates. Its defaults set `BACKPLANE_CONSOLE_ASSETS_DIR=/app/console` and
 `BACKPLANE_CONSOLE_PREFIX=/backplane`. Deployment supplies credentials and
 infrastructure endpoints; see [configuration](../deployments/README.md).
 
-GitHub Release is created after image and package publication succeeds. A
+GitHub Release is created after the documentation build and image/package publication succeed.
+Pages deploys that release build afterward. Branch and pull-request documentation
+checks never publish an unreleased site. A
 failed publication can leave some registry artifacts published; rerun that tag
 after correcting access. A retry reuses an existing frontend version only if
 its integrity matches the archive. Different contents require a new version;
@@ -42,16 +45,16 @@ the workflow never deletes published packages to overwrite them.
 
 ## Rehearsal
 
-Run **Release → Run workflow** on the intended branch with version `0.1.0`.
-It builds archives, packages and the multi-platform container without pushing
-images, publishing packages or creating a release. Download `release-files`
+Run **Release → Run workflow** on the intended branch with version `0.1.1`.
+It builds archives, packages, documentation and the multi-platform container without pushing
+images, publishing packages, deploying Pages or creating a release. Download `release-files` and `release-docs`
 from the workflow's artifacts. A rehearsal proves the builds; registry write
 permissions are exercised by an actual tagged release.
 
 Local equivalents, after installing dependencies:
 
 ```sh
-bash scripts/build-release.sh 0.1.0
+bash scripts/build-release.sh 0.1.1
 docker buildx build --platform linux/amd64,linux/arm64 \
   -f deployments/Dockerfile.release bin/release
 ```
@@ -72,7 +75,9 @@ image. Frontend authentication follows the
 
 The standard `GITHUB_TOKEN` needs package-read access to existing Gopherex
 dependencies, package-write access for GHCR/frontend publication and
-contents-write access for release creation. Grant this repository Actions
+contents-write access for release creation. The Pages deployment job uses
+`pages: write` and `id-token: write`; configure the repository Pages source as
+GitHub Actions and allow version tags in the `github-pages` environment. Grant this repository Actions
 access on dependency package settings if needed. Local builds require a token
 with package-read access. Published package visibility and organization policy
 are controlled in GitHub's package settings.
@@ -80,3 +85,16 @@ are controlled in GitHub's package settings.
 No publication goes to npmjs.org. The release workflow explicitly uses
 `https://npm.pkg.github.com` and rejects a public package manifest configured
 with another registry.
+
+## Documentation archive
+
+The archive contains the complete Docusaurus static build, local search index,
+Mermaid runtime, fonts and favicon. Serve it under `/backplane/` with a static
+web server; no package installation or Node runtime is required. To host at
+another base path, change `website/docusaurus.config.js` and rebuild.
+
+Edit guides in `website/docs`; reference pages are synchronized from source
+documents by `website/scripts/sync-reference.mjs`. From `website`, run
+`yarn install --frozen-lockfile` and `yarn build` to validate links and anchors,
+or `yarn start` for development. Release CI checks the site package version
+against the coordinated tag before building.

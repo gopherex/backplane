@@ -92,8 +92,8 @@ logs, metrics and a cross-service trace through the proxy and Collector, then
 reads Victoria through its native query APIs. It also closes the proxy and sends
 directly to the Collector, verifying that telemetry ingestion remains independent.
 Opaque JSON/protobuf forwarding tests cover unknown fields, custom names and
-Collector error/partial-success responses. These tests do not yet exercise an
-ObsService API.
+Collector error/partial-success responses. The observability live suite also
+reads stored signals through ObsService; see [read API acceptance](obs-api.md#acceptance).
 
 ## Storage and query boundary
 

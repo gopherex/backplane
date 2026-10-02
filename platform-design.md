@@ -1,29 +1,11 @@
 # backplane — platform design
 
-Статус: дизайн платформы и Go SDK. Контракт UI, пакетов и M3 —
-[docs/frontend-platform.md](docs/frontend-platform.md); полный состав кита —
-[docs/ui-components.md](docs/ui-components.md). Эти документы описывают целевое
-поведение; наличие раздела не означает готовую реализацию.
-
-**Что из этого есть в коде.** Репозиторий содержит Go SDK
-(`pkg/backplane`, proto-контракт `backplanepb`), эталонный сервис
-`examples/hello` и `examples/formatter`, conformance-тесты, platform-in-a-box
-(`docker-compose.yaml`) и серверную часть backplane этапов M1–M2 — бинарь
-`cmd/backplane` (сборка дерева — `internal/server`): registry (снапшоты
-каталога Consul и `backplane/services/`, `internal/registry`),
-Live-конфигурация с ревизиями в PostgreSQL, доставкой в Consul KV и
-reconciler'ом (`internal/config`), control-plane Envoy по xDS
-(`internal/xds`) и бэкенд консоли — вход по admin-токену, `/ws` с
-собственным API и relay во внутреннее API сервисов, кэш плагин-бандлов
-(`internal/console`), биндинги, правила и их исполнение, операции над
-событиями, workflows и расписаниями. В `web/` есть начальная реализация
-пакетов API/клиента/React/темы/компонентов/плагина, технический UI-стенд и
-standalone-шаблон. Полного shell с карточками, полного кита, генератора
-`protoc-gen-backplane` и серверной стороны M3 пока нет; текущие проверки и
-незакрытая приёмка — [web/README.md](web/README.md). Разделы и абзацы, помеченные **[backplane]**, — дизайн
-сервера платформы, а не поведение SDK; то из них, что уже реализовано,
-названо по пакету. Всё непомеченное про SDK описывает код как он есть;
-статус по этапам — §16.2.
+Этот документ сохраняет исходный подробный дизайн и историческую разбивку по
+этапам. Актуальное руководство на английском, границы реализации, примеры и
+эксплуатация опубликованы в [документации](https://gopherex.github.io/backplane/)
+(исходники: [website/docs](website/docs)). Описания этапов ниже не являются
+текущим статусом релиза. Контракты API и пакетов сверяются с кодом в
+[API reference](docs/api-reference.md) и [web/README.md](web/README.md).
 
 ## Границы Go SDK и подключение драйверов
 

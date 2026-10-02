@@ -1,6 +1,6 @@
 {
   "name": "@gopherex/backplane-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,6 @@
     "react-dom": ">=19 <20"
   },
   "dependencies": {
-    "@gopherex/backplane-client": "0.1.0"
+    "@gopherex/backplane-client": "0.1.1"
   }
 }

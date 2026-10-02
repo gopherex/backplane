@@ -7,7 +7,7 @@ on:
       version:
         description: 'Build-only rehearsal version (must match frontend packages)'
         required: true
-        default: '0.1.0'
+        default: '0.1.1'
 permissions:
   actions: read
   contents: read
@@ -131,9 +131,15 @@ jobs:
           name: image-digest
           path: image-digest.txt
 
+  docs:
+    needs: build
+    uses: ./.github/workflows/docs.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+
   publish:
     if: github.event_name == 'push'
-    needs: [build, docker]
+    needs: [build, docker, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -159,6 +165,13 @@ jobs:
         with:
           name: image-digest
           path: bin/release
+      - uses: actions/download-artifact@v7
+        with:
+          name: release-docs
+          path: bin/release
+      - name: Checksum complete release
+        working-directory: bin/release
+        run: sha256sum *.tar.gz *.tgz frontend-packages.json image-digest.txt > SHA256SUMS
       - name: Publish coordinated frontend packages to GitHub Packages
         run: node web/scripts/release-packages.mjs "$RELEASE_VERSION" bin/release --publish
       - name: Create GitHub Release and upload assets
@@ -171,3 +184,25 @@ jobs:
             gh release create "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$tag" --notes-file bin/release/notes.md
           fi
           gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber bin/release/*.tar.gz bin/release/*.tgz bin/release/frontend-packages.json bin/release/SHA256SUMS bin/release/image-digest.txt
+
+  pages:
+    if: github.event_name == 'push'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+      - name: Deploy release documentation
+        id: deployment
+        uses: actions/deploy-pages@v4

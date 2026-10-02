@@ -1,10 +1,10 @@
 # Frontend and M3 contract
 
-This specification complements [the platform design](../platform-design.md).
-It defines the target contract; a specification or a catalog entry is not evidence
-that its implementation exists. Component coverage is tracked in the
-[UI matrix](ui-components.md). M0–M2 server behavior remains as documented in the
-platform design. Console page design is a separate task.
+This document records the frontend package and integration contract. The
+[English handbook](https://gopherex.github.io/backplane/) describes current
+usage, deployment and implementation boundaries. Component coverage is tracked
+in the [UI matrix](ui-components.md); the live console and module workflow are
+documented in [development](development.md).
 
 ## Package boundaries
 

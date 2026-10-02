@@ -45,3 +45,11 @@ web/playwright-report/
 web/apps/catalog/storybook-static/
 
 web/**/dist-live/
+
+# Documentation build output and generated mirrors of authoritative references.
+website/node_modules/
+website/build/
+website/.docusaurus/
+website/.cache-loader/
+website/docs/reference/
+website/static/img/

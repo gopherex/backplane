@@ -1,0 +1,58 @@
+# Test a service and its integrations
+
+Choose checks for the boundary you changed. Fast tests of payload validation and component behavior do not require every platform dependency. Delivery, failover and gateway routing need real infrastructure.
+
+## Layers
+
+| Layer | What to establish |
+| --- | --- |
+| Domain/unit | Validation, pure transformations, fallback decisions and idempotency behavior |
+| SDK/component | Startup failure, optional dependency recovery, cancellation, probes and accepted/rejected live configuration |
+| Contract | Generated clients, schemas, route documents and manifest consistency |
+| Runtime integration | JetStream delivery, Temporal execution, cookie relay and configuration reconciliation |
+| Deployment/browser | Real assets, deep links, CSP, theme, authentication and service registration |
+| Multiple replicas | Shared consumers, concurrent reconciliation, crash/rejoin and endpoint retirement |
+
+The `pkg/backplane/backplanetest` package and repository conformance tests provide reusable examples of SDK behavior. Keep test stores and durable consumer names isolated from a development installation.
+
+## Component harness
+
+`backplanetest.New(t, backplanetest.Name("hello"))` constructs a service tree with recording transports, without `Open`, listeners or Consul. Build your components under `h.Root()`, substitute providers with `deps.Static(value)` and call `h.Start()`. Cleanup stops the tree under a bounded shutdown budget.
+
+| Helper | Use |
+| --- | --- |
+| `Config[C](t, vars)` | Load schema defaults and explicit environment-style values without reading process env/files/Consul |
+| `Ready(h)` | Inspect readiness with required-dependency reasons |
+| `Answer(h, hookRef, fn)` | Supply a hook answer |
+| `Events(h, eventRef)` / `EventsWithMeta` | Inspect published payloads and IDs/keys/headers |
+| `FailPublish(h, err)` | Exercise publication failure |
+| `Unavailable(h)` / `Available(h)` | Exercise transport loss and recovery |
+| `Activity[Req, Res](ctx, h, name, input)` | Invoke a declared activity once |
+| `ReactConsumer(ctx, h, consumer, value)` | Deliver once to a pinned reactor |
+| `SetLive(&field, value)` | Update a live field and notify its watchers |
+| `h.Manifest()` | Inspect declarations and declaration errors |
+
+The harness does not simulate JetStream redelivery or DLQ semantics. Its activity call executes once; retries belong in runtime integration tests. For Temporal code, use `pkg/backplane/workflows/workflowtest.New(t, h)`, which supplies a Temporal test environment with the service's registrations. This testing extension intentionally imports Temporal separately from core component tests.
+
+## Repository commands
+
+```bash
+GOWORK=off make test
+# Start infrastructure only for the integration targets you need:
+make up
+make conformance
+make test-envoy
+make test-m1
+make test-m2
+make test-replicas
+```
+
+Run live targets sequentially without manually running examples that register the same service names. `make test-replicas` uses two Backplane processes against a scratch database and exercises shared rule delivery, configuration, bound events, crash/rejoin and Nexus retirement with retained manifests.
+
+For frontend contracts use `make web-check` or the narrower package/unit/browser target relevant to the edit. `yarn test:packed` installs package tarballs in fresh consumers, so workspace aliases cannot hide missing exports or packaged files.
+
+## Full verification and releases
+
+`make verify` is an explicitly requested full-stack check with an isolated Compose project. Normal CI selects checks from changed paths. `make release` performs no local builds or tests; the release workflow requires successful commit CI and packages the release.
+
+Do not report a skipped integration test as a passed live check. Record which dependencies were present and whether the result proves a local contract, a backend integration or an end-to-end user operation. See [development reference](../reference/development.md).

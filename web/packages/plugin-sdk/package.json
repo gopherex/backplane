@@ -1,6 +1,6 @@
 {
   "name": "@gopherex/backplane-plugin-sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -38,6 +38,6 @@
   },
   "dependencies": {
     "@module-federation/runtime": "2.9.1",
-    "@gopherex/backplane-theme": "0.1.0"
+    "@gopherex/backplane-theme": "0.1.1"
   }
 }

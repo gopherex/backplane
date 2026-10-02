@@ -212,9 +212,9 @@ in-flight submission and never retries mutations; a failure keeps the draft and
 states that the outcome must be checked before repeating. Destructive or
 installation-changing actions go through a confirmation dialog.
 
-Audit saves every returned cursor, including empty batches, resumes strictly
-after it and deduplicates by entry ID; an expired cursor shows a gap and an
-explicit reload. Views keep 1,000 entries by default and report omitted ones.
+Audit uses `SearchAudit` with filter-bound pagination cursors for older records.
+Live refresh repeats the first page; it is not a replay stream. Filter changes
+reset pagination. See [audit query semantics](audit-api.md#methods).
 
 The catalog's `PlatformFixture` is an explicit local transport covering every
 composition, storage failure, no mutation retry, cursor advancement/expiry,
