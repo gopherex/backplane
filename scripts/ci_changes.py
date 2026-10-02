@@ -12,6 +12,8 @@ def classify(paths):
             continue
         if path.startswith((".claude/", ".idea/")):
             continue
+        if path.startswith(".github/assets/"):
+            continue
         if (
             path.endswith((".proto", ".sql"))
             or path in {"easyp.yaml", "easyp.lock", "sqld.yaml"}
@@ -22,7 +24,10 @@ def classify(paths):
             selected.update({"go", "web", "contracts"})
         elif path.startswith("web/"):
             selected.add("web")
-        elif path.startswith(("docker-compose", "deployments/")):
+        elif path.startswith(("docker-compose", "deployments/")) or path in {
+            ".dockerignore", ".github/workflows/release.yml",
+            "scripts/build-release.sh", "scripts/release-notes.py",
+        }:
             selected.add("compose")
         elif path.startswith(("pkg/", "internal/", "cmd/", "examples/", "conformance/")) or path in {
             "go.mod", "go.sum", ".golangci.yaml",

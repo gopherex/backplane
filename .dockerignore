@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+**/node_modules
+**/dist
+**/dist-live
+**/storybook-static
+**/*.tsbuildinfo
+bin
+easyp_vendor
+web/test-results
+web/playwright-report
+.idea
+.claude
+go.work
+go.work.sum

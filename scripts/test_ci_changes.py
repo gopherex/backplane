@@ -28,6 +28,11 @@ class ChangeSelectionTest(unittest.TestCase):
     def test_compose_does_not_start_application_suites(self):
         self.assertEqual(self.selected("docker-compose.minimal.yaml"), {"compose"})
 
+    def test_release_packaging_does_not_retest_unchanged_go(self):
+        self.assertEqual(self.selected(".github/workflows/release.yml", "scripts/build-release.sh",
+                                      "scripts/release-notes.py", ".dockerignore", "deployments/Dockerfile"), {"compose"})
+        self.assertEqual(self.selected("README.md", ".github/assets/banner.svg", ".github/assets/console.png"), set())
+
     def test_unknown_and_ci_changes_fail_closed(self):
         for path in ("Makefile", ".github/workflows/ci.yml", "scripts/ci_changes.py", "new.config"):
             with self.subTest(path=path):

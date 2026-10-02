@@ -1,10 +1,10 @@
 # Backplane frontend
 
-The workspace provides twelve `@gopherex/backplane-*` packages: `api`, `client`,
+The workspace provides thirteen `@gopherex/backplane-*` packages: `api`, `client`, `errors`,
 `react`, `theme`, `ui`, `schema-forms`, `editors`, `charts`, `observability-ui`,
 `platform-ui`, `plugin-sdk` and `plugin-build`. It includes a Storybook catalog,
 a standalone author template and an embedded host acceptance fixture. Product
-console screens are awaiting design review.
+console screens use the same packages and shared light/dark tokens.
 
 The [package contract](../docs/frontend-platform.md) and
 [component matrix](../docs/ui-components.md) describe the public scope.
@@ -37,7 +37,7 @@ yarn test:browser
 yarn storybook            # component stories at localhost:6006
 yarn build:storybook
 yarn test:storybook       # built stories, both themes and keyboard/a11y checks
-yarn test:packed          # fresh external consumers of all 12 package tarballs
+yarn test:packed          # fresh external consumers of all 13 package tarballs
 ```
 
 `make configure` from the repository root also installs locked frontend tools.
@@ -109,10 +109,11 @@ kit composition fixture. See [development instructions](../docs/development.md).
 `make test-dev` exercises service relay, configuration, hook execution, audit and
 stored telemetry in the browser. This installation is not required by authors.
 
-`yarn test:packed` writes 12 tarballs and independent consumers in a temporary
+`yarn test:packed` writes 13 tarballs and independent consumers in a temporary
 directory, rejects workspace symlinks, typechecks/builds the author template,
 then runs standalone dev/build and embedding browser acceptance. It does not publish.
 The standalone template also includes a ready static-server Dockerfile.
 
-Product console layout is the next review gate. No frontend package has been
-published from this working tree; coordinated publication remains a later step.
+The [release workflow](../docs/releases.md) publishes all thirteen packages to
+GitHub Packages on a coordinated version tag and attaches their tarballs to
+GitHub Releases. A manual release run rehearses builds without publication.

@@ -125,6 +125,7 @@ jobs:
           docker compose --profile full -f docker-compose.yaml -f docker-compose.observability.yaml -f docker-compose.dev.yaml config --quiet
           docker compose -f docker-compose.yaml -f docker-compose.minimal.yaml config --quiet
           bash -n scripts/verify.sh
+          bash -n scripts/build-release.sh
 
   verify:
     if: github.event_name == 'workflow_dispatch'

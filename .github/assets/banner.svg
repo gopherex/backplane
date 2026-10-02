@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="240" viewBox="0 0 880 240" role="img" aria-label="Backplane — connect services, build your platform">
+  <defs><linearGradient id="accent" x2="1" y2="1"><stop stop-color="#12d6a3"/><stop offset="1" stop-color="#48ebc5"/></linearGradient></defs>
+  <rect width="880" height="240" rx="18" fill="#0f1011"/>
+  <g stroke="#24272a" stroke-width="1"><path d="M0 60h880M0 120h880M0 180h880M190 0v240M770 0v240"/></g>
+  <path d="M18 236h844" stroke="#12d6a3" stroke-width="4" opacity=".5"/>
+  <g transform="translate(64 70)">
+    <rect width="100" height="100" rx="24" fill="#12d6a3" fill-opacity=".12" stroke="#12d6a3" stroke-opacity=".5"/>
+    <g stroke="url(#accent)" stroke-width="6" stroke-linecap="round"><path d="M27 29h46M27 50h46M27 71h46"/><path d="M50 20v60" opacity=".55"/></g>
+    <g fill="#12d6a3"><circle cx="50" cy="29" r="6"/><circle cx="50" cy="50" r="6"/><circle cx="50" cy="71" r="6"/></g>
+  </g>
+  <text x="204" y="121" font-family="'IBM Plex Sans','Segoe UI',sans-serif" font-size="60" font-weight="600" letter-spacing="-1" fill="#e4e7e7">Backplane</text>
+  <text x="207" y="158" font-family="'IBM Plex Mono',monospace" font-size="16" fill="#94999d">Connect services. <tspan fill="#48ebc5">Build your platform.</tspan></text>
+  <g fill="#94999d" font-family="monospace" font-size="12"><text x="683" y="96">catalog · config</text><text x="683" y="120" fill="#48ebc5">hooks · events</text><text x="683" y="144">telemetry · UI</text></g>
+</svg>

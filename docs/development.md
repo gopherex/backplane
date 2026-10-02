@@ -146,3 +146,8 @@ Results are retained under `bin/verification`.
 `make release` checks that the working tree is clean and the branch is synchronized
 with its upstream, then creates and pushes the selected version tag. It does not
 build, install dependencies, or run tests. The Go module keeps `vX.Y.Z` tags.
+
+Tags trigger [release packaging](releases.md): Linux archives with the console,
+multi-platform GHCR images, GitHub Packages and a GitHub Release with checksums.
+The release requires successful push CI for the tagged commit. Its manual run
+rehearses the builds without publication.

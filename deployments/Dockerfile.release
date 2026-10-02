@@ -1,0 +1,11 @@
+# The release workflow supplies the exact trees used by the downloadable archives.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+WORKDIR /app
+COPY linux_${TARGETARCH}/bin/backplane /app/bin/backplane
+COPY linux_${TARGETARCH}/console /app/console
+COPY linux_${TARGETARCH}/LICENSE /app/LICENSE
+ENV BACKPLANE_CONSOLE_ASSETS_DIR=/app/console BACKPLANE_CONSOLE_PREFIX=/backplane
+EXPOSE 8081 9400 18000
+USER nonroot:nonroot
+ENTRYPOINT ["/app/bin/backplane"]

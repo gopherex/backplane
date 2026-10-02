@@ -5,6 +5,11 @@ services on the SDK work, and what the backplane server (`cmd/backplane`)
 needs. `docker-compose.yaml` at the repository root is a complete example for
 development: platform-in-a-box.
 
+The [release workflow](../docs/releases.md) publishes a non-root server image
+with the console to `ghcr.io/gopherex/backplane` for Linux amd64 and arm64.
+Source builds use [Dockerfile](Dockerfile); the workflow assembles the image
+from the downloadable release archives with [Dockerfile.release](Dockerfile.release).
+
 ## A service on the SDK
 
 | what | how |
