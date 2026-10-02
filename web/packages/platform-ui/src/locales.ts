@@ -1,6 +1,12 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 export const platformEnglish = {
+  externalAPI: 'External API', externalAPIHelp: 'Public routes and API documents published by this service.', externalRoute: 'Route',
+  apiSchemaMissing: 'No API document published', apiSchemaMissingHelp: 'The route is registered, but the service has not attached an API document.',
+  apiSchemaInvalid: 'Could not read the API document', apiOperations: 'Operations', apiSearch: 'Find a method or path', apiNoOperations: 'No matching operations.',
+  apiParameters: 'Parameters', apiRequest: 'Request body', apiResponse: 'Response', apiSecurity: 'Security requirements', apiTypes: 'Schemas and types',
+  apiDeprecated: 'Deprecated', apiDefinition: 'Definition and examples', apiDocument: 'API document', apiType: 'Type', apiServersAuth: 'Servers and authentication',
+  apiUnresolvedRefs: 'Some references could not be resolved. Publish a self-contained bundle with internal references; external documents are not fetched.',
   executionDisabled: 'Execution is disabled in this deployment', executionDisabledHelp: 'Definitions and versions remain editable. Enable the required runtime in the deployment to execute them.',
   loading: 'Loading…', stale: 'Reconnecting. Showing the last received data.', error: 'Could not load data.', retry: 'Retry', refresh: 'Refresh',
   anonymous: 'Sign in to continue.', offline: 'The platform is unavailable.', connected: 'Connected',

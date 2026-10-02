@@ -1,0 +1,36 @@
+openapi: 3.0.3
+info:
+  title: Hello HTTP API
+  version: 1.0.0
+  description: Greets a visitor through the configured hook, with a local fallback.
+paths:
+  /hello/:
+    get:
+      operationId: greet
+      summary: Greet a visitor
+      parameters:
+        - name: name
+          in: query
+          description: Name to greet. Defaults to world when absent or empty.
+          schema:
+            type: string
+            default: world
+        - name: Idempotency-Key
+          in: header
+          description: Reuses the hook result for repeated calls with this key.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The greeting, followed by a newline.
+          content:
+            text/plain:
+              schema:
+                $ref: './schemas/greeting.yaml'
+              example: Hello, world!
+        '500':
+          description: The local fallback could not produce a greeting.
+          content:
+            text/plain:
+              schema:
+                type: string

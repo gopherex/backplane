@@ -1,11 +1,11 @@
-import { NavLink, Link, useNavigate, useParams } from 'react-router-dom';
+import { NavLink, Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { create } from '@bufbuild/protobuf';
 import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { AppWindow, Box, Clock, Cpu, RefreshCw, Server, Tag } from 'lucide-react';
 import { CatalogServiceClient, GetServiceRequestSchema, type ServiceSummary } from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
-import { AutomationPanel, ConfigurationPanel, EventStreams, ServiceInspector, ServiceOperations, WorkflowsPanel, usePlatformQuery } from '@gopherex/backplane-platform-ui';
+import { AutomationPanel, ConfigurationPanel, EventStreams, ServiceAPI, ServiceInspector, ServiceOperations, WorkflowsPanel, usePlatformQuery } from '@gopherex/backplane-platform-ui';
 import { Button, Duration, EntityHeader, MetaItem, MetaList, StatusBadge, TabBar, TabItem } from '@gopherex/backplane-ui';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import { healthLabel, healthTone } from '../services/model';
@@ -19,6 +19,7 @@ import { wiringLink } from '../WiringRoute';
 
 export function ServicePage({ mode, services, index }: { mode: ThemeMode; services: ServiceSummary[]; index?: bigint }) {
   const { t } = useTranslation('console'), { service = '', tab = 'overview' } = useParams(), navigate = useNavigate();
+  const [search, setSearch] = useSearchParams();
   const client = useClient(CatalogServiceClient), summary = services.find((entry) => entry.name === service);
   const detail = usePlatformQuery(`header:${service}:${index}`, (signal) => client.getService(create(GetServiceRequestSchema, { name: service }), { signal }));
   const started = detail.value?.instances.flatMap((instance) => instance.state?.startedAt ? [timestampDate(instance.state.startedAt)] : []).sort((a, b) => a.getTime() - b.getTime())[0];
@@ -42,6 +43,11 @@ export function ServicePage({ mode, services, index }: { mode: ThemeMode; servic
       </TabBar>} />
     <div className="console-detail" key={`${service}/${tab}`}>
       {tab === 'overview' && <ServiceInspector service={service} mode={mode} />}
+      {tab === 'api' && <ServiceAPI service={service} mode={mode} state={{ route: Number(search.get('route') ?? 0), operation: search.get('operation') ?? undefined }} onStateChange={(state) => {
+        const next = new URLSearchParams(search); next.set('route', String(state.route));
+        if (state.operation) next.set('operation', state.operation); else next.delete('operation');
+        setSearch(next);
+      }} />}
       {tab === 'configuration' && <ConfigurationPanel service={service} mode={mode} />}
       {tab === 'automation' && <AutomationPanel service={service} mode={mode} onOpenWiring={(target) => navigate(wiringLink(target))} />}
       {tab === 'operations' && <FeatureGate feature="workflows"><ServiceOperations service={service} mode={mode} /></FeatureGate>}

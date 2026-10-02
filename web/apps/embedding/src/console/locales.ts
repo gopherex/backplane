@@ -23,7 +23,7 @@ export const consoleEnglish = {
   wiringDescription: 'Bindings and rules: how services call each other through Backplane. Edit them as YAML or as a graph.',
   auditDescription: 'Changes and operations across the platform.',
   errorsDescription: 'Exceptions from frontends and services, with their state, trace and logs.',
-  overview: 'Overview', configuration: 'Configuration', automation: 'Automation', telemetry: 'Telemetry', operations: 'Operations', events: 'Events', runs: 'Runs', schedules: 'Schedules',
+  overview: 'Overview', api: 'API', configuration: 'Configuration', automation: 'Automation', telemetry: 'Telemetry', operations: 'Operations', events: 'Events', runs: 'Runs', schedules: 'Schedules',
   registered: 'Services', instances: 'Instances', healthyInstances: 'healthy instances', healthyShort: 'healthy',
   instancesHealthy: '{{healthy}} of {{total}} healthy', withModules: '{{count}} with UI modules',
   attention: 'Need attention', degradedOrDown: 'degraded or down', hooksBound: 'hooks bound', allActive: 'all active', declared: 'declared',

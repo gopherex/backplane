@@ -19,6 +19,7 @@ import (
 
 	"github.com/gopherex/xlog"
 
+	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
 	"github.com/gopherex/backplane/pkg/backplane/config"
 )
 
@@ -49,6 +50,25 @@ var (
 // plugin serves /plugins/<service>/<hash>/<path>: from the cache, else
 // from a live instance serving that hash.
 func (c *Console) plugin(w http.ResponseWriter, r *http.Request) {
+	c.serveBundle(w, r, uiPath, uiHash(r.PathValue("hash")), "", immutable)
+}
+
+func (c *Console) apiFile(w http.ResponseWriter, r *http.Request) {
+	hash := r.PathValue("hash")
+	c.serveBundle(w, r, "/_backplane/api/"+hash, func(m *backplanev1.Manifest) bool {
+		for _, route := range m.GetRoutes() {
+			if route.GetBundle().GetHash() == hash && hash != "" {
+				return true
+			}
+		}
+
+		return false
+	}, "api/", "private, no-store")
+}
+
+func (c *Console) serveBundle(w http.ResponseWriter, r *http.Request, prefix string,
+	match func(*backplanev1.Manifest) bool, namespace, cacheControl string,
+) {
 	if _, ok := c.authorized(w, r); !ok {
 		return
 	}
@@ -62,7 +82,7 @@ func (c *Console) plugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := name + "/" + hash + clean
+	key := namespace + name + "/" + hash + clean
 
 	f, ok := c.bundles.cached(key)
 	if !ok {
@@ -73,11 +93,11 @@ func (c *Console) plugin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		preferred, fallback := serving(svc, uiHash(hash))
+		preferred, fallback := serving(svc, match)
 
 		var err error
 
-		f, err = c.bundles.fetch(r.Context(), key, hash, clean, platformAddrs(append(preferred, fallback...)))
+		f, err = c.bundles.fetchAt(r.Context(), key, hash, clean, prefix, platformAddrs(append(preferred, fallback...)))
 
 		switch {
 		case errors.Is(err, errBundleNotFound), errors.Is(err, errNoInstance):
@@ -93,9 +113,14 @@ func (c *Console) plugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h := w.Header()
-	h.Set("Cache-Control", immutable)
+	h.Set("Cache-Control", cacheControl)
 	h.Set("ETag", `"`+hash+`"`)
 	h.Set("Content-Type", f.contentType)
+
+	if namespace != "" {
+		h.Set("Content-Type", "application/octet-stream")
+		h.Set("Content-Disposition", "attachment")
+	}
 	// ServeContent answers If-None-Match with 304 against the ETag.
 	http.ServeContent(w, r, clean, time.Time{}, bytes.NewReader(f.body))
 }
@@ -180,7 +205,7 @@ func (b *bundles) store(f bundleFile) {
 
 // fetch gets one file from the first instance of addrs that has it,
 // once for concurrent requests of the same key, and caches it.
-func (b *bundles) fetch(ctx context.Context, key, hash, file string, addrs []string) (bundleFile, error) {
+func (b *bundles) fetchAt(ctx context.Context, key, hash, file, prefix string, addrs []string) (bundleFile, error) {
 	if len(addrs) == 0 {
 		return bundleFile{}, errNoInstance
 	}
@@ -193,7 +218,7 @@ func (b *bundles) fetch(ctx context.Context, key, hash, file string, addrs []str
 		var errs []error
 
 		for _, addr := range addrs {
-			f, err := b.fetchFrom(ctx, addr, hash, file)
+			f, err := b.fetchFromAt(ctx, addr, hash, file, prefix)
 			if err == nil {
 				f.key = key
 				b.store(f)
@@ -221,8 +246,8 @@ func (b *bundles) fetch(ctx context.Context, key, hash, file string, addrs []str
 
 // fetchFrom gets the file from one platform port; the ETag must be the
 // hash (the instance serves that bundle).
-func (b *bundles) fetchFrom(ctx context.Context, addr, hash, file string) (bundleFile, error) {
-	u := url.URL{Scheme: "http", Host: addr, Path: uiPath + file}
+func (b *bundles) fetchFromAt(ctx context.Context, addr, hash, file, prefix string) (bundleFile, error) {
+	u := url.URL{Scheme: "http", Host: addr, Path: prefix + file}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), http.NoBody)
 	if err != nil {

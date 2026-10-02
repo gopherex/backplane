@@ -33,8 +33,9 @@ func init() {
 			return nil, errZeroDecl
 		}
 
-		return decl.r, decl.err
+		return decl.r, errors.Join(decl.err, filesError(decl.files))
 	}
+	link.Routes.Files = func(d any) *routes.SchemaFiles { decl, _ := d.(Decl); return decl.files }
 	link.Routes.GRPC = func(opts any) routes.Managed {
 		var m routes.Managed
 
@@ -161,7 +162,7 @@ func Transcode() TranscodeOption { return transcode{} }
 
 type openAPI []byte
 
-func (o openAPI) applyHTTP(m *routes.Managed) { m.OpenAPI = o }
+func (o openAPI) applyHTTP(m *routes.Managed) { m.OpenAPI, m.SchemaFiles = o, nil }
 func (o openAPI) applyHTTPDecl(r *backplanev1.Route) {
 	r.Schema = &backplanev1.Route_Openapi{Openapi: o}
 }
@@ -172,7 +173,11 @@ type OpenAPIOption interface {
 	HTTPDeclOption
 }
 
-// OpenAPI attaches the OpenAPI document of an HTTP route.
+// OpenAPI attaches a self-contained OpenAPI document (JSON or YAML) to an
+// HTTP route. spec can be a []byte populated by go:embed. Bundle multi-file
+// specifications with internal $ref links before embedding, or use OpenAPIFS
+// to carry several files without bundling. Each HTTP route may carry its own
+// document; a service can announce multiple routes.
 func OpenAPI(spec []byte) OpenAPIOption { return openAPI(spec) }
 
 type descriptors []byte
@@ -188,8 +193,9 @@ func Descriptors(fds []byte) GRPCDeclOption { return descriptors(fds) }
 // Decl is a declarative route: the author serves it, the SDK announces it.
 // Build one with GRPC, HTTP, GraphQL or WSProto.
 type Decl struct {
-	r   *backplanev1.Route
-	err error
+	r     *backplanev1.Route
+	err   error
+	files *routes.SchemaFiles
 }
 
 // GRPC declares a gRPC service (full name) the author serves.
@@ -213,7 +219,7 @@ func HTTP(prefix string, opts ...HTTPDeclOption) Decl {
 		o.applyHTTPDecl(r)
 	}
 
-	return Decl{r: r, err: err}
+	return Decl{r: r, err: err, files: declaredFiles(r, opts)}
 }
 
 // GraphQL declares a GraphQL endpoint the author serves, with its
@@ -228,7 +234,7 @@ func GraphQL(prefix string, introspection []byte, opts ...DeclOption) Decl {
 		o.applyDecl(r)
 	}
 
-	return Decl{r: r, err: err}
+	return Decl{r: r, err: err, files: declaredFiles(r, opts)}
 }
 
 // WSProto declares a ws-proto endpoint the author serves, with its
@@ -243,7 +249,7 @@ func WSProto(prefix string, descriptors []byte, opts ...DeclOption) Decl {
 		o.applyDecl(r)
 	}
 
-	return Decl{r: r, err: err}
+	return Decl{r: r, err: err, files: declaredFiles(r, opts)}
 }
 
 func prefixed(kind backplanev1.RouteKind, prefix string) (*backplanev1.Route, error) {

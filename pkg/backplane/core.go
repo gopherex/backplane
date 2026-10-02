@@ -57,15 +57,16 @@ type core struct {
 	svc *node.Node // service root: the SDK's nodes and the author's tree
 	app *node.Node // the author's tree
 
-	broker    EventTransport // nil without NATS
-	telemetry *telemetry.Telemetry
-	temporal  WorkflowTransport // nil without Temporal
-	health    *health.Health
-	guard     guard.Guard
-	gate      *gate.Gate
-	internal  *grpc.Server   // platform port, gRPC: internal API + health
-	platform  *http.ServeMux // platform port, HTTP behind the guard: UI bundle
-	public    []*publicPort
+	broker     EventTransport // nil without NATS
+	telemetry  *telemetry.Telemetry
+	temporal   WorkflowTransport // nil without Temporal
+	health     *health.Health
+	guard      guard.Guard
+	gate       *gate.Gate
+	internal   *grpc.Server   // platform port, gRPC: internal API + health
+	platform   *http.ServeMux // platform port, HTTP behind the guard: UI bundle
+	apiBundles map[string]bool
+	public     []*publicPort
 	// consulPresence is built by Run (it needs the manifest); nil without
 	// Consul.
 	consulPresence Presence

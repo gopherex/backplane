@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file backplanepb/v1/manifest.proto.
  */
 export const file_backplanepb_v1_manifest: GenFile = /*@__PURE__*/
-  fileDesc("Ch1iYWNrcGxhbmVwYi92MS9tYW5pZmVzdC5wcm90bxIMYmFja3BsYW5lLnYxIssECghNYW5pZmVzdBIPCgdzZXJ2aWNlGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSEwoLc2RrX3ZlcnNpb24YAyABKAkSKwoGY29uZmlnGAQgASgLMhsuYmFja3BsYW5lLnYxLkNvbmZpZ1NlY3Rpb24SIwoGcm91dGVzGAYgAygLMhMuYmFja3BsYW5lLnYxLlJvdXRlEhkKEWludGVybmFsX3NlcnZpY2VzGAcgAygJEiMKBmV2ZW50cxgIIAMoCzITLmJhY2twbGFuZS52MS5FdmVudBIhCgVob29rcxgJIAMoCzISLmJhY2twbGFuZS52MS5Ib29rEioKCmFjdGl2aXRpZXMYCiADKAsyFi5iYWNrcGxhbmUudjEuQWN0aXZpdHkSHAoCdWkYCyABKAsyEC5iYWNrcGxhbmUudjEuVUkSIQoFbm9kZXMYDCADKAsyEi5iYWNrcGxhbmUudjEuTm9kZRITCgtkZXNjcmlwdG9ycxgNIAEoDBIxCg1zdWJzY3JpcHRpb25zGA4gAygLMhouYmFja3BsYW5lLnYxLlN1YnNjcmlwdGlvbhIpCglzY2hlZHVsZXMYDyADKAsyFi5iYWNrcGxhbmUudjEuU2NoZWR1bGUSKQoJd29ya2Zsb3dzGBAgAygLMhYuYmFja3BsYW5lLnYxLldvcmtmbG93EjEKCXRlbGVtZXRyeRgRIAEoCzIeLmJhY2twbGFuZS52MS5UZWxlbWV0cnlTb3VyY2VzSgQIBRAGUgZzdGF0aWNSB2R5bmFtaWMikQEKF1RlbGVtZXRyeVNvdXJjZVNlbGVjdG9yEkUKCHJlc291cmNlGAEgAygLMjMuYmFja3BsYW5lLnYxLlRlbGVtZXRyeVNvdXJjZVNlbGVjdG9yLlJlc291cmNlRW50cnkaLwoNUmVzb3VyY2VFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkwKEFRlbGVtZXRyeVNvdXJjZXMSOAoJc2VsZWN0b3JzGAEgAygLMiUuYmFja3BsYW5lLnYxLlRlbGVtZXRyeVNvdXJjZVNlbGVjdG9yIk0KDUNvbmZpZ1NlY3Rpb24SDAoEa2V5cxgBIAMoCRIgCgZzY2hlbWEYAiABKAsyEC5zY2hlbWFwYi5TY2hlbWESDAoEbGl2ZRgDIAMoCSJMCgROb2RlEgwKBHBhdGgYASABKAkSJAoEa2luZBgCIAEoDjIWLmJhY2twbGFuZS52MS5Ob2RlS2luZBIQCghvcHRpb25hbBgDIAEoCCLeAQoFUm91dGUSDgoGcHJlZml4GAEgASgJEgwKBGhvc3QYAiABKAkSJQoEa2luZBgDIAEoDjIXLmJhY2twbGFuZS52MS5Sb3V0ZUtpbmQSDAoEcG9ydBgEIAEoDRIQCghzZXJ2aWNlcxgIIAMoCRIRCgdvcGVuYXBpGAUgASgMSAASFQoLZGVzY3JpcHRvcnMYBiABKAxIABIRCgdncmFwaHFsGAcgASgMSAASKQoGcG9saWN5GAkgASgLMhkuYmFja3BsYW5lLnYxLlJvdXRlUG9saWN5QggKBnNjaGVtYSLRAQoLUm91dGVQb2xpY3kSKgoHdGltZW91dBgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIvCgxpZGxlX3RpbWVvdXQYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKAoFcmV0cnkYAyABKAsyGS5iYWNrcGxhbmUudjEuUmV0cnlQb2xpY3kSIAoEY29ycxgEIAEoCzISLmJhY2twbGFuZS52MS5Db3JzEhkKEW1heF9yZXF1ZXN0X2J5dGVzGAUgASgEImUKC1JldHJ5UG9saWN5EhAKCGF0dGVtcHRzGAEgASgNEjIKD3Blcl90cnlfdGltZW91dBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIQCghyZXRyeV9vbhgDIAMoCSKSAQoEQ29ycxIPCgdvcmlnaW5zGAEgAygJEg8KB21ldGhvZHMYAiADKAkSDwoHaGVhZGVycxgDIAMoCRIWCg5leHBvc2VfaGVhZGVycxgEIAMoCRITCgtjcmVkZW50aWFscxgFIAEoCBIqCgdtYXhfYWdlGAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIkwKBUV2ZW50EgwKBG5hbWUYASABKAkSIAoGc2NoZW1hGAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEhMKC2Rlc2NyaXB0aW9uGAMgASgJIi8KDFN1YnNjcmlwdGlvbhINCgVldmVudBgBIAEoCRIQCghjb25zdW1lchgCIAEoCSKqAQoESG9vaxIMCgRuYW1lGAEgASgJEh8KBWlucHV0GAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgDIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIQCghyZXF1aXJlZBgEIAEoCBIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhMKC2Rlc2NyaXB0aW9uGAYgASgJIqUCCghBY3Rpdml0eRIMCgRuYW1lGAEgASgJEh8KBWlucHV0GAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgDIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIoCgRraW5kGAQgASgOMhouYmFja3BsYW5lLnYxLkFjdGl2aXR5S2luZBIxCg5zdGFydF90b19jbG9zZRgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIsCgloZWFydGJlYXQYBiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKAoFcmV0cnkYByABKAsyGS5iYWNrcGxhbmUudjEuUmV0cnlQb2xpY3kSEwoLZGVzY3JpcHRpb24YCCABKAkicAoIV29ya2Zsb3cSDAoEbmFtZRgBIAEoCRIfCgVpbnB1dBgCIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIgCgZvdXRwdXQYAyABKAsyEC5zY2hlbWFwYi5TY2hlbWESEwoLZGVzY3JpcHRpb24YBCABKAkiJQoCVUkSDAoEaGFzaBgBIAEoCRIRCglzZGtfbWFqb3IYAiABKA0i7AEKCFNjaGVkdWxlEgwKBG5hbWUYASABKAkSDgoEY3JvbhgCIAEoCUgAEioKBWV2ZXJ5GAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uSAASEAoId29ya2Zsb3cYBCABKAkSLgoHb3ZlcmxhcBgFIAEoDjIdLmJhY2twbGFuZS52MS5TY2hlZHVsZU92ZXJsYXASDgoGcGF1c2VkGAYgASgIEhEKCXRpbWVfem9uZRgHIAEoCRIpCgZqaXR0ZXIYCCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CBgoEc3BlYypxCghOb2RlS2luZBIZChVOT0RFX0tJTkRfVU5TUEVDSUZJRUQQABIXChNOT0RFX0tJTkRfQ09NUE9ORU5UEAESGAoUTk9ERV9LSU5EX0RFUEVOREVOQ1kQAhIXChNOT0RFX0tJTkRfU0lOR0xFVE9OEAMqmgEKCVJvdXRlS2luZBIaChZST1VURV9LSU5EX1VOU1BFQ0lGSUVEEAASEwoPUk9VVEVfS0lORF9IVFRQEAESEwoPUk9VVEVfS0lORF9HUlBDEAISFgoSUk9VVEVfS0lORF9DT05ORUNUEAMSFwoTUk9VVEVfS0lORF9XU19QUk9UTxAEEhYKElJPVVRFX0tJTkRfR1JBUEhRTBAFKmUKDEFjdGl2aXR5S2luZBIdChlBQ1RJVklUWV9LSU5EX1VOU1BFQ0lGSUVEEAASGgoWQUNUSVZJVFlfS0lORF9BQ1RJVklUWRABEhoKFkFDVElWSVRZX0tJTkRfV09SS0ZMT1cQAir5AQoPU2NoZWR1bGVPdmVybGFwEiAKHFNDSEVEVUxFX09WRVJMQVBfVU5TUEVDSUZJRUQQABIZChVTQ0hFRFVMRV9PVkVSTEFQX1NLSVAQARIfChtTQ0hFRFVMRV9PVkVSTEFQX0JVRkZFUl9PTkUQAhIfChtTQ0hFRFVMRV9PVkVSTEFQX0JVRkZFUl9BTEwQAxIhCh1TQ0hFRFVMRV9PVkVSTEFQX0NBTkNFTF9PVEhFUhAEEiQKIFNDSEVEVUxFX09WRVJMQVBfVEVSTUlOQVRFX09USEVSEAUSHgoaU0NIRURVTEVfT1ZFUkxBUF9BTExPV19BTEwQBkI6WjhnaXRodWIuY29tL2dvcGhlcmV4L2JhY2twbGFuZS9iYWNrcGxhbmVwYi92MTtiYWNrcGxhbmV2MWIGcHJvdG8z", [file_google_protobuf_duration, file_schemapb_schema]);
+  fileDesc("Ch1iYWNrcGxhbmVwYi92MS9tYW5pZmVzdC5wcm90bxIMYmFja3BsYW5lLnYxIssECghNYW5pZmVzdBIPCgdzZXJ2aWNlGAEgASgJEg8KB3ZlcnNpb24YAiABKAkSEwoLc2RrX3ZlcnNpb24YAyABKAkSKwoGY29uZmlnGAQgASgLMhsuYmFja3BsYW5lLnYxLkNvbmZpZ1NlY3Rpb24SIwoGcm91dGVzGAYgAygLMhMuYmFja3BsYW5lLnYxLlJvdXRlEhkKEWludGVybmFsX3NlcnZpY2VzGAcgAygJEiMKBmV2ZW50cxgIIAMoCzITLmJhY2twbGFuZS52MS5FdmVudBIhCgVob29rcxgJIAMoCzISLmJhY2twbGFuZS52MS5Ib29rEioKCmFjdGl2aXRpZXMYCiADKAsyFi5iYWNrcGxhbmUudjEuQWN0aXZpdHkSHAoCdWkYCyABKAsyEC5iYWNrcGxhbmUudjEuVUkSIQoFbm9kZXMYDCADKAsyEi5iYWNrcGxhbmUudjEuTm9kZRITCgtkZXNjcmlwdG9ycxgNIAEoDBIxCg1zdWJzY3JpcHRpb25zGA4gAygLMhouYmFja3BsYW5lLnYxLlN1YnNjcmlwdGlvbhIpCglzY2hlZHVsZXMYDyADKAsyFi5iYWNrcGxhbmUudjEuU2NoZWR1bGUSKQoJd29ya2Zsb3dzGBAgAygLMhYuYmFja3BsYW5lLnYxLldvcmtmbG93EjEKCXRlbGVtZXRyeRgRIAEoCzIeLmJhY2twbGFuZS52MS5UZWxlbWV0cnlTb3VyY2VzSgQIBRAGUgZzdGF0aWNSB2R5bmFtaWMikQEKF1RlbGVtZXRyeVNvdXJjZVNlbGVjdG9yEkUKCHJlc291cmNlGAEgAygLMjMuYmFja3BsYW5lLnYxLlRlbGVtZXRyeVNvdXJjZVNlbGVjdG9yLlJlc291cmNlRW50cnkaLwoNUmVzb3VyY2VFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIkwKEFRlbGVtZXRyeVNvdXJjZXMSOAoJc2VsZWN0b3JzGAEgAygLMiUuYmFja3BsYW5lLnYxLlRlbGVtZXRyeVNvdXJjZVNlbGVjdG9yIk0KDUNvbmZpZ1NlY3Rpb24SDAoEa2V5cxgBIAMoCRIgCgZzY2hlbWEYAiABKAsyEC5zY2hlbWFwYi5TY2hlbWESDAoEbGl2ZRgDIAMoCSJMCgROb2RlEgwKBHBhdGgYASABKAkSJAoEa2luZBgCIAEoDjIWLmJhY2twbGFuZS52MS5Ob2RlS2luZBIQCghvcHRpb25hbBgDIAEoCCKPAgoFUm91dGUSDgoGcHJlZml4GAEgASgJEgwKBGhvc3QYAiABKAkSJQoEa2luZBgDIAEoDjIXLmJhY2twbGFuZS52MS5Sb3V0ZUtpbmQSDAoEcG9ydBgEIAEoDRIQCghzZXJ2aWNlcxgIIAMoCRIRCgdvcGVuYXBpGAUgASgMSAASFQoLZGVzY3JpcHRvcnMYBiABKAxIABIRCgdncmFwaHFsGAcgASgMSAASLwoGYnVuZGxlGAogASgLMh0uYmFja3BsYW5lLnYxLkFQSVNjaGVtYUJ1bmRsZUgAEikKBnBvbGljeRgJIAEoCzIZLmJhY2twbGFuZS52MS5Sb3V0ZVBvbGljeUIICgZzY2hlbWEiWgoPQVBJU2NoZW1hQnVuZGxlEgwKBGhhc2gYASABKAkSDQoFZW50cnkYAiABKAkSKgoGZm9ybWF0GAMgASgOMhouYmFja3BsYW5lLnYxLlNjaGVtYUZvcm1hdCLRAQoLUm91dGVQb2xpY3kSKgoHdGltZW91dBgBIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIvCgxpZGxlX3RpbWVvdXQYAiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKAoFcmV0cnkYAyABKAsyGS5iYWNrcGxhbmUudjEuUmV0cnlQb2xpY3kSIAoEY29ycxgEIAEoCzISLmJhY2twbGFuZS52MS5Db3JzEhkKEW1heF9yZXF1ZXN0X2J5dGVzGAUgASgEImUKC1JldHJ5UG9saWN5EhAKCGF0dGVtcHRzGAEgASgNEjIKD3Blcl90cnlfdGltZW91dBgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIQCghyZXRyeV9vbhgDIAMoCSKSAQoEQ29ycxIPCgdvcmlnaW5zGAEgAygJEg8KB21ldGhvZHMYAiADKAkSDwoHaGVhZGVycxgDIAMoCRIWCg5leHBvc2VfaGVhZGVycxgEIAMoCRITCgtjcmVkZW50aWFscxgFIAEoCBIqCgdtYXhfYWdlGAYgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uIkwKBUV2ZW50EgwKBG5hbWUYASABKAkSIAoGc2NoZW1hGAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEhMKC2Rlc2NyaXB0aW9uGAMgASgJIi8KDFN1YnNjcmlwdGlvbhINCgVldmVudBgBIAEoCRIQCghjb25zdW1lchgCIAEoCSKqAQoESG9vaxIMCgRuYW1lGAEgASgJEh8KBWlucHV0GAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgDIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIQCghyZXF1aXJlZBgEIAEoCBIqCgd0aW1lb3V0GAUgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uEhMKC2Rlc2NyaXB0aW9uGAYgASgJIqUCCghBY3Rpdml0eRIMCgRuYW1lGAEgASgJEh8KBWlucHV0GAIgASgLMhAuc2NoZW1hcGIuU2NoZW1hEiAKBm91dHB1dBgDIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIoCgRraW5kGAQgASgOMhouYmFja3BsYW5lLnYxLkFjdGl2aXR5S2luZBIxCg5zdGFydF90b19jbG9zZRgFIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIsCgloZWFydGJlYXQYBiABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb24SKAoFcmV0cnkYByABKAsyGS5iYWNrcGxhbmUudjEuUmV0cnlQb2xpY3kSEwoLZGVzY3JpcHRpb24YCCABKAkicAoIV29ya2Zsb3cSDAoEbmFtZRgBIAEoCRIfCgVpbnB1dBgCIAEoCzIQLnNjaGVtYXBiLlNjaGVtYRIgCgZvdXRwdXQYAyABKAsyEC5zY2hlbWFwYi5TY2hlbWESEwoLZGVzY3JpcHRpb24YBCABKAkiJQoCVUkSDAoEaGFzaBgBIAEoCRIRCglzZGtfbWFqb3IYAiABKA0i7AEKCFNjaGVkdWxlEgwKBG5hbWUYASABKAkSDgoEY3JvbhgCIAEoCUgAEioKBWV2ZXJ5GAMgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uSAASEAoId29ya2Zsb3cYBCABKAkSLgoHb3ZlcmxhcBgFIAEoDjIdLmJhY2twbGFuZS52MS5TY2hlZHVsZU92ZXJsYXASDgoGcGF1c2VkGAYgASgIEhEKCXRpbWVfem9uZRgHIAEoCRIpCgZqaXR0ZXIYCCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CBgoEc3BlYypxCghOb2RlS2luZBIZChVOT0RFX0tJTkRfVU5TUEVDSUZJRUQQABIXChNOT0RFX0tJTkRfQ09NUE9ORU5UEAESGAoUTk9ERV9LSU5EX0RFUEVOREVOQ1kQAhIXChNOT0RFX0tJTkRfU0lOR0xFVE9OEAMqYwoMU2NoZW1hRm9ybWF0Eh0KGVNDSEVNQV9GT1JNQVRfVU5TUEVDSUZJRUQQABIZChVTQ0hFTUFfRk9STUFUX09QRU5BUEkQARIZChVTQ0hFTUFfRk9STUFUX0dSQVBIUUwQAiqaAQoJUm91dGVLaW5kEhoKFlJPVVRFX0tJTkRfVU5TUEVDSUZJRUQQABITCg9ST1VURV9LSU5EX0hUVFAQARITCg9ST1VURV9LSU5EX0dSUEMQAhIWChJST1VURV9LSU5EX0NPTk5FQ1QQAxIXChNST1VURV9LSU5EX1dTX1BST1RPEAQSFgoSUk9VVEVfS0lORF9HUkFQSFFMEAUqZQoMQWN0aXZpdHlLaW5kEh0KGUFDVElWSVRZX0tJTkRfVU5TUEVDSUZJRUQQABIaChZBQ1RJVklUWV9LSU5EX0FDVElWSVRZEAESGgoWQUNUSVZJVFlfS0lORF9XT1JLRkxPVxACKvkBCg9TY2hlZHVsZU92ZXJsYXASIAocU0NIRURVTEVfT1ZFUkxBUF9VTlNQRUNJRklFRBAAEhkKFVNDSEVEVUxFX09WRVJMQVBfU0tJUBABEh8KG1NDSEVEVUxFX09WRVJMQVBfQlVGRkVSX09ORRACEh8KG1NDSEVEVUxFX09WRVJMQVBfQlVGRkVSX0FMTBADEiEKHVNDSEVEVUxFX09WRVJMQVBfQ0FOQ0VMX09USEVSEAQSJAogU0NIRURVTEVfT1ZFUkxBUF9URVJNSU5BVEVfT1RIRVIQBRIeChpTQ0hFRFVMRV9PVkVSTEFQX0FMTE9XX0FMTBAGQjpaOGdpdGh1Yi5jb20vZ29waGVyZXgvYmFja3BsYW5lL2JhY2twbGFuZXBiL3YxO2JhY2twbGFuZXYxYgZwcm90bzM", [file_google_protobuf_duration, file_schemapb_schema]);
 
 /**
  * Manifest is everything a service declares. The SDK assembles it at start
@@ -310,6 +310,14 @@ export type Route = Message<"backplane.v1.Route"> & {
      */
     value: Uint8Array;
     case: "graphql";
+  } | {
+    /**
+     * Files served by the SDK on the platform port, outside Consul KV.
+     *
+     * @generated from field: backplane.v1.APISchemaBundle bundle = 10;
+     */
+    value: APISchemaBundle;
+    case: "bundle";
   } | { case: undefined; value?: undefined };
 
   /**
@@ -326,6 +334,37 @@ export type Route = Message<"backplane.v1.Route"> & {
  */
 export const RouteSchema: GenMessage<Route> = /*@__PURE__*/
   messageDesc(file_backplanepb_v1_manifest, 5);
+
+/**
+ * An immutable API file snapshot, delivered separately from the manifest.
+ *
+ * @generated from message backplane.v1.APISchemaBundle
+ */
+export type APISchemaBundle = Message<"backplane.v1.APISchemaBundle"> & {
+  /**
+   * @generated from field: string hash = 1;
+   */
+  hash: string;
+
+  /**
+   * Entry file relative to the bundle root; may reference other bundle files.
+   *
+   * @generated from field: string entry = 2;
+   */
+  entry: string;
+
+  /**
+   * @generated from field: backplane.v1.SchemaFormat format = 3;
+   */
+  format: SchemaFormat;
+};
+
+/**
+ * Describes the message backplane.v1.APISchemaBundle.
+ * Use `create(APISchemaBundleSchema)` to create a new message.
+ */
+export const APISchemaBundleSchema: GenMessage<APISchemaBundle> = /*@__PURE__*/
+  messageDesc(file_backplanepb_v1_manifest, 6);
 
 /**
  * What Envoy enforces on a route. Durations of zero mean "platform default";
@@ -367,7 +406,7 @@ export type RoutePolicy = Message<"backplane.v1.RoutePolicy"> & {
  * Use `create(RoutePolicySchema)` to create a new message.
  */
 export const RoutePolicySchema: GenMessage<RoutePolicy> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 6);
+  messageDesc(file_backplanepb_v1_manifest, 7);
 
 /**
  * @generated from message backplane.v1.RetryPolicy
@@ -396,7 +435,7 @@ export type RetryPolicy = Message<"backplane.v1.RetryPolicy"> & {
  * Use `create(RetryPolicySchema)` to create a new message.
  */
 export const RetryPolicySchema: GenMessage<RetryPolicy> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 7);
+  messageDesc(file_backplanepb_v1_manifest, 8);
 
 /**
  * @generated from message backplane.v1.Cors
@@ -438,7 +477,7 @@ export type Cors = Message<"backplane.v1.Cors"> & {
  * Use `create(CorsSchema)` to create a new message.
  */
 export const CorsSchema: GenMessage<Cors> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 8);
+  messageDesc(file_backplanepb_v1_manifest, 9);
 
 /**
  * @generated from message backplane.v1.Event
@@ -465,7 +504,7 @@ export type Event = Message<"backplane.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 9);
+  messageDesc(file_backplanepb_v1_manifest, 10);
 
 /**
  * A reactor: a durable consumer of another service's event.
@@ -494,7 +533,7 @@ export type Subscription = Message<"backplane.v1.Subscription"> & {
  * Use `create(SubscriptionSchema)` to create a new message.
  */
 export const SubscriptionSchema: GenMessage<Subscription> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 10);
+  messageDesc(file_backplanepb_v1_manifest, 11);
 
 /**
  * An operation the service calls without implementing it.
@@ -542,7 +581,7 @@ export type Hook = Message<"backplane.v1.Hook"> & {
  * Use `create(HookSchema)` to create a new message.
  */
 export const HookSchema: GenMessage<Hook> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 11);
+  messageDesc(file_backplanepb_v1_manifest, 12);
 
 /**
  * An operation the service implements; a binding step target.
@@ -598,7 +637,7 @@ export type Activity = Message<"backplane.v1.Activity"> & {
  * Use `create(ActivitySchema)` to create a new message.
  */
 export const ActivitySchema: GenMessage<Activity> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 12);
+  messageDesc(file_backplanepb_v1_manifest, 13);
 
 /**
  * A workflow of the service the console may start with a form.
@@ -634,7 +673,7 @@ export type Workflow = Message<"backplane.v1.Workflow"> & {
  * Use `create(WorkflowSchema)` to create a new message.
  */
 export const WorkflowSchema: GenMessage<Workflow> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 13);
+  messageDesc(file_backplanepb_v1_manifest, 14);
 
 /**
  * @generated from message backplane.v1.UI
@@ -658,7 +697,7 @@ export type UI = Message<"backplane.v1.UI"> & {
  * Use `create(UISchema)` to create a new message.
  */
 export const UISchema: GenMessage<UI> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 14);
+  messageDesc(file_backplanepb_v1_manifest, 15);
 
 /**
  * A Temporal Schedule the service declares; the SDK reconciles it at start.
@@ -737,7 +776,7 @@ export type Schedule = Message<"backplane.v1.Schedule"> & {
  * Use `create(ScheduleSchema)` to create a new message.
  */
 export const ScheduleSchema: GenMessage<Schedule> = /*@__PURE__*/
-  messageDesc(file_backplanepb_v1_manifest, 15);
+  messageDesc(file_backplanepb_v1_manifest, 16);
 
 /**
  * @generated from enum backplane.v1.NodeKind
@@ -769,6 +808,32 @@ export enum NodeKind {
  */
 export const NodeKindSchema: GenEnum<NodeKind> = /*@__PURE__*/
   enumDesc(file_backplanepb_v1_manifest, 0);
+
+/**
+ * @generated from enum backplane.v1.SchemaFormat
+ */
+export enum SchemaFormat {
+  /**
+   * @generated from enum value: SCHEMA_FORMAT_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SCHEMA_FORMAT_OPENAPI = 1;
+   */
+  OPENAPI = 1,
+
+  /**
+   * @generated from enum value: SCHEMA_FORMAT_GRAPHQL = 2;
+   */
+  GRAPHQL = 2,
+}
+
+/**
+ * Describes the enum backplane.v1.SchemaFormat.
+ */
+export const SchemaFormatSchema: GenEnum<SchemaFormat> = /*@__PURE__*/
+  enumDesc(file_backplanepb_v1_manifest, 1);
 
 /**
  * @generated from enum backplane.v1.RouteKind
@@ -809,7 +874,7 @@ export enum RouteKind {
  * Describes the enum backplane.v1.RouteKind.
  */
 export const RouteKindSchema: GenEnum<RouteKind> = /*@__PURE__*/
-  enumDesc(file_backplanepb_v1_manifest, 1);
+  enumDesc(file_backplanepb_v1_manifest, 2);
 
 /**
  * @generated from enum backplane.v1.ActivityKind
@@ -839,7 +904,7 @@ export enum ActivityKind {
  * Describes the enum backplane.v1.ActivityKind.
  */
 export const ActivityKindSchema: GenEnum<ActivityKind> = /*@__PURE__*/
-  enumDesc(file_backplanepb_v1_manifest, 2);
+  enumDesc(file_backplanepb_v1_manifest, 3);
 
 /**
  * What a start does while the previous run is still going.
@@ -899,5 +964,5 @@ export enum ScheduleOverlap {
  * Describes the enum backplane.v1.ScheduleOverlap.
  */
 export const ScheduleOverlapSchema: GenEnum<ScheduleOverlap> = /*@__PURE__*/
-  enumDesc(file_backplanepb_v1_manifest, 3);
+  enumDesc(file_backplanepb_v1_manifest, 4);
 

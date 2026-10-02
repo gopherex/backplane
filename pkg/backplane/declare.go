@@ -41,6 +41,7 @@ func init() {
 var (
 	errPrefixTaken    = errors.New("prefix served twice")
 	errConsolePackage = errors.New("must be in proto package")
+	errSchemaConflict = errors.New("route: inline and file API schemas declared together")
 )
 
 // Route announces a route the author serves themselves.
@@ -54,6 +55,7 @@ func (c *core) Route(d route.Decl) {
 		}
 
 		c.env.Manifest.Route(r)
+		c.mountSchemaFiles(link.Routes.Files(d))
 	})
 }
 
@@ -148,6 +150,16 @@ func (c *core) mountHTTP(
 			r.Schema = &backplanev1.Route_Openapi{Openapi: spec.OpenAPI}
 		}
 
+		if spec.SchemaFiles != nil {
+			if extra.GetSchema() != nil {
+				c.env.Manifest.Fail(errSchemaConflict)
+				return
+			}
+
+			r.Schema = &backplanev1.Route_Bundle{Bundle: spec.SchemaFiles.Ref}
+			c.mountSchemaFiles(spec.SchemaFiles)
+		}
+
 		if extra != nil {
 			r.Services = extra.GetServices()
 			if extra.GetSchema() != nil {
@@ -217,6 +229,34 @@ func uiHandler(bundle fs.FS, hash string) http.Handler {
 
 		files.ServeHTTP(w, r)
 	})
+}
+
+// mountSchemaFiles reuses the platform port's internal authentication and ETags.
+func (c *core) mountSchemaFiles(bundle *routes.SchemaFiles) {
+	if bundle == nil {
+		return
+	}
+
+	if bundle.Err != nil {
+		c.env.Manifest.Fail(bundle.Err)
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.apiBundles == nil {
+		c.apiBundles = map[string]bool{}
+	}
+
+	hash := bundle.Ref.GetHash()
+	if c.apiBundles[hash] {
+		return
+	}
+
+	c.apiBundles[hash] = true
+	prefix := "/_backplane/api/" + hash + "/"
+	c.platform.Handle(prefix, http.StripPrefix(prefix, uiHandler(bundle.Files, hash)))
 }
 
 // LivenessProbe adds a liveness probe. Keep dependencies out of it: a dead

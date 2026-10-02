@@ -35,10 +35,11 @@ var SetLive func(live, v any)
 //
 //nolint:gochecknoglobals // set once by route at init
 var Routes struct {
-	Decl func(d any) (*backplanev1.Route, error)
-	GRPC func(opts any) routes.Managed
-	HTTP func(opts any) routes.Managed
-	WS   func(opts any) routes.Managed
+	Decl  func(d any) (*backplanev1.Route, error)
+	Files func(d any) *routes.SchemaFiles
+	GRPC  func(opts any) routes.Managed
+	HTTP  func(opts any) routes.Managed
+	WS    func(opts any) routes.Managed
 }
 
 // MountWS serves a ws-proto endpoint on a *backplane.Service.

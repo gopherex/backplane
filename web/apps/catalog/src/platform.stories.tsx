@@ -6,6 +6,8 @@ import { ServiceHealth } from '@gopherex/backplane-api';
 import '@xyflow/react/dist/base.css';
 import { Button, Checkbox, Stack } from '@gopherex/backplane-ui';
 import { PlatformFixture } from './platform-fixture';
+import { ServiceAPIDocument } from '@gopherex/backplane-platform-ui';
+import { externalAPIManifest, readAPIFixtureFile } from './api-fixture';
 
 function Fixture({ children }: { children: ReactNode }) {
   const runtime = useMemo(() => new PlatformFixture(), []), [tick, setTick] = useState(0), [fail, setFail] = useState(false);
@@ -26,6 +28,7 @@ export default { title: 'Kit/Platform', decorators: [(Story) => <Fixture><Story 
 type Story = StoryObj;
 const mode = (context: { globals: Record<string, unknown> }) => context.globals.theme === 'light' ? 'light' as const : 'dark' as const;
 export const ServicesAndHealth: Story = { render: (_, context) => <Services mode={mode(context)} /> };
+export const ExternalAPI: Story = { render: (_, context) => <ServiceAPIDocument manifest={externalAPIManifest()} readFile={readAPIFixtureFile} mode={mode(context)} /> };
 export const Configuration: Story = { render: (_, context) => <ConfigurationPanel service="hello" mode={mode(context)} /> };
 function AuditPage({ mode }: { mode: 'dark' | 'light' }) {
   const [state, setState] = useState<AuditState>({ ...defaultAuditState, range: { from: '2026-09-30T11:55:00Z', to: '2026-09-30T12:10:00Z', timeZone: 'utc' }, live: 0 });

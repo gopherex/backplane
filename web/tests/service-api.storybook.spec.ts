@@ -1,0 +1,30 @@
+import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+for (const theme of ['dark', 'light']) test(`${theme}: external API documents`, async ({ page }) => {
+  const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(`/iframe.html?id=kit-platform--external-api&viewMode=story&globals=theme:${theme}`);
+  await expect(page.getByRole('heading', { name: 'Visitor API' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Parameters', exact: true })).toContainText('id (path)');
+  await page.getByRole('button', { name: /DELETE/ }).click();
+  await expect(page.getByRole('heading', { name: 'Response 204' })).toBeVisible();
+  await page.getByText('Visitor', { exact: true }).click();
+  await expect(page.getByRole('table', { name: 'Visitor', exact: true })).toContainText('Display name');
+  await page.getByRole('textbox', { name: 'Find a method or path' }).fill('does-not-exist');
+  await expect(page.getByText('No matching operations.')).toBeVisible();
+  await page.getByLabel('Route', { exact: true }).selectOption('1');
+  await expect(page.getByRole('heading', { name: 'RPC /public.v1.Greeter/Watch' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Response', exact: true })).toContainText('stream');
+  await page.getByLabel('Route', { exact: true }).selectOption('3');
+  await expect(page.getByRole('heading', { name: 'QUERY greeting' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Parameters', exact: true })).toContainText('String!');
+  expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await page.getByLabel('Route', { exact: true }).selectOption('4');
+  await expect(page.getByText('No API document published', { exact: true })).toBeVisible();
+  await page.getByLabel('Route', { exact: true }).selectOption('5');
+  await expect(page.getByText('Could not read the API document', { exact: true })).toBeVisible();
+  await page.getByLabel('Route', { exact: true }).selectOption('6');
+  await expect(page.getByRole('heading', { name: 'Multi-file visitor API' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'GET /bundle/visitor' })).toBeVisible();
+  expect(errors).toEqual([]);
+});

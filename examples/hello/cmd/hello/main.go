@@ -140,6 +140,7 @@ func run(ctx context.Context) error {
 
 	// HTTP and GraphQL, with their Envoy policy.
 	svc.HTTP("/hello/", web.Hello(st.Flows.Greet, st.Greeter),
+		route.OpenAPIFS(web.API, "openapi.yaml"),
 		route.Middleware(web.ServedBy(svc.Name())), route.Timeout(httpTimeout),
 		route.CORS(route.CORSPolicy{Origins: []string{"*"}, Methods: []string{"GET"}, MaxAge: corsMaxAge}))
 	svc.GraphQL("/graphql/", web.GraphQL(st.Greeter), web.Introspection,

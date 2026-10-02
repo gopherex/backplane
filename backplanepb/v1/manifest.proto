@@ -104,9 +104,25 @@ message Route {
     bytes descriptors = 6;
     // Introspection result as JSON (GraphQL).
     bytes graphql = 7;
+    // Files served by the SDK on the platform port, outside Consul KV.
+    APISchemaBundle bundle = 10;
   }
   // Envoy policy; unset fields take the platform defaults.
   RoutePolicy policy = 9;
+}
+
+// An immutable API file snapshot, delivered separately from the manifest.
+message APISchemaBundle {
+  string hash = 1;
+  // Entry file relative to the bundle root; may reference other bundle files.
+  string entry = 2;
+  SchemaFormat format = 3;
+}
+
+enum SchemaFormat {
+  SCHEMA_FORMAT_UNSPECIFIED = 0;
+  SCHEMA_FORMAT_OPENAPI = 1;
+  SCHEMA_FORMAT_GRAPHQL = 2;
 }
 
 // What Envoy enforces on a route. Durations of zero mean "platform default";

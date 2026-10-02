@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	backplanev1 "github.com/gopherex/backplane/backplanepb/v1"
+	"github.com/gopherex/backplane/pkg/backplane/internal/apifiles"
 )
 
 // Errors.
@@ -23,10 +24,11 @@ var (
 
 // Managed is a route the SDK serves.
 type Managed struct {
-	Listen    string
-	Host      string
-	Transcode bool   // gRPC: Connect (gRPC-Web, REST-JSON) at Envoy
-	OpenAPI   []byte // HTTP
+	Listen      string
+	Host        string
+	Transcode   bool   // gRPC: Connect (gRPC-Web, REST-JSON) at Envoy
+	OpenAPI     []byte // HTTP
+	SchemaFiles *SchemaFiles
 	// Envoy policy; nil takes the platform defaults.
 	Policy *backplanev1.RoutePolicy
 	// gRPC and ws-proto: interceptors of this registration only.
@@ -36,6 +38,13 @@ type Managed struct {
 	Middleware []func(http.Handler) http.Handler
 	// gRPC: serve grpc.reflection on the route's port.
 	Reflection bool
+}
+
+// SchemaFiles is a file snapshot and its manifest reference (or a declaration error).
+type SchemaFiles struct {
+	Files *apifiles.Files
+	Ref   *backplanev1.APISchemaBundle
+	Err   error
 }
 
 // PolicyOf returns p, allocating it when nil.
