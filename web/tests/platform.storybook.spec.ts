@@ -1,3 +1,4 @@
+import { chooseOption } from './choose-option';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const stories = ['services-and-health', 'configuration', 'audit', 'errors', 'explore', 'operations', 'wiring-yaml', 'wiring-graph', 'wiring-loop', 'wiring-rule', 'workflows', 'schedules', 'events-and-dead-letters', 'automation', 'workflows-workspace', 'system-map-view'];
@@ -63,7 +64,7 @@ for (const theme of ['dark', 'light']) for (const story of stories) {
     if (story === 'explore') {
       await expect(page.getByRole('button', { name: 'service.name', exact: true })).toBeVisible();
       await expect(page.getByRole('list', { name: 'Logs', exact: true }).getByText('Hello from storage', { exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Traces', exact: true }).click(); await page.getByLabel('Language', { exact: true }).selectOption('traceql');
+      await page.getByRole('button', { name: 'Traces', exact: true }).click(); await chooseOption(page, 'Language', 'traceql');
       await page.getByRole('button', { name: 'Run query' }).click(); const traces = page.getByRole('table', { name: 'Traces', exact: true }); await expect(traces.getByText('Greet', { exact: true })).toBeVisible();
       await traces.locator('tbody tr').first().focus(); await page.keyboard.press('Enter');
       await expect(page.getByRole('dialog').getByText('1 span', { exact: true })).toBeVisible();

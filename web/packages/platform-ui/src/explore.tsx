@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { create } from '@bufbuild/protobuf';
 import { ObsServiceClient, GetObsCapabilitiesRequestSchema, GetObsSelectorsRequestSchema, ListObsFieldsRequestSchema, ListObsFieldValuesRequestSchema, ListObsSourcesRequestSchema, QueryObsRequestSchema, type QueryObsResponse } from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
-import { Badge, Button, DetailDrawer, EmptyState, FilterCombo, Input, NativeSelect, NativeSelectOption, Panel, Skeleton, Switch } from '@gopherex/backplane-ui';
+import { Badge, Button, DetailDrawer, EmptyState, FilterCombo, Input, SelectControl, Panel, Skeleton, Switch } from '@gopherex/backplane-ui';
 import { CodeEditor, type QueryLanguage } from '@gopherex/backplane-editors';
 import type { CorrelationTarget } from '@gopherex/backplane-observability-ui';
 import { Activity, ChevronRight, CircleAlert, FileText, LayoutDashboard, Play, Radio, Search, Waypoints } from 'lucide-react';
@@ -81,8 +81,8 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
             return <button key={signal} type="button" aria-pressed={state.signal === signal} onClick={() => { setDraft(undefined); setBuilder({ service: builder.service }); update({ signal, query: undefined, language: undefined, limit: undefined }); }}
               className="inline-flex h-6 items-center gap-1.5 rounded-sm px-2.5 text-xs text-muted-foreground hover:text-foreground aria-pressed:bg-raised aria-pressed:text-foreground"><Icon className="size-3.5" />{text(signal)}</button>; })}
         </div>
-        {languages.length > 1 ? <NativeSelect className="h-8 w-32" aria-label={text('language')} value={language} onChange={(event) => { setDraft(undefined); update({ language: event.target.value, query: undefined }); }}>
-          {languages.map((item) => <NativeSelectOption key={item} value={item}>{languageLabel[item]}</NativeSelectOption>)}</NativeSelect>
+        {languages.length > 1 ? <SelectControl className="h-8 w-32" aria-label={text('language')} value={language} onValueChange={(value) => { setDraft(undefined); update({ language: value, query: undefined }); }}
+          options={languages.map((item) => ({ value: item, label: languageLabel[item] }))} />
           : language && <Badge variant="outline" className="h-8 rounded-md px-2.5 font-mono">{languageLabel[language]}</Badge>}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
         <FilterCombo mono label={text('service')} value={builder.service ?? ''} onChange={(value) => changeBuilder({ service: value || undefined })} loadOptions={options(serviceField)} />
@@ -93,8 +93,8 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
         {state.signal === 'metrics' && <>
           <Button size="sm" variant={overview ? 'secondary' : 'outline'} aria-pressed={overview} onClick={() => { setDraft(undefined); setBuilder({ service: builder.service }); update({ query: undefined }); }}><LayoutDashboard />{text('dashboard')}</Button>
           <FilterCombo mono className="max-w-96" label={text('metric')} value={builder.metric ?? ''} onChange={(metric) => changeBuilder({ metric: metric || undefined, fn: metric ? defaultFunction(metric) : undefined })} loadOptions={options('__name__', builder.service ? `{service.name=${JSON.stringify(builder.service)}}` : '')} />
-          <NativeSelect className="h-8 w-28" aria-label={text('aggregation')} value={builder.fn ?? (builder.metric ? defaultFunction(builder.metric) : 'raw')} onChange={(event) => changeBuilder({ fn: event.target.value as MetricFunction })}>
-            {metricFunctions.map((fn) => <NativeSelectOption key={fn} value={fn}>{text(`fn_${fn}`)}</NativeSelectOption>)}</NativeSelect>
+          <SelectControl className="h-8 w-28" aria-label={text('aggregation')} value={builder.fn ?? (builder.metric ? defaultFunction(builder.metric) : 'raw')} onValueChange={(value) => changeBuilder({ fn: value as MetricFunction })}
+            options={metricFunctions.map((fn) => ({ value: fn, label: text(`fn_${fn}`) }))} />
           <FilterCombo mono label={text('groupBy')} value={builder.groupBy ?? ''} onChange={(value) => changeBuilder({ groupBy: value || undefined })} loadOptions={options('')} options={['service.name', 'service.instance.id']} />
         </>}
         {state.signal === 'traces' && <>
@@ -102,11 +102,10 @@ export function ExplorePanel({ mode, service, state: controlled, onStateChange, 
           <label className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-2 text-xs text-muted-foreground"><Switch size="sm" checked={!!builder.errors} onCheckedChange={(errors) => changeBuilder({ errors })} />{text('errorsOnly')}</label>
         </>}
         <div className="ml-auto flex items-center gap-2">
-          {state.signal !== 'metrics' && <NativeSelect className="h-8 w-28" aria-label={text('limit')} value={limit} onChange={(event) => update({ limit: Number(event.target.value) })}>
-            {limits.filter((value) => value <= (capabilities.value?.maxLimit ?? 5000)).map((value) => <NativeSelectOption key={value} value={value}>{text('limitRows', { count: value })}</NativeSelectOption>)}</NativeSelect>}
-          <NativeSelect className="h-8 w-32" aria-label={text('timeRange')} value={state.range} onChange={(event) => update({ range: event.target.value as ExploreRange })}>
-            {Object.keys(ranges).map((range) => <NativeSelectOption key={range} value={range}>{text('lastRange', { range })}</NativeSelectOption>)}
-          </NativeSelect>
+          {state.signal !== 'metrics' && <SelectControl className="h-8 w-28" aria-label={text('limit')} value={String(limit)} onValueChange={(value) => update({ limit: Number(value) })}
+            options={limits.filter((value) => value <= (capabilities.value?.maxLimit ?? 5000)).map((value) => ({ value: String(value), label: text('limitRows', { count: value }) }))} />}
+          <SelectControl className="h-8 w-32" aria-label={text('timeRange')} value={state.range} onValueChange={(value) => update({ range: value as ExploreRange })}
+            options={Object.keys(ranges).map((range) => ({ value: range, label: text('lastRange', { range }) }))} />
           <Button size="sm" disabled={!language || action.pending || action.disabled} onClick={() => run()}><Play />{action.pending ? text('running') : text('runQuery')}</Button>
         </div>
       </div>

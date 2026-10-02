@@ -1,3 +1,4 @@
+import { chooseOption } from './choose-option';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -20,18 +21,18 @@ for (const theme of ['dark', 'light']) test(`${theme}: external API documents`, 
   await page.getByRole('textbox', { name: 'Find a method or path' }).fill('does-not-exist');
   await expect(page.getByText('No matching operations.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'GET /api/visitors/{id}' })).not.toBeVisible();
-  await page.getByLabel('Route', { exact: true }).selectOption('1');
+  await chooseOption(page, 'Route', '1');
   await expect(page.getByRole('heading', { name: 'RPC /public.v1.Greeter/Watch' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Response', exact: true })).toContainText('stream');
-  await page.getByLabel('Route', { exact: true }).selectOption('3');
+  await chooseOption(page, 'Route', '3');
   await expect(page.getByRole('heading', { name: 'QUERY greeting' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Parameters', exact: true })).toContainText('String!');
   expect((await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-  await page.getByLabel('Route', { exact: true }).selectOption('4');
+  await chooseOption(page, 'Route', '4');
   await expect(page.getByText('No API document published', { exact: true })).toBeVisible();
-  await page.getByLabel('Route', { exact: true }).selectOption('5');
+  await chooseOption(page, 'Route', '5');
   await expect(page.getByText('Could not read the API document', { exact: true })).toBeVisible();
-  await page.getByLabel('Route', { exact: true }).selectOption('6');
+  await chooseOption(page, 'Route', '6');
   await expect(page.getByRole('heading', { name: 'Multi-file visitor API' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'GET /bundle/visitor' })).toBeVisible();
   expect(errors).toEqual([]);

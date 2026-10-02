@@ -4,7 +4,7 @@ import { timestampDate } from '@bufbuild/protobuf/wkt';
 import { ErrorFacetsRequestSchema, ErrorHistogramRequestSchema, ErrorOrigin, ErrorRelation, ErrorServiceClient, GetErrorRequestSchema, RelatedLogsRequestSchema,
   SearchErrorsRequestSchema, type ErrorOccurrence, type GetErrorResponse } from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
-import { Badge, Button, DetailDrawer, EmptyState, NativeSelect, Panel, Skeleton, Timestamp, resolveTimeRange, type TimeRangeValue } from '@gopherex/backplane-ui';
+import { Badge, Button, DetailDrawer, EmptyState, SelectControl, Panel, Skeleton, Timestamp, resolveTimeRange, type TimeRangeValue } from '@gopherex/backplane-ui';
 import { JSONViewer } from '@gopherex/backplane-editors';
 import { ErrorDetails, LogViewer } from '@gopherex/backplane-observability-ui';
 import { AppWindow, Bug, CircleAlert, Server, Waypoints } from 'lucide-react';
@@ -202,8 +202,8 @@ function LogsTab({ occurrence, mode }: { occurrence: ErrorOccurrence; mode: 'dar
   const logs = usePlatformQuery(`error-logs:${occurrence.ref}:${relation}`, (signal) => client.relatedLogs(create(RelatedLogsRequestSchema, { ref: occurrence.ref, relation, pageSize: 200 }), { signal }));
   const records = useMemo(() => relatedRecords(logs.value?.logs ?? []), [logs.value]);
   return <div className="grid gap-2">
-    <NativeSelect aria-label={text('relatedLogs')} value={relation} onChange={(event) => setRelation(Number(event.target.value) as (typeof relations)[number])} className="max-w-72">
-      {relations.map((entry) => <option key={entry} value={entry}>{text(relationName[entry])}</option>)}</NativeSelect>
+    <SelectControl aria-label={text('relatedLogs')} value={String(relation)} onValueChange={(value) => setRelation(Number(value) as (typeof relations)[number])} className="max-w-72"
+      options={relations.map((entry) => ({ value: String(entry), label: text(relationName[entry]) }))} />
     {logs.value && logs.value.status !== 'available' && logs.value.status !== 'partial'
       ? <EmptyState className="py-8" title={text('noRelatedLogs')} description={logs.value.reason || logs.value.status} />
       : <LogViewer label={text('relatedLogs')} records={records} mode={mode} loading={logs.loading} partial={logs.value?.status === 'partial'} />}

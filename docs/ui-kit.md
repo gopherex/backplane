@@ -46,7 +46,7 @@ classes the module would have to generate.
 | Actions | ConfirmAction, ClipboardButton | Abortable confirmation with optional fields (a note, a reason) between description and buttons, retained failure state, clipboard success/failure |
 | Text | SearchInput, SecretInput, AutoSizeInput, AutoSizeTextarea, AutoSaveInput | Clear/reveal, masked readonly secrets, size limits, blur-save with explicit retry |
 | Numbers | NumberInput, stepDecimal | Controlled decimal strings and exact bigint arithmetic; units, bounds, readonly |
-| Selection | Combobox, TagsInput, Cascader | Static/async and multiple selection; literal string IDs; cancellation and retry |
+| Selection | SelectControl, Combobox, TagsInput, Cascader | Themed single choice with keyboard/typeahead; static/async and multiple selection; literal string IDs; cancellation and retry |
 | Forms | FormControl plus Field components | React Hook Form Controller, field labels/descriptions/errors and native RHF rules |
 | Time | DateTimeInput, TimeRangeControl, RefreshControl | ISO calendar/time controls; relative/absolute ranges, timezone, week start; no overlapping refreshes |
 | Files | FileUpload | Type/size/count limits, drag/drop, progress, retry and cancellation; caller-owned upload transport |
@@ -56,6 +56,18 @@ classes the module would have to generate.
 
 Schema-driven forms are a separate [package](schema-forms.md). Editors,
 visualizations and platform-aware compositions have separate package boundaries.
+
+Use `SelectControl` for a simple dropdown: supply `value`, `onValueChange` and
+`options: { value, label, disabled? }[]`. Empty string is a valid choice. The
+trigger accepts IDs, refs, ARIA attributes, size and className; `name` includes
+the actual value in form serialization. Unknown values show the placeholder;
+validation belongs to the surrounding form. `SelectControl` and the lower-level
+`Select*` primitives share the kit's menu surface, borders, selection and focus
+styles in both themes. Menus fit the viewport and return focus on dismissal.
+Configuration, schema forms, editors, time controls, table pinning and platform
+filters all use this composition. `NativeSelect` remains available for callers
+that intentionally need the browser's native picker; its popup geometry is
+browser-owned.
 
 ## Large data and lifecycle
 

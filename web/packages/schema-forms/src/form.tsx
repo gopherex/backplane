@@ -7,7 +7,7 @@ import {
   type Baked, type Native, type NativeStruct, type Schema, type Schema_Field,
   type ValidationError,
 } from '@gopherex/schemapb';
-import { Button, Input, Textarea, Checkbox, NativeSelect, Field, FieldLabel, FieldDescription, FieldError, Badge } from '@gopherex/backplane-ui';
+import { Button, Input, Textarea, Checkbox, SelectControl, Field, FieldLabel, FieldDescription, FieldError, Badge } from '@gopherex/backplane-ui';
 import { decodeValue, emptyValue, encodeValue, evaluateForm, fieldSchema, parseScalar, pathKey, scalarText, setValue, valueAt, type FieldPath } from './model.js';
 import { schemaFormsEnglish } from './locales.js';
 
@@ -131,11 +131,8 @@ function FormField({ field, path, context, depth = 0 }: { field: Schema_Field; p
     const union = field.kind.case === 'oneOf' ? field.kind.value : undefined;
     control = <fieldset style={{ ...stack, padding: 16, border: '1px solid var(--border)', minWidth: 0 }} disabled={disabled}>
       <legend>{title}</legend>
-      {union && <NativeSelect aria-label={t('variant', { name: title })} value={String((value as NativeStruct)[union.discriminator] ?? '')} disabled={disabled}
-        onChange={(event) => set({ [union.discriminator]: event.target.value })}>
-        <option value="" disabled>{t('choose')}</option>
-        {Object.keys(union.variants).map((name) => <option key={name}>{name}</option>)}
-      </NativeSelect>}
+      {union && <SelectControl aria-label={t('variant', { name: title })} value={String((value as NativeStruct)[union.discriminator] ?? '')} disabled={disabled}
+        onValueChange={(next) => set({ [union.discriminator]: next })} options={[{ value: '', label: t('choose'), disabled: true }, ...Object.keys(union.variants).map((name) => ({ value: name, label: name }))]} />}
       {nested ? nested.fields.filter((f) => f.name !== union?.discriminator).map((child) => <FormField key={child.name} field={child} path={[...path, child.name]} context={{ ...context, disabled }} depth={depth + 1} />)
         : !union && <StructuredControl {...aria} value={value} path={path} context={context} />}
     </fieldset>;
@@ -158,10 +155,8 @@ function FormField({ field, path, context, depth = 0 }: { field: Schema_Field; p
     const dynamic = choice.optionsExpr ? context.engine.eval(choice.optionsExpr, { root: context.values }) : undefined;
     const options = dynamic?.ok && Array.isArray(dynamic.value) ? dynamic.value : choice.options.map((option) => toNative(option.value));
     const selected = options.findIndex((option) => encodeValue(option) === encodeValue(value));
-    control = <div style={stack}><NativeSelect {...aria} value={selected < 0 ? '' : String(selected)} onChange={(event) => set(options[Number(event.target.value)])}>
-      <option value="" disabled>{selected < 0 ? scalarText(value) || t('choose') : t('choose')}</option>
-      {options.map((option, index) => <option key={index} value={index}>{!choice.optionsExpr && choice.options[index]?.label || scalarText(option)}</option>)}
-    </NativeSelect>{choice.open && <StructuredControl id={`${id}-custom`} value={value} path={path} context={context} disabled={disabled} />}</div>;
+    control = <div style={stack}><SelectControl {...aria} value={selected < 0 ? '' : String(selected)} onValueChange={(next) => set(options[Number(next)])}
+      options={[{ value: '', label: selected < 0 ? scalarText(value) || t('choose') : t('choose'), disabled: true }, ...options.map((option, index) => ({ value: String(index), label: !choice.optionsExpr && choice.options[index]?.label || scalarText(option) }))]} />{choice.open && <StructuredControl id={`${id}-custom`} value={value} path={path} context={context} disabled={disabled} />}</div>;
   } else if (field.kind.case === 'json' || !field.kind.case || typeof value === 'object' && field.kind.case === 'computed') {
     control = <StructuredControl {...aria} value={value} path={path} context={context} />;
   } else {

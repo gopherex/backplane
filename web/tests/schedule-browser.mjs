@@ -13,8 +13,8 @@ try {
  await page.getByRole('button', { name: 'Create schedule', exact: true }).click();
  const editor = page.getByRole('dialog');
  await editor.getByLabel('Schedule name', { exact: true }).fill('BrowserSchedule');
- await editor.getByLabel('Workflow', { exact: true }).selectOption('Report');
- await editor.getByLabel('Timing', { exact: true }).selectOption('interval');
+ await editor.getByRole('combobox', { name: 'Workflow', exact: true }).click(); await page.getByRole('option', { name: 'Report', exact: true }).click();
+ await editor.getByRole('combobox', { name: 'Timing', exact: true }).click(); await page.getByRole('option', { name: 'Interval in seconds', exact: true }).click();
  await editor.getByLabel('Interval in seconds', { exact: true }).fill('2');
  await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
  await expect(editor).toHaveCount(0);
@@ -28,7 +28,7 @@ try {
  await page.getByRole('dialog').getByRole('button', { name: 'Confirm', exact: true }).click();
  await expect(row.getByText('Paused', { exact: true })).toBeVisible();
  await row.getByRole('button', { name: 'Edit schedule', exact: true }).click();
- await editor.getByLabel('Timing', { exact: true }).selectOption('interval');
+ await editor.getByRole('combobox', { name: 'Timing', exact: true }).click(); await page.getByRole('option', { name: 'Interval in seconds', exact: true }).click();
  await editor.getByLabel('Interval in seconds', { exact: true }).fill('3600');
  await editor.getByRole('button', { name: 'Save schedule', exact: true }).click();
  await expect(editor).toHaveCount(0);

@@ -27,6 +27,7 @@ export const Actions: Story = {
 
 function InputFixture() {
   const [enabled, setEnabled] = useState(true);
+  const [timezone, setTimezone] = useState('utc');
   return <div style={stack}><h1>Form controls</h1>
     <UI.FieldSet><UI.FieldLegend>Connection</UI.FieldLegend><UI.FieldGroup>
       <UI.Field><UI.FieldLabel htmlFor="name">Display name</UI.FieldLabel><UI.Input id="name" defaultValue="hello" /><UI.FieldDescription>Used only in this fixture.</UI.FieldDescription></UI.Field>
@@ -36,7 +37,7 @@ function InputFixture() {
       <UI.Field orientation="horizontal"><UI.Switch id="live" defaultChecked /><UI.FieldLabel htmlFor="live">Live updates</UI.FieldLabel></UI.Field>
       <UI.RadioGroup aria-label="Signal" defaultValue="logs"><div style={row}><UI.RadioGroupItem id="logs" value="logs" /><UI.Label htmlFor="logs">Logs</UI.Label><UI.RadioGroupItem id="traces" value="traces" /><UI.Label htmlFor="traces">Traces</UI.Label></div></UI.RadioGroup>
       <UI.Label htmlFor="density">Row height</UI.Label><UI.Slider id="density" defaultValue={[36]} min={24} max={64} aria-label="Row height" />
-      <UI.NativeSelect aria-label="Timezone" defaultValue="utc"><UI.NativeSelectOption value="utc">UTC</UI.NativeSelectOption><UI.NativeSelectOption value="local">Browser timezone</UI.NativeSelectOption></UI.NativeSelect>
+      <UI.SelectControl aria-label="Timezone" value={timezone} onValueChange={setTimezone} options={[{ value: 'utc', label: 'UTC' }, { value: 'local', label: 'Browser timezone' }]} />
       <UI.InputGroup><UI.InputGroupAddon>https://</UI.InputGroupAddon><UI.InputGroupInput aria-label="Host" placeholder="example.test" /></UI.InputGroup>
     </UI.FieldGroup></UI.FieldSet>
   </div>;
@@ -51,6 +52,20 @@ export const Inputs: Story = {
     await expect(canvas.getByRole('radio', { name: 'Traces' })).toBeChecked();
   },
 };
+
+function SelectFixture() {
+  const [value, setValue] = useState('');
+  return <form aria-label="Select fixture" style={stack}><h1>Select controls</h1>
+    <UI.Field><UI.FieldLabel htmlFor="region-choice">Region</UI.FieldLabel>
+      <UI.SelectControl id="region-choice" aria-describedby="region-help" name="region" value={value} onValueChange={setValue}
+        options={[{ value: '', label: 'All regions' }, { value: 'eu', label: 'Europe' }, { value: 'us', label: 'United States' }, { value: 'disabled', label: 'Unavailable region', disabled: true }, ...Array.from({ length: 40 }, (_, i) => ({ value: `region-${i + 1}`, label: `Region ${i + 1}` }))]} />
+      <UI.FieldDescription id="region-help">Choose one region or all regions.</UI.FieldDescription></UI.Field>
+    <UI.SelectControl aria-label="Disabled choice" disabled value="eu" onValueChange={() => {}} options={[{ value: 'eu', label: 'Europe' }]} />
+    <UI.SelectControl aria-label="Invalid choice" aria-invalid value="missing" placeholder="Choose a region" onValueChange={setValue} options={[{ value: 'eu', label: 'Europe' }]} />
+    <output aria-label="Selected region">{value || 'all'}</output>
+  </form>;
+}
+export const SelectControls: Story = { render: SelectFixture };
 
 export const Overlays: Story = {
   render: () => <div style={stack}><h1>Overlays and focus</h1><div style={row}>

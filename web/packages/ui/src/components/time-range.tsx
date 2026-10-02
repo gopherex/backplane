@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from './button.js';
-import { NativeSelect } from './native-select.js';
+import { SelectControl } from './select-control.js';
 
 export interface TimeRangeValue {
   /** Grafana date math (now-15m) or an ISO instant. */
@@ -40,9 +40,8 @@ export function RefreshControl({ interval, onIntervalChange, onRefresh, disabled
   }, [interval, disabled]);
   useEffect(() => () => { active.current?.abort(); active.current = null; }, []);
   return <div className="flex items-center gap-2"><Button type="button" variant="outline" disabled={disabled || pending} onClick={() => void refresh()}>{t(pending ? 'loading' : 'refresh')}</Button>
-    <NativeSelect aria-label={t('refreshInterval')} disabled={disabled} value={interval} onChange={(event) => onIntervalChange(Number(event.target.value))}>
-      <option value={0}>{t('off')}</option>{[5000, 10000, 30000, 60000].map((value) => <option key={value} value={value}>{value / 1000} s</option>)}
-    </NativeSelect>{failed && <span role="alert">{t('refreshFailed')}</span>}
+    <SelectControl aria-label={t('refreshInterval')} disabled={disabled} value={String(interval)} onValueChange={(value) => onIntervalChange(Number(value))}
+      options={[{ value: '0', label: t('off') }, ...[5000, 10000, 30000, 60000].map((value) => ({ value: String(value), label: `${value / 1000} s` }))]} />{failed && <span role="alert">{t('refreshFailed')}</span>}
   </div>;
 }
 

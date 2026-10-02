@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Button, ClipboardButton, NativeSelect } from '@gopherex/backplane-ui';
+import { Button, ClipboardButton, SelectControl } from '@gopherex/backplane-ui';
 import { useEditorText } from './locales.js';
 import { displayJSON } from './model.js';
 import type { CodeEditorProps, DiffViewerProps, QueryLanguage } from './types.js';
@@ -17,9 +17,8 @@ export function QueryEditor({ languages, language, onLanguageChange, ...props }:
   const text = useEditorText();
   if (!languages.includes(language)) throw new Error('Selected query language is not supported by this source');
   return <div style={{ display: 'grid', gap: 8 }}><div style={{ display: 'flex', gap: 8 }}>
-    <NativeSelect aria-label={text('language')} value={language} disabled={props.disabled || props.readOnly} onChange={(event) => onLanguageChange(event.target.value as QueryLanguage)}>
-      {languages.map((item) => <option key={item} value={item}>{item === 'cel' ? 'CEL' : item === 'logsql' ? 'LogsQL' : item === 'traceql' ? 'TraceQL' : item === 'metricsql' ? 'MetricsQL' : 'PromQL'}</option>)}
-    </NativeSelect>{props.onSubmit && <Button type="button" disabled={props.disabled} onClick={props.onSubmit}>{text('run')}</Button>}
+    <SelectControl aria-label={text('language')} value={language} disabled={props.disabled || props.readOnly} onValueChange={(value) => onLanguageChange(value as QueryLanguage)}
+      options={languages.map((item) => ({ value: item, label: item === 'cel' ? 'CEL' : item === 'logsql' ? 'LogsQL' : item === 'traceql' ? 'TraceQL' : item === 'metricsql' ? 'MetricsQL' : 'PromQL' }))} />{props.onSubmit && <Button type="button" disabled={props.disabled} onClick={props.onSubmit}>{text('run')}</Button>}
   </div><CodeEditor {...props} language={language} /></div>;
 }
 /** Pass raw JSON text to preserve number lexemes; objects containing bigint become decimal strings. */

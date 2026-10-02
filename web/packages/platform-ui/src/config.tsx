@@ -5,7 +5,7 @@ import { ConfigSource, InstancePhase } from '@gopherex/backplane-api/backplanepb
 import { useClient, useSnapshotWatch } from '@gopherex/backplane-react';
 import { toNative, type Schema, type Schema_Field } from '@gopherex/schemapb';
 import { fieldSchema } from '@gopherex/backplane-schema-forms';
-import { Badge, Button, ConfirmAction, Count, DetailDrawer, EmptyState, Input, KeyValueList, NativeSelect, NativeSelectOption, Panel, Skeleton, StatusBadge, StatusDot, Switch, Timestamp } from '@gopherex/backplane-ui';
+import { Badge, Button, ConfirmAction, Count, DetailDrawer, EmptyState, Input, KeyValueList, SelectControl, Panel, Skeleton, StatusBadge, StatusDot, Switch, Timestamp } from '@gopherex/backplane-ui';
 import { CodeEditor, DiffViewer } from '@gopherex/backplane-editors';
 import { CircleAlert, CircleCheck, History, Lock, RotateCcw, SlidersHorizontal, Undo2 } from 'lucide-react';
 import { usePlatformAction, usePlatformQuery } from './runtime.js';
@@ -212,12 +212,9 @@ function ValueEditor({ field, path, value, disabled, mode, onChange }: { field?:
       return <Input className="h-8 font-mono" aria-label={path} disabled={disabled} type={field.secret ? 'password' : 'text'} autoComplete="off" value={typeof parsed === 'string' ? parsed : value} onChange={(event) => onChange(JSON.stringify(event.target.value))} />;
     case 'choice': {
       const options = field.kind.value.options.map((option) => ({ label: option.label || String(option.value ? toNative(option.value) : ''), value: option.value ? JSON.stringify(toNative(option.value)) : 'null' }));
-      return <NativeSelect className="h-8" aria-label={path} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
-        {!options.some((option) => option.value === value) && <NativeSelectOption value={value}>{value}</NativeSelectOption>}
-        {options.map((option) => <NativeSelectOption key={option.value} value={option.value}>{option.label}</NativeSelectOption>)}
-      </NativeSelect>;
+      return <SelectControl className="h-8" aria-label={path} disabled={disabled} value={value} onValueChange={onChange}
+        options={options.some((option) => option.value === value) ? options : [{ value, label: value }, ...options]} />;
     }
     default: return <CodeEditor label={path} language="json" mode={mode} value={value} onChange={onChange} height={96} disabled={disabled} />;
   }
 }
-

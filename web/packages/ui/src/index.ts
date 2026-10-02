@@ -33,6 +33,7 @@ export * from './components/radio-group.js';
 export * from './components/resizable.js';
 export * from './components/scroll-area.js';
 export * from './components/select.js';
+export * from './components/select-control.js';
 export * from './components/separator.js';
 export * from './components/sheet.js';
 export * from './components/skeleton.js';

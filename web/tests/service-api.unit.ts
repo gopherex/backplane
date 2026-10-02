@@ -74,6 +74,11 @@ describe('external service API documents', () => {
       { name: 'formatted', type: 'integer (uint64)' }, { name: 'recorded' }, { name: 'observed' }, { name: 'last_text' },
     ] }] } });
   });
+  it('documents the separately owned legacy listener', () => {
+    const result = openAPI(readFileSync(new URL('../../examples/hello/internal/legacy/openapi.yaml', import.meta.url), 'utf8'));
+    expect(result).toMatchObject({ document: { title: 'Legacy listener example API', operations: [{ method: 'GET', name: '/legacy/' }], warnings: [] } });
+    expect('document' in result && result.document.operations[0]?.sections.find((section) => section.name === '200')?.examples).toMatchObject([{ value: "served by hello's own listener\n" }]);
+  });
   it('retains transitive protobuf messages and enums, renders maps, and excludes unrelated admin types', () => {
     const bytes = toBinary(FileDescriptorSetSchema, create(FileDescriptorSetSchema, { file: [{ package: 'public', messageType: [
       { name: 'Request', field: [{ name: 'labels', type: 11, typeName: '.public.Request.LabelsEntry', label: 3 }], nestedType: [{ name: 'LabelsEntry', options: { mapEntry: true }, field: [{ name: 'key', type: 9 }, { name: 'value', type: 11, typeName: '.public.Reply' }] }] },

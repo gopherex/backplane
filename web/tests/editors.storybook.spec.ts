@@ -1,3 +1,4 @@
+import { chooseOption } from './choose-option';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -13,7 +14,7 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByLabel('Cancelled suggestions')).not.toHaveText('0');
     await editor.press('Control+Enter'); await expect(page.getByLabel('Query runs')).toHaveText('1');
     for (const language of ['traceql', 'cel', 'metricsql', 'promql', 'logsql']) {
-      await page.getByLabel('Query language', { exact: true }).selectOption(language); await expect(editor).toContainText('fast.source');
+      await chooseOption(page, 'Query language', language); await expect(editor).toContainText('fast.source');
     }
     await editor.fill('invalid'); await expect(page.getByRole('list', { name: 'Editor diagnostics' })).toContainText('Unknown field: invalid');
     await editor.press('Escape'); await editor.press('Tab'); await expect(editor).not.toBeFocused();

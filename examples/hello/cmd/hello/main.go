@@ -147,7 +147,8 @@ func run(ctx context.Context) error {
 		route.Timeout(httpTimeout), route.MaxRequestBytes(maxGraphQL))
 
 	// A listener hello serves itself, announced for Envoy.
-	svc.Route(route.HTTP(legacy.Prefix, route.Port(st.Legacy.Port()), route.Timeout(httpTimeout)))
+	svc.Route(route.HTTP(legacy.Prefix,
+		route.Port(st.Legacy.Port()), route.Timeout(httpTimeout), route.OpenAPI(legacy.API)))
 
 	// Internal API and UI bundle for the console plugin.
 	svc.Internal(func(r grpc.ServiceRegistrar) { helloconsolev1.RegisterAdminServiceServer(r, st.Admin) })

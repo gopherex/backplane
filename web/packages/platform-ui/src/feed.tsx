@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { JsonValue } from '@bufbuild/protobuf';
 import { BarChart, type ChartSeries } from '@gopherex/backplane-charts';
-import { Badge, Button, Combobox, Input, NativeSelect, Panel, Popover, PopoverContent, PopoverTrigger, RefreshControl, Skeleton, TimeRangeControl,
+import { Badge, Button, Combobox, Input, SelectControl, Panel, Popover, PopoverContent, PopoverTrigger, RefreshControl, Skeleton, TimeRangeControl,
   type TimeRangeValue } from '@gopherex/backplane-ui';
 import { Plus, Search, X } from 'lucide-react';
 import { usePlatformText } from './locales.js';
@@ -142,8 +142,7 @@ function ChipEditor({ chip, targets, suggest, onChange, onRemove }: {
         const allowed = targets.find((entry) => entry.key === picked)?.ops ?? textOps;
         if (!allowed.includes(op)) setOp('is');
       }} />
-      <NativeSelect aria-label={text('filterOperator')} value={op} onChange={(event) => setOp(event.target.value as FeedOp)}>
-        {ops.map((entry) => <option key={entry} value={entry}>{text(`auditOp_${entry}`)}</option>)}</NativeSelect>
+      <SelectControl aria-label={text('filterOperator')} value={op} onValueChange={(value) => setOp(value as FeedOp)} options={ops.map((entry) => ({ value: entry, label: text(`auditOp_${entry}`) }))} />
       {takesValues(op) && <div className="grid gap-2">
         {values.length > 0 && <div className="flex flex-wrap gap-1">{values.map((value, at) => <Badge key={at} variant="outline" className="gap-1 font-mono">{valueLabel(value)}
           <button type="button" aria-label={text('removeFilter', { name: valueLabel(value) })} onClick={() => setValues(values.filter((_, other) => other !== at))}><X className="size-3" /></button></Badge>)}</div>}

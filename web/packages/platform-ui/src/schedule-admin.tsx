@@ -6,7 +6,7 @@ import { useClient } from '@gopherex/backplane-react';
 import { parse, parseNumberAndBigInt } from 'lossless-json';
 import { structToNative, type NativeStruct } from '@gopherex/schemapb';
 import { SchemaForm } from '@gopherex/backplane-schema-forms';
-import { Button, Input } from '@gopherex/backplane-ui';
+import { Button, Input, SelectControl } from '@gopherex/backplane-ui';
 import { JSONViewer } from '@gopherex/backplane-editors';
 import { MutationState, QueryState, usePlatformAction, usePlatformQuery } from './runtime.js';
 import { usePlatformText } from './locales.js';
@@ -41,9 +41,9 @@ function Editor({ service, name: originalName, existing, mode, onSaved }: { serv
   };
   return <div className="grid gap-4">
     <label className="grid gap-1 text-sm">{text('scheduleName')}<Input value={name} onChange={(event) => setName(event.target.value)} disabled={!!existing} /></label>
-    <label className="grid gap-1 text-sm">{text('workflow')}<select aria-label={text('workflow')} className="h-9 rounded-md border border-input bg-background px-3" value={workflow} onChange={(event) => { setWorkflow(event.target.value); setInput('{}'); }}><option value="">{text('selectWorkflow')}</option>{definitions.value?.workflows.map((entry) => <option key={entry.name} value={entry.name}>{entry.name}</option>)}</select></label>
+    <label className="grid gap-1 text-sm">{text('workflow')}<SelectControl aria-label={text('workflow')} value={workflow} onValueChange={(value) => { setWorkflow(value); setInput('{}'); }} options={[{ value: '', label: text('selectWorkflow') }, ...(definitions.value?.workflows ?? []).map((entry) => ({ value: entry.name, label: entry.name }))]} /></label>
     <QueryState state={definitions} />
-    <label className="grid gap-1 text-sm">{text('scheduleTiming')}<select aria-label={text('scheduleTiming')} className="h-9 rounded-md border border-input bg-background px-3" value={timing} onChange={(event) => setTiming(event.target.value)}>{existing && <option value="keep">{text('keepTiming')}</option>}<option value="cron">{text('cronExpression')}</option><option value="interval">{text('intervalSeconds')}</option></select></label>
+    <label className="grid gap-1 text-sm">{text('scheduleTiming')}<SelectControl aria-label={text('scheduleTiming')} value={timing} onValueChange={setTiming} options={[...(existing ? [{ value: 'keep', label: text('keepTiming') }] : []), { value: 'cron', label: text('cronExpression') }, { value: 'interval', label: text('intervalSeconds') }]} /></label>
     {timing === 'cron' && <label className="grid gap-1 text-sm">{text('cronExpression')}<Input value={cron} onChange={(event) => setCron(event.target.value)} /></label>}
     {timing === 'interval' && <label className="grid gap-1 text-sm">{text('intervalSeconds')}<Input type="number" min={1} value={seconds} aria-invalid={!validTiming} onChange={(event) => setSeconds(event.target.value)} /></label>}
     {timing !== 'keep' && <label className="grid gap-1 text-sm">{text('timezone')}<Input value={timezone} onChange={(event) => setTimezone(event.target.value)} /></label>}

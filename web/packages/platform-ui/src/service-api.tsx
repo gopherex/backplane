@@ -3,7 +3,7 @@ import { create } from '@bufbuild/protobuf';
 import { CatalogServiceClient, GetServiceRequestSchema } from '@gopherex/backplane-api';
 import { RouteKind, type Manifest } from '@gopherex/backplane-api/backplanepb/v1/manifest_pb';
 import { useBackplane, useClient } from '@gopherex/backplane-react';
-import { Badge, Button, ClipboardButton, EmptyState, Input, NativeSelect, Panel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@gopherex/backplane-ui';
+import { Badge, Button, ClipboardButton, EmptyState, Input, SelectControl, Panel, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@gopherex/backplane-ui';
 import { EditorActions, JSONViewer } from '@gopherex/backplane-editors';
 import type { ThemeMode } from '@gopherex/backplane-theme';
 import { readAPIDocument, type APIField, type APISection } from './api-document.js';
@@ -38,9 +38,8 @@ export function ServiceAPIDocument({ manifest, mode, state: controlled, onStateC
   const result = useMemo(() => route ? readAPIDocument(route, manifest) : undefined, [route, manifest]);
   if (!route) return <EmptyState title={text('noRoutes')} />;
   return <div className="grid min-w-0 gap-4">
-    <label className="grid gap-1 text-sm">{text('externalRoute')}<NativeSelect aria-label={text('externalRoute')} value={index} onChange={(event) => update({ route: Number(event.target.value) })}>
-      {manifest.routes.map((entry, i) => <option key={i} value={i}>{RouteKind[entry.kind]} · {entry.host}{entry.prefix}{entry.port ? ` :${entry.port}` : ''}</option>)}
-    </NativeSelect></label>
+    <label className="grid gap-1 text-sm">{text('externalRoute')}<SelectControl aria-label={text('externalRoute')} value={String(index)} onValueChange={(value) => update({ route: Number(value) })}
+      options={manifest.routes.map((entry, i) => ({ value: String(i), label: `${RouteKind[entry.kind]} · ${entry.host}${entry.prefix}${entry.port ? ` :${entry.port}` : ''}` }))} /></label>
     {route.schema.case === 'bundle' ? <APIBundleView key={`${route.schema.value.hash}:${route.schema.value.entry}`} bundle={route.schema.value} readFile={readFile} mode={mode} operation={state.operation} onOperation={(operation) => update({ route: index, operation })} /> : <>
       {result && 'problem' in result && <EmptyState title={text(result.problem === 'missing' ? 'apiSchemaMissing' : 'apiSchemaInvalid')} description={result.problem === 'missing' ? text('apiSchemaMissingHelp') : result.detail} />}
       {result && 'document' in result && <APIBrowser key={`${index}:${manifest.version}`} document={result.document} mode={mode} operation={state.operation} onOperation={(operation) => update({ route: index, operation })} />}

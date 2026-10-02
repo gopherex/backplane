@@ -8,7 +8,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from './button.js';
 import { Checkbox } from './checkbox.js';
 import { Input } from './input.js';
-import { NativeSelect } from './native-select.js';
+import { SelectControl } from './select-control.js';
 import { Popover, PopoverContent, PopoverTrigger } from './popover.js';
 
 export interface DataColumn<T> {
@@ -86,9 +86,8 @@ export function DataTable<T>({ label, data, columns: definitions, getRowId, getC
           <span>{String(column.columnDef.header)}</span>
           <Button type="button" size="icon-sm" variant="ghost" aria-label={t('moveLeft', { name: String(column.columnDef.header) })} disabled={index === 0} onClick={() => reorder(column.id, -1)}>←</Button>
           <Button type="button" size="icon-sm" variant="ghost" aria-label={t('moveRight', { name: String(column.columnDef.header) })} disabled={index === all.length - 1} onClick={() => reorder(column.id, 1)}>→</Button>
-          <NativeSelect aria-label={t('pinColumn', { name: String(column.columnDef.header) })} value={column.getIsPinned() || ''} onChange={(event) => column.pin(event.target.value === 'left' ? 'left' : event.target.value === 'right' ? 'right' : false)}>
-            <option value="">{t('unpinned')}</option><option value="left">{t('pinLeft')}</option><option value="right">{t('pinRight')}</option>
-          </NativeSelect>
+          <SelectControl aria-label={t('pinColumn', { name: String(column.columnDef.header) })} value={column.getIsPinned() || ''} onValueChange={(value) => column.pin(value === 'left' ? 'left' : value === 'right' ? 'right' : false)}
+            options={[{ value: '', label: t('unpinned') }, { value: 'left', label: t('pinLeft') }, { value: 'right', label: t('pinRight') }]} />
         </div>)}</div></PopoverContent>
       </Popover>
     </div>

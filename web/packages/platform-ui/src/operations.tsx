@@ -5,7 +5,7 @@ import { create, toJsonString } from '@bufbuild/protobuf';
 import { structToNative, type Schema } from '@gopherex/schemapb';
 import * as api from '@gopherex/backplane-api';
 import { useClient } from '@gopherex/backplane-react';
-import { Button, EmptyState, NativeSelect, Panel, StatusBadge } from '@gopherex/backplane-ui';
+import { Button, EmptyState, SelectControl, Panel, StatusBadge } from '@gopherex/backplane-ui';
 import { CodeEditor, JSONViewer } from '@gopherex/backplane-editors';
 import { SchemaForm } from '@gopherex/backplane-schema-forms';
 import { Link2, Play, Radio, TerminalSquare, Workflow, Zap } from 'lucide-react';
@@ -17,9 +17,8 @@ export function OperationSelector({ service, kind, value, onChange }: { service:
   const client = useClient(api.CatalogServiceClient), text = usePlatformText();
   const state = usePlatformQuery(`operations:${service}`, (signal) => client.getService(create(api.GetServiceRequestSchema, { name: service }), { signal }));
   const definitions = state.value?.latest?.[kind === 'hook' ? 'hooks' : kind === 'activity' ? 'activities' : kind === 'event' ? 'events' : 'workflows'] ?? [];
-  return <QueryState state={state}><NativeSelect aria-label={text(kind)} value={value} onChange={(event) => onChange(event.target.value)}><option value="">{text('select')}</option>
-    {definitions.map((definition) => <option key={definition.name} value={kind === 'workflow' ? definition.name : `${service}.${definition.name}`}>{definition.name}</option>)}
-  </NativeSelect></QueryState>;
+  return <QueryState state={state}><SelectControl aria-label={text(kind)} value={value} onValueChange={onChange} options={[{ value: '', label: text('select') },
+    ...definitions.map((definition) => ({ value: kind === 'workflow' ? definition.name : `${service}.${definition.name}`, label: definition.name }))]} /></QueryState>;
 }
 
 const kinds: { kind: OperationKind; icon: typeof Link2 }[] = [{ kind: 'hook', icon: Link2 }, { kind: 'activity', icon: Zap }, { kind: 'event', icon: Radio }, { kind: 'workflow', icon: Workflow }];

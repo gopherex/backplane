@@ -1,3 +1,4 @@
+import { chooseOption } from './choose-option';
 import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -36,7 +37,7 @@ for (const theme of ['dark', 'light']) {
         await expect(page.locator('[data-row-id="row-0"]')).toBeFocused();
         await page.getByRole('button', { name: 'Columns', exact: true }).click();
         await page.getByLabel('Show State').uncheck();
-        await page.getByLabel('Pin Service').selectOption('left');
+        await chooseOption(page, 'Pin Service', 'left');
         await page.keyboard.press('Escape');
         await expect(page.getByRole('columnheader', { name: /^State/ })).toHaveCount(0);
       }
@@ -105,9 +106,9 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('checkbox', { name: 'Advanced', exact: true }).check();
     await expect(page.getByLabel('Region', { exact: true })).toBeVisible();
     await page.getByLabel('Replicas', { exact: true }).fill('6');
-    await page.getByLabel('Region', { exact: true }).selectOption({ label: 'us' });
+    await chooseOption(page, 'Region', { label: 'us' });
     await expect(page.getByLabel('Capacity (MB)', { exact: true })).toHaveValue('768');
-    await page.getByLabel('Destination variant').selectOption('queue');
+    await chooseOption(page, 'Destination variant', 'queue');
     await expect(page.getByLabel('subject', { exact: true })).toHaveValue('events.hello');
     await expect(page.getByLabel('url', { exact: true })).toHaveCount(0);
     await page.getByRole('checkbox', { name: 'Simulate save failure' }).check();
